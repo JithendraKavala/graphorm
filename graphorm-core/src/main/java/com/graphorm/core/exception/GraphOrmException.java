@@ -9,6 +9,7 @@ package com.graphorm.core.exception;
  */
 public class GraphOrmException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
     private final String errorCode;
 
     /**
@@ -62,9 +63,7 @@ public class GraphOrmException extends RuntimeException {
     }
 
     /**
-     * Indicates whether this exception has a non-blank error code.
-     *
-     * @return {@code true} if an error code is present and non-blank; {@code false} otherwise
+     * Indicates whether this exception has a non-blank error code.\n     *\n     * @return {@code true} if an error code is present and non-blank; {@code false} otherwise
      */
     public boolean hasErrorCode() {
         return errorCode != null && !errorCode.isBlank();

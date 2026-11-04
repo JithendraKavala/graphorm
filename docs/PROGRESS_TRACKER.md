@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 3
+- **Completed Tasks**: 7
 - **In Progress**: 0
-- **Not Started**: 62
-- **Current Active Phase**: Phase 2 (Phase 1 100% Completed, Ready for Phase 2)
+- **Not Started**: 58
+- **Current Active Phase**: Phase 3 (Phase 2 100% Completed, Ready for Phase 3)
 
 ---
 
@@ -22,10 +22,10 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 1** | Baseline | `TASK-1.1` | Root Multi-Module POM Configuration | Completed | None | Clean `mvn validate`, parent POM with dependency management | Java 21, Maven 3.9+, JUnit 5, AssertJ, Testcontainers, SLF4J, Jackson, ANTLR4, JavaPoet, GraphQL Java, Spring Boot |
 | **Phase 1** | Baseline | `TASK-1.2` | Child Module Skeletons & Dependencies | Completed | `TASK-1.1` | All 8 child module POMs compile without circular deps | All 8 child modules created adhering strictly to Rules 5 & 6 (zero DB/Spring in core) |
 | **Phase 1** | Baseline | `TASK-1.3` | Base Exception Hierarchy in `graphorm-core` | Completed | `TASK-1.2` | `GraphOrmException` and base domain exceptions tested | `GraphOrmException`, `ConfigurationException`, 9 unit tests passing (100% pass rate) |
-| **Phase 2** | Baseline | `TASK-2.1` | Field, Relation & Enum Metadata Records | Not Started | `TASK-1.3` | Immutable metadata records with 100% mutation defense | Java 21 records |
-| **Phase 2** | Baseline | `TASK-2.2` | Model, View Model & Composite Type Metadata | Not Started | `TASK-2.1` | `ModelMetadata`, `ViewModelMetadata`, `CompositeTypeMetadata` | Separate models & views |
-| **Phase 2** | Baseline | `TASK-2.3` | In-Memory `ModelRegistry` | Not Started | `TASK-2.2` | Thread-safe registry, lookup tests, immutable build | Core registry |
-| **Phase 2** | Baseline | `TASK-2.4` | Unified Query AST Definition | Not Started | `TASK-2.3` | `SelectQuery`, `JoinClause`, `ProjectedColumn`, `WherePredicate` | Unified for models & views |
+| **Phase 2** | Baseline | `TASK-2.1` | Field, Relation & Enum Metadata Records | Completed | `TASK-1.3` | Immutable metadata records with 100% mutation defense | Java 21 records (`FieldMetadata`, `RelationMetadata`, `EnumMetadata`, `RelationType`), 100% mutation defense, unit tested |
+| **Phase 2** | Baseline | `TASK-2.2` | Model, View Model & Composite Type Metadata | Completed | `TASK-2.1` | `ModelMetadata`, `ViewModelMetadata`, `CompositeTypeMetadata` | `EntityMetadata`, `EntityType`, `ModelMetadata`, `ViewModelMetadata` (read-only invariant), `CompositeTypeMetadata`, `ViewJoinMetadata` |
+| **Phase 2** | Baseline | `TASK-2.3` | In-Memory `ModelRegistry` | Completed | `TASK-2.2` | Thread-safe registry, lookup tests, immutable build | `ModelRegistry`, `EntityNotFoundException`, thread-safe immutable container, concurrent read tested |
+| **Phase 2** | Baseline | `TASK-2.4` | Unified Query AST Definition | Completed | `TASK-2.3` | `SelectQuery`, `JoinClause`, `ProjectedColumn`, `WherePredicate` | `SelectQuery`, `SourceTable`, `ProjectedColumn`, `JoinClause`, `WherePredicate` composable tree, `InsertQuery`, `UpdateQuery`, `DeleteQuery`, `ReadOnlyViewException`, `QueryGuards` |
 | **Phase 3** | Parsing | `TASK-3.1` | ANTLR4 Grammar (`GraphOrm.g4`) | Not Started | `TASK-2.4` | ANTLR generates lexer/parser without ambiguities | Prisma-inspired DSL |
 | **Phase 3** | Parsing | `TASK-3.2` | AST Node Hierarchy & Visitor | Not Started | `TASK-3.1` | Visitor converts parse trees to strongly typed AST | Source coordinate tracking |
 | **Phase 3** | Parsing | `TASK-3.3` | Diagnostic Error Reporting & Syntax Listener | Not Started | `TASK-3.2` | Syntax errors display source line and column caret | Developer diagnostics |

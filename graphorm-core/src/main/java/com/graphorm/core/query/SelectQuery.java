@@ -1,0 +1,247 @@
+package com.graphorm.core.query;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Strongly typed, immutable AST representation of a unified SQL SELECT query.
+ * Represents queries for both regular physical models and schema-defined view models.
+ *
+ * @param source     the driving source relation (table, view, or subquery)
+ * @param tableAlias the alias for the source relation (optional)
+ * @param columns    the projected column expressions
+ * @param joins      the list of joined relations
+ * @param where      the WHERE predicate (optional)
+ * @param groupBy    the GROUP BY expressions
+ * @param having     the HAVING predicate (optional)
+ * @param orderBy    the ORDER BY sorting criteria
+ * @param limit      the maximum rows to return (optional)
+ * @param offset     the number of rows to skip (optional)
+ */
+public record SelectQuery(
+        SourceTable source,
+        String tableAlias,
+        List<ProjectedColumn> columns,
+        List<JoinClause> joins,
+        WherePredicate where,
+        List<GroupByClause> groupBy,
+        HavingPredicate having,
+        List<OrderByClause> orderBy,
+        Integer limit,
+        Integer offset
+) implements SqlQuery {
+
+    public SelectQuery {
+        Objects.requireNonNull(source, "Source table must not be null");
+        columns = columns == null ? List.of() : List.copyOf(columns);
+        joins = joins == null ? List.of() : List.copyOf(joins);
+        groupBy = groupBy == null ? List.of() : List.copyOf(groupBy);
+        orderBy = orderBy == null ? List.of() : List.copyOf(orderBy);
+
+        if (limit != null && limit < 0) {
+            throw new IllegalArgumentException("Limit cannot be negative: " + limit);
+        }
+        if (offset != null && offset < 0) {
+            throw new IllegalArgumentException("Offset cannot be negative: " + offset);
+        }
+    }
+
+    @Override
+    public QueryType queryType() {
+        return QueryType.SELECT;
+    }
+
+    /**
+     * Creates a builder initialized with the given source table.
+     *
+     * @param source the source table
+     * @return a new Builder instance
+     */
+    public static Builder from(SourceTable source) {
+        return new Builder(source);
+    }
+
+    /**
+     * Creates a builder initialized with a physical table source.
+     *
+     * @param tableName the physical table name
+     * @return a new Builder instance
+     */
+    public static Builder from(String tableName) {
+        return new Builder(SourceTable.table(tableName));
+    }
+
+    /**
+     * Creates a builder initialized with a database view source.
+     *
+     * @param viewName the database view name
+     * @return a new Builder instance
+     */
+    public static Builder fromView(String viewName) {
+        return new Builder(SourceTable.view(viewName));
+    }
+
+    /**
+     * Fluent builder for {@link SelectQuery}.
+     */
+    public static final class Builder {
+        private final SourceTable source;
+        private String tableAlias;
+        private final List<ProjectedColumn> columns = new ArrayList<>();
+        private final List<JoinClause> joins = new ArrayList<>();
+        private WherePredicate where;
+        private final List<GroupByClause> groupBy = new ArrayList<>();
+        private HavingPredicate having;
+        private final List<OrderByClause> orderBy = new ArrayList<>();
+        private Integer limit;
+        private Integer offset;
+
+        private Builder(SourceTable source) {
+            this.source = Objects.requireNonNull(source, "Source table must not be null");
+        }
+
+        public Builder as(String tableAlias) {
+            this.tableAlias = tableAlias;
+            return this;
+        }
+
+        public Builder column(ProjectedColumn column) {
+            this.columns.add(Objects.requireNonNull(column, "Column must not be null"));
+            return this;
+        }
+
+        public Builder column(String expression) {
+            return column(ProjectedColumn.of(expression));
+        }
+
+        public Builder column(String expression, String alias) {
+            return column(ProjectedColumn.of(expression, alias));
+        }
+
+        public Builder hiddenColumn(String expression, String alias) {
+            return column(ProjectedColumn.hidden(expression, alias));
+        }
+
+        public Builder columns(List<ProjectedColumn> columns) {
+            this.columns.clear();
+            if (columns != null) {
+                this.columns.addAll(columns);
+            }
+            return this;
+        }
+
+        public Builder columns(String... expressions) {
+            if (expressions != null) {
+                for (String expr : expressions) {
+                    column(expr);
+                }
+            }
+            return this;
+        }
+
+        public Builder join(JoinClause join) {
+            this.joins.add(Objects.requireNonNull(join, "Join must not be null"));
+            return this;
+        }
+
+        public Builder joins(List<JoinClause> joins) {
+            this.joins.clear();
+            if (joins != null) {
+                this.joins.addAll(joins);
+            }
+            return this;
+        }
+
+        public Builder where(WherePredicate where) {
+            this.where = where;
+            return this;
+        }
+
+        public Builder groupBy(GroupByClause groupBy) {
+            this.groupBy.add(Objects.requireNonNull(groupBy, "GroupBy must not be null"));
+            return this;
+        }
+
+        public Builder groupBy(String expression) {
+            return groupBy(GroupByClause.of(expression));
+        }
+
+        public Builder groupBy(List<GroupByClause> groupBy) {
+            this.groupBy.clear();
+            if (groupBy != null) {
+                this.groupBy.addAll(groupBy);
+            }
+            return this;
+        }
+
+        public Builder groupBy(String... expressions) {
+            if (expressions != null) {
+                for (String expr : expressions) {
+                    groupBy(expr);
+                }
+            }
+            return this;
+        }
+
+        public Builder having(HavingPredicate having) {
+            this.having = having;
+            return this;
+        }
+
+        public Builder having(WherePredicate predicate) {
+            this.having = predicate != null ? HavingPredicate.of(predicate) : null;
+            return this;
+        }
+
+        public Builder orderBy(OrderByClause orderBy) {
+            this.orderBy.add(Objects.requireNonNull(orderBy, "OrderBy must not be null"));
+            return this;
+        }
+
+        public Builder orderBy(String expression, OrderDirection direction) {
+            return orderBy(new OrderByClause(expression, direction, NullsOrder.DEFAULT));
+        }
+
+        public Builder orderByAsc(String expression) {
+            return orderBy(OrderByClause.asc(expression));
+        }
+
+        public Builder orderByDesc(String expression) {
+            return orderBy(OrderByClause.desc(expression));
+        }
+
+        public Builder orderBy(List<OrderByClause> orderBy) {
+            this.orderBy.clear();
+            if (orderBy != null) {
+                this.orderBy.addAll(orderBy);
+            }
+            return this;
+        }
+
+        public Builder limit(Integer limit) {
+            this.limit = limit;
+            return this;
+        }
+
+        public Builder offset(Integer offset) {
+            this.offset = offset;
+            return this;
+        }
+
+        public SelectQuery build() {
+            return new SelectQuery(
+                    source,
+                    tableAlias,
+                    columns,
+                    joins,
+                    where,
+                    groupBy,
+                    having,
+                    orderBy,
+                    limit,
+                    offset
+            );
+        }
+    }
+}

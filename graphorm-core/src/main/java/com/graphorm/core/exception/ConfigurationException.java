@@ -7,6 +7,8 @@ package com.graphorm.core.exception;
  */
 public class ConfigurationException extends GraphOrmException {
 
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructs a new {@code ConfigurationException} with the specified detail message.
      *
@@ -19,8 +21,7 @@ public class ConfigurationException extends GraphOrmException {
     /**
      * Constructs a new {@code ConfigurationException} with the specified detail message and cause.
      *
-     * @param message the detail message explaining the configuration error
-     * @param cause the underlying cause of the configuration failure
+     * @param message the detail message explaining the configuration error\n     * @param cause the underlying cause of the configuration failure
      */
     public ConfigurationException(String message, Throwable cause) {
         super(message, cause);

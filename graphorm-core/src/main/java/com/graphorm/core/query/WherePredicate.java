@@ -1,0 +1,276 @@
+package com.graphorm.core.query;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Strongly typed, composable AST representation of SQL WHERE and HAVING predicates.
+ * All implementations are strictly immutable.
+ */
+public sealed interface WherePredicate permits
+        WherePredicate.BinaryPredicate,
+        WherePredicate.AndPredicate,
+        WherePredicate.OrPredicate,
+        WherePredicate.NotPredicate,
+        WherePredicate.InPredicate,
+        WherePredicate.IsNullPredicate,
+        WherePredicate.BetweenPredicate,
+        WherePredicate.RawPredicate {
+
+    /**
+     * Combines this predicate with another using a logical AND.
+     *
+     * @param other the other predicate
+     * @return a new combined {@link AndPredicate}
+     */
+    default WherePredicate and(WherePredicate other) {
+        Objects.requireNonNull(other, "Predicate to AND must not be null");
+        return WherePredicate.and(this, other);
+    }
+
+    /**
+     * Combines this predicate with another using a logical OR.
+     *
+     * @param other the other predicate
+     * @return a new combined {@link OrPredicate}
+     */
+    default WherePredicate or(WherePredicate other) {
+        Objects.requireNonNull(other, "Predicate to OR must not be null");
+        return WherePredicate.or(this, other);
+    }
+
+    /**
+     * Negates this predicate using a logical NOT.
+     *
+     * @return a new {@link NotPredicate}
+     */
+    default WherePredicate negate() {
+        return WherePredicate.not(this);
+    }
+
+    // --- Concrete AST Node Records ---
+
+    /**
+     * Binary comparison predicate between a column/expression and a value.
+     */
+    record BinaryPredicate(String column, ComparisonOperator operator, Object value) implements WherePredicate {
+        public BinaryPredicate {
+            Objects.requireNonNull(column, "Column must not be null");
+            if (column.isBlank()) {
+                throw new IllegalArgumentException("Column must not be blank");
+            }
+            Objects.requireNonNull(operator, "Operator must not be null");
+        }
+    }
+
+    /**
+     * Conjunction (AND) of multiple child predicates.
+     */
+    record AndPredicate(List<WherePredicate> predicates) implements WherePredicate {
+        public AndPredicate {
+            Objects.requireNonNull(predicates, "Predicates list must not be null");
+            if (predicates.isEmpty()) {
+                throw new IllegalArgumentException("AndPredicate must contain at least one predicate");
+            }
+            predicates = List.copyOf(predicates);
+        }
+    }
+
+    /**
+     * Disjunction (OR) of multiple child predicates.
+     */
+    record OrPredicate(List<WherePredicate> predicates) implements WherePredicate {
+        public OrPredicate {
+            Objects.requireNonNull(predicates, "Predicates list must not be null");
+            if (predicates.isEmpty()) {
+                throw new IllegalArgumentException("OrPredicate must contain at least one predicate");
+            }
+            predicates = List.copyOf(predicates);
+        }
+    }
+
+    /**
+     * Logical negation (NOT) of a child predicate.
+     */
+    record NotPredicate(WherePredicate predicate) implements WherePredicate {
+        public NotPredicate {
+            Objects.requireNonNull(predicate, "Predicate to negate must not be null");
+        }
+    }
+
+    /**
+     * IN or NOT IN predicate for a column against a collection of values.
+     */
+    record InPredicate(String column, List<Object> values, boolean isNotIn) implements WherePredicate {
+        public InPredicate {
+            Objects.requireNonNull(column, "Column must not be null");
+            if (column.isBlank()) {
+                throw new IllegalArgumentException("Column must not be blank");
+            }
+            Objects.requireNonNull(values, "Values must not be null");
+            values = List.copyOf(values);
+        }
+    }
+
+    /**
+     * IS NULL or IS NOT NULL predicate for a column.
+     */
+    record IsNullPredicate(String column, boolean isNull) implements WherePredicate {
+        public IsNullPredicate {
+            Objects.requireNonNull(column, "Column must not be null");
+            if (column.isBlank()) {
+                throw new IllegalArgumentException("Column must not be blank");
+            }
+        }
+    }
+
+    /**
+     * BETWEEN lower AND upper predicate for a column.
+     */
+    record BetweenPredicate(String column, Object lower, Object upper) implements WherePredicate {
+        public BetweenPredicate {
+            Objects.requireNonNull(column, "Column must not be null");
+            if (column.isBlank()) {
+                throw new IllegalArgumentException("Column must not be blank");
+            }
+            Objects.requireNonNull(lower, "Lower bound must not be null");
+            Objects.requireNonNull(upper, "Upper bound must not be null");
+        }
+    }
+
+    /**
+     * Parameterized raw SQL predicate snippet with positional parameters.
+     */
+    record RawPredicate(String sql, List<Object> parameters) implements WherePredicate {
+        public RawPredicate {
+            Objects.requireNonNull(sql, "SQL must not be null");
+            if (sql.isBlank()) {
+                throw new IllegalArgumentException("SQL must not be blank");
+            }
+            parameters = parameters == null ? List.of() : List.copyOf(parameters);
+        }
+    }
+
+    // --- Static Factory Methods ---
+
+    static WherePredicate eq(String column, Object value) {
+        return new BinaryPredicate(column, ComparisonOperator.EQUALS, value);
+    }
+
+    static WherePredicate neq(String column, Object value) {
+        return new BinaryPredicate(column, ComparisonOperator.NOT_EQUALS, value);
+    }
+
+    static WherePredicate gt(String column, Object value) {
+        return new BinaryPredicate(column, ComparisonOperator.GREATER_THAN, value);
+    }
+
+    static WherePredicate gte(String column, Object value) {
+        return new BinaryPredicate(column, ComparisonOperator.GREATER_THAN_OR_EQUAL, value);
+    }
+
+    static WherePredicate lt(String column, Object value) {
+        return new BinaryPredicate(column, ComparisonOperator.LESS_THAN, value);
+    }
+
+    static WherePredicate lte(String column, Object value) {
+        return new BinaryPredicate(column, ComparisonOperator.LESS_THAN_OR_EQUAL, value);
+    }
+
+    static WherePredicate like(String column, String pattern) {
+        return new BinaryPredicate(column, ComparisonOperator.LIKE, pattern);
+    }
+
+    static WherePredicate ilike(String column, String pattern) {
+        return new BinaryPredicate(column, ComparisonOperator.ILIKE, pattern);
+    }
+
+    static WherePredicate in(String column, Collection<?> values) {
+        Objects.requireNonNull(values, "Values must not be null");
+        return new InPredicate(column, new ArrayList<>(values), false);
+    }
+
+    static WherePredicate in(String column, Object... values) {
+        Objects.requireNonNull(values, "Values must not be null");
+        return new InPredicate(column, Arrays.asList(values), false);
+    }
+
+    static WherePredicate notIn(String column, Collection<?> values) {
+        Objects.requireNonNull(values, "Values must not be null");
+        return new InPredicate(column, new ArrayList<>(values), true);
+    }
+
+    static WherePredicate notIn(String column, Object... values) {
+        Objects.requireNonNull(values, "Values must not be null");
+        return new InPredicate(column, Arrays.asList(values), true);
+    }
+
+    static WherePredicate isNull(String column) {
+        return new IsNullPredicate(column, true);
+    }
+
+    static WherePredicate isNotNull(String column) {
+        return new IsNullPredicate(column, false);
+    }
+
+    static WherePredicate between(String column, Object lower, Object upper) {
+        return new BetweenPredicate(column, lower, upper);
+    }
+
+    static WherePredicate and(WherePredicate... predicates) {
+        Objects.requireNonNull(predicates, "Predicates must not be null");
+        return and(Arrays.asList(predicates));
+    }
+
+    static WherePredicate and(List<WherePredicate> predicates) {
+        Objects.requireNonNull(predicates, "Predicates must not be null");
+        List<WherePredicate> flattened = new ArrayList<>();
+        for (WherePredicate p : predicates) {
+            Objects.requireNonNull(p, "Predicate elements must not be null");
+            if (p instanceof AndPredicate andP) {
+                flattened.addAll(andP.predicates());
+            } else {
+                flattened.add(p);
+            }
+        }
+        return new AndPredicate(flattened);
+    }
+
+    static WherePredicate or(WherePredicate... predicates) {
+        Objects.requireNonNull(predicates, "Predicates must not be null");
+        return or(Arrays.asList(predicates));
+    }
+
+    static WherePredicate or(List<WherePredicate> predicates) {
+        Objects.requireNonNull(predicates, "Predicates must not be null");
+        List<WherePredicate> flattened = new ArrayList<>();
+        for (WherePredicate p : predicates) {
+            Objects.requireNonNull(p, "Predicate elements must not be null");
+            if (p instanceof OrPredicate orP) {
+                flattened.addAll(orP.predicates());
+            } else {
+                flattened.add(p);
+            }
+        }
+        return new OrPredicate(flattened);
+    }
+
+    static WherePredicate not(WherePredicate predicate) {
+        Objects.requireNonNull(predicate, "Predicate to negate must not be null");
+        if (predicate instanceof NotPredicate notP) {
+            return notP.predicate();
+        }
+        return new NotPredicate(predicate);
+    }
+
+    static WherePredicate raw(String sql, Object... parameters) {
+        return new RawPredicate(sql, parameters != null ? Arrays.asList(parameters) : List.of());
+    }
+
+    static WherePredicate raw(String sql, List<Object> parameters) {
+        return new RawPredicate(sql, parameters);
+    }
+}
