@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 7
+- **Completed Tasks**: 12
 - **In Progress**: 0
-- **Not Started**: 58
-- **Current Active Phase**: Phase 3 (Phase 2 100% Completed, Ready for Phase 3)
+- **Not Started**: 53
+- **Current Active Phase**: Phase 4 (Phase 3 100% Completed, Ready for Phase 4)
 
 ---
 
@@ -26,11 +26,11 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 2** | Baseline | `TASK-2.2` | Model, View Model & Composite Type Metadata | Completed | `TASK-2.1` | `ModelMetadata`, `ViewModelMetadata`, `CompositeTypeMetadata` | `EntityMetadata`, `EntityType`, `ModelMetadata`, `ViewModelMetadata` (read-only invariant), `CompositeTypeMetadata`, `ViewJoinMetadata` |
 | **Phase 2** | Baseline | `TASK-2.3` | In-Memory `ModelRegistry` | Completed | `TASK-2.2` | Thread-safe registry, lookup tests, immutable build | `ModelRegistry`, `EntityNotFoundException`, thread-safe immutable container, concurrent read tested |
 | **Phase 2** | Baseline | `TASK-2.4` | Unified Query AST Definition | Completed | `TASK-2.3` | `SelectQuery`, `JoinClause`, `ProjectedColumn`, `WherePredicate` | `SelectQuery`, `SourceTable`, `ProjectedColumn`, `JoinClause`, `WherePredicate` composable tree, `InsertQuery`, `UpdateQuery`, `DeleteQuery`, `ReadOnlyViewException`, `QueryGuards` |
-| **Phase 3** | Parsing | `TASK-3.1` | ANTLR4 Grammar (`GraphOrm.g4`) | Not Started | `TASK-2.4` | ANTLR generates lexer/parser without ambiguities | Prisma-inspired DSL |
-| **Phase 3** | Parsing | `TASK-3.2` | AST Node Hierarchy & Visitor | Not Started | `TASK-3.1` | Visitor converts parse trees to strongly typed AST | Source coordinate tracking |
-| **Phase 3** | Parsing | `TASK-3.3` | Diagnostic Error Reporting & Syntax Listener | Not Started | `TASK-3.2` | Syntax errors display source line and column caret | Developer diagnostics |
-| **Phase 3** | Parsing | `TASK-3.4` | Semantic Validation Engine | Not Started | `TASK-3.3` | PK, relation, view join, cycle, read-only checks pass | Strict validation rules |
-| **Phase 3** | Parsing | `TASK-3.5` | Schema-to-Metadata Transformer | Not Started | `TASK-3.4` | AST transformed into immutable `ModelRegistry` | End-to-end parser test |
+| **Phase 3** | Parsing | `TASK-3.1` | ANTLR4 Grammar (`GraphOrm.g4`) | Completed | `TASK-2.4` | ANTLR generates lexer/parser without ambiguities | Prisma-inspired DSL covering datasource, generator, model, view, type, enum, attributes, block attributes |
+| **Phase 3** | Parsing | `TASK-3.2` | AST Node Hierarchy & Visitor | Completed | `TASK-3.1` | Visitor converts parse trees to strongly typed AST | Source coordinate tracking on all AST nodes, immutable collections, AstVisitor |
+| **Phase 3** | Parsing | `TASK-3.3` | Diagnostic Error Reporting & Syntax Listener | Completed | `TASK-3.2` | Syntax errors display source line and column caret | `DiagnosticErrorListener`, `Diagnostic` with caret formatting, `SchemaValidationException` |
+| **Phase 3** | Parsing | `TASK-3.4` | Semantic Validation Engine | Completed | `TASK-3.3` | PK, relation, view join, cycle, read-only checks pass | `SchemaValidator`, `CycleDetector` with DFS cycle detection, 20 unit tests |
+| **Phase 3** | Parsing | `TASK-3.5` | Schema-to-Metadata Transformer | Completed | `TASK-3.4` | AST transformed into immutable `ModelRegistry` | `SchemaToMetadataTransformer`, Milestone 3 deliverable verified with Student, Department, StudentDashboard, Address |
 | **Phase 4** | **Milestone 1** | `TASK-4.1` | `SqlDialect` & `PostgreSqlDialect` | Not Started | `TASK-2.4` | Double quoting, limit/offset, positional `?` placeholders | Dialect unit tests |
 | **Phase 4** | **Milestone 1** | `TASK-4.2` | CRUD Query Builders & Parameter Extraction | Not Started | `TASK-4.1` | `SelectBuilder`, `InsertBuilder`, `UpdateBuilder`, `DeleteBuilder` | Read-only view guards |
 | **Phase 4** | **Milestone 1** | `TASK-4.3` | `DynamicRowMapper` & Type Conversion | Not Started | `TASK-4.2` | Maps `ResultSet` to Java types and records | Handles all scalars & nulls |
