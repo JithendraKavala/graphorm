@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 25
+- **Completed Tasks**: 29
 - **In Progress**: 0
-- **Not Started**: 40
-- **Current Active Phase**: Phase 7 (Phase 6 100% Completed, Ready for Phase 7 / Milestone 2)
+- **Not Started**: 36
+- **Current Active Phase**: Phase 8 (Phase 7 & Milestone 2 100% Completed, Ready for Phase 8)
 
 ---
 
@@ -44,10 +44,10 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 6** | Relations | `TASK-6.2` | `BatchRelationLoader` via `WHERE IN (?)` | Completed | `TASK-6.1` | Batched query execution and result association | `BatchRelationLoader`, `BatchLoadResult`, in-memory correlation, `BatchRelationLoaderTest.java` |
 | **Phase 6** | Relations | `TASK-6.3` | SQL Statement Counter Test Utility | Completed | `TASK-6.2` | Tracks exact JDBC statement execution counts | `SqlStatementCounter`, `StatementInterceptor`, dynamic proxy wrapping, `SqlStatementCounterTest.java` |
 | **Phase 6** | Relations | `TASK-6.4` | Testcontainers Batch Loading Tests | Completed | `TASK-6.3` | 100 items loaded with relations in exactly 2 SQL queries | `PostgresBatchRelationLoadingIntegrationTest.java`, 0 N+1 query regression proven across 1:1, 1:N, N:1 |
-| **Phase 7** | **Milestone 2** | `TASK-7.1` | Schema Parser Support for `@@view` & `@@map` | Not Started | `TASK-3.5`, `TASK-5.4` | Parse and validate database-backed views | Stage 1 views |
-| **Phase 7** | **Milestone 2** | `TASK-7.2` | `SelectBuilder` Support for `SourceTable.DatabaseView` | Not Started | `TASK-7.1` | SELECT queries target PostgreSQL physical views | Unified planner |
-| **Phase 7** | **Milestone 2** | `TASK-7.3` | Enforce Read-Only Constraint on DB Views | Not Started | `TASK-7.2` | Insert/update/delete builders throw `ReadOnlyViewException` | Read-only invariant |
-| **Phase 7** | **Milestone 2** | `TASK-7.4` | Testcontainers Tests for DB View Queries | Not Started | `TASK-7.3` | Filtered, paginated queries against PostgreSQL view | Milestone 2 verification |
+| **Phase 7** | **Milestone 2** | `TASK-7.1` | Schema Parser Support for `@@view` & `@@map` | Completed | `TASK-3.5`, `TASK-5.4` | Parse and validate database-backed views | `DatabaseBackedViewSchemaTest.java`, Stage 1 views, AST, semantic validation |
+| **Phase 7** | **Milestone 2** | `TASK-7.2` | `SelectBuilder` Support for `SourceTable.DatabaseView` | Completed | `TASK-7.1` | SELECT queries target PostgreSQL physical views | `SelectBuilder.java`, `QueryBuildersTest.java`, view projection & alias support |
+| **Phase 7** | **Milestone 2** | `TASK-7.3` | Enforce Read-Only Constraint on DB Views | Completed | `TASK-7.2` | Insert/update/delete builders throw `ReadOnlyViewException` | `QueryGuards`, `InsertBuilder`, `UpdateBuilder`, `DeleteBuilder`, `QueryBuildersTest.java` |
+| **Phase 7** | **Milestone 2** | `TASK-7.4` | Testcontainers Tests for DB View Queries | Completed | `TASK-7.3` | Filtered, paginated queries against PostgreSQL view | `PostgresDatabaseViewIntegrationTest.java`, Milestone 2 deliverable verified on PostgreSQL |
 | **Phase 8** | Virtual Views | `TASK-8.1` | Parser Rules for `@@from`, `@@leftJoin`, `@@innerJoin` | Not Started | `TASK-7.4` | Parse virtual schema views and join directives | Stage 2 views |
 | **Phase 8** | Virtual Views | `TASK-8.2` | Join Condition Parser & AST Representation | Not Started | `TASK-8.1` | Strongly typed `JoinClause` constructed from schema | Join tree AST |
 | **Phase 8** | Virtual Views | `TASK-8.3` | Multi-Table Join SQL Generation | Not Started | `TASK-8.2` | Parameterized SQL with `LEFT JOIN` and `INNER JOIN` | Dialect generation |

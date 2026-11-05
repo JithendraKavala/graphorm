@@ -293,14 +293,31 @@ public final class SchemaValidator {
 
             // Strategy check
             if (vm.isDatabaseBacked()) {
-                // Strategy A: database-backed view
-                // @@view is present
+                // Strategy A: database-backed view (marked with @@view)
+                if (vm.fromAttribute().isPresent()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Database-backed view '" + vm.name() + "' with @@view cannot declare @@from",
+                            vm.fromAttribute().get().position()
+                    ));
+                }
+                if (!vm.joinAttributes().isEmpty()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Database-backed view '" + vm.name() + "' with @@view cannot declare join attributes",
+                            vm.joinAttributes().get(0).position()
+                    ));
+                }
+                if (vm.groupByAttribute().isPresent()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Database-backed view '" + vm.name() + "' with @@view cannot declare @@groupBy",
+                            vm.groupByAttribute().get().position()
+                    ));
+                }
             } else {
                 // Strategy B: GraphORM-defined virtual view
                 Optional<BlockAttributeNode> fromAttr = vm.fromAttribute();
                 if (fromAttr.isEmpty()) {
                     diagnostics.add(Diagnostic.error(
-                            "Virtual view '" + vm.name() + "' must declare a root source model using @@from(SourceModel, as: \"alias\")",
+                            "Virtual view '" + vm.name() + "' must declare a root source model using @@from(SourceModel, as: \"alias\") or be marked with @@view for database-backed views",
                             vm.position()
                     ));
                 } else {

@@ -17,8 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Builds parameterized {@link BoundSql} for UPDATE operations.
- * Enforces the architectural read-only invariant by rejecting any view targets.
+ * Builds parameterized {@link BoundSql} for UPDATE operations.\n * Enforces the architectural read-only invariant by rejecting any view targets.
  */
 public final class UpdateBuilder {
 
@@ -35,6 +34,18 @@ public final class UpdateBuilder {
 
     public static UpdateBuilder of(SqlDialect dialect) {
         return new UpdateBuilder(dialect);
+    }
+
+    /**
+     * Factory method creating an {@link UpdateBuilder} initialized from entity metadata.
+     *
+     * @param dialect the dialect to use
+     * @param entity  the entity metadata
+     * @return a new UpdateBuilder instance
+     * @throws ReadOnlyViewException if the entity is marked read-only
+     */
+    public static UpdateBuilder forEntity(SqlDialect dialect, EntityMetadata entity) {
+        return of(dialect).forEntity(entity);
     }
 
     /**

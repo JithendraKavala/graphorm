@@ -35,6 +35,18 @@ public final class DeleteBuilder {
     }
 
     /**
+     * Factory method creating a {@link DeleteBuilder} initialized from entity metadata.
+     *
+     * @param dialect the dialect to use
+     * @param entity  the entity metadata
+     * @return a new DeleteBuilder instance
+     * @throws ReadOnlyViewException if the entity is marked read-only
+     */
+    public static DeleteBuilder forEntity(SqlDialect dialect, EntityMetadata entity) {
+        return of(dialect).forEntity(entity);
+    }
+
+    /**
      * Initializes the target table from entity metadata, throwing {@link ReadOnlyViewException}
      * if the entity is a read-only view.
      *

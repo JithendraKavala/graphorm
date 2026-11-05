@@ -3,6 +3,7 @@ package com.graphorm.jdbc.builder;
 import com.graphorm.core.metadata.EntityMetadata;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
+import com.graphorm.core.metadata.ViewModelMetadata;
 import com.graphorm.core.query.GroupByClause;
 import com.graphorm.core.query.JoinClause;
 import com.graphorm.core.query.ProjectedColumn;
@@ -47,7 +48,14 @@ public final class SelectBuilder {
      */
     public static SelectQuery.Builder forEntity(EntityMetadata entity) {
         Objects.requireNonNull(entity, "Entity metadata must not be null");
-        String tableName = entity instanceof ModelMetadata model ? model.tableName() : entity.name().toLowerCase();
+        String tableName;
+        if (entity instanceof ModelMetadata model) {
+            tableName = model.tableName();
+        } else if (entity instanceof ViewModelMetadata vm) {
+            tableName = vm.viewName();
+        } else {
+            tableName = entity.name().toLowerCase();
+        }
         SourceTable source = entity.isReadOnly()
                 ? SourceTable.view(tableName)
                 : SourceTable.table(tableName);

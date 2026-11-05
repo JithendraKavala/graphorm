@@ -81,7 +81,7 @@ public final class SchemaToMetadataTransformer {
 
     private static ModelMetadata transformModel(ModelNode modelNode, SchemaDocument document) {
         String tableName = modelNode.mapAttribute()
-                .flatMap(attr -> attr.getPositionalArgumentValue(0))
+                .flatMap(attr -> attr.getPositionalArgumentValue(0).or(() -> attr.getArgumentValue("name")))
                 .map(SchemaToMetadataTransformer::extractStringValue)
                 .orElse(modelNode.name().toLowerCase());
 
@@ -230,7 +230,7 @@ public final class SchemaToMetadataTransformer {
 
     private static ViewModelMetadata transformViewModel(ViewModelNode vmNode) {
         String viewName = vmNode.mapAttribute()
-                .flatMap(attr -> attr.getPositionalArgumentValue(0))
+                .flatMap(attr -> attr.getPositionalArgumentValue(0).or(() -> attr.getArgumentValue("name")))
                 .map(SchemaToMetadataTransformer::extractStringValue)
                 .orElse(vmNode.name().toLowerCase());
 
@@ -311,7 +311,7 @@ public final class SchemaToMetadataTransformer {
         boolean isUnique = field.isUnique();
 
         String dbCol = field.mapAttribute()
-                .flatMap(attr -> attr.getPositionalArgumentValue(0))
+                .flatMap(attr -> attr.getPositionalArgumentValue(0).or(() -> attr.getArgumentValue("name")))
                 .map(SchemaToMetadataTransformer::extractStringValue)
                 .orElse(name);
 

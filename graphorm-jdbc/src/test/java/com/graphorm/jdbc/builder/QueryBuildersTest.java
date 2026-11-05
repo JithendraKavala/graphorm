@@ -31,6 +31,7 @@ class QueryBuildersTest {
     private SqlDialect dialect;
     private ModelMetadata studentModel;
     private ViewModelMetadata studentDashboardView;
+    private ViewModelMetadata studentSummaryView;
 
     @BeforeEach
     void setUp() {
@@ -48,6 +49,15 @@ class QueryBuildersTest {
                 .addField(FieldMetadata.builder("studentId", Long.class).build())
                 .addField(FieldMetadata.builder("fullName", String.class).build())
                 .addField(FieldMetadata.builder("courseCount", Long.class).aggregate("COUNT").build())
+                .build();
+
+        studentSummaryView = ViewModelMetadata.builder("StudentSummary")
+                .viewName("vw_student_summary")
+                .databaseBacked(true)
+                .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
+                .addField(FieldMetadata.builder("name", String.class).build())
+                .addField(FieldMetadata.builder("departmentName", String.class).dbColumnName("dept_name").build())
+                .addField(FieldMetadata.builder("totalCredits", Integer.class).dbColumnName("total_credits").build())
                 .build();
     }
 
@@ -135,6 +145,44 @@ class QueryBuildersTest {
         }
 
         @Test
+        @DisplayName("Should support forEntity factory for database-backed view with custom mapped view name (TASK-7.2)")
+        void shouldBuildSelectForDatabaseBackedView() {
+            SelectQuery query = SelectBuilder.forEntity(studentSummaryView)
+                    .where(WherePredicate.gte("total_credits", 15))
+                    .orderByAsc("name")
+                    .limit(10)
+                    .offset(20)
+                    .build();
+
+            BoundSql boundSql = SelectBuilder.of(dialect).build(query);
+
+            assertThat(boundSql.sql())
+                    .isEqualTo("SELECT \"id\", \"name\", \"dept_name\" AS \"departmentName\", \"total_credits\" AS \"totalCredits\" " +
+                            "FROM \"vw_student_summary\" " +
+                            "WHERE \"total_credits\" >= ? " +
+                            "ORDER BY \"name\" ASC " +
+                            "LIMIT ? OFFSET ?");
+            assertThat(boundSql.parameters()).containsExactly(15, 10, 20);
+        }
+
+        @Test
+        @DisplayName("Should support SelectQuery.fromView with alias and filters (TASK-7.2)")
+        void shouldSupportFromViewDirectly() {
+            SelectQuery query = SelectQuery.fromView("vw_student_summary")
+                    .as("v")
+                    .column("v.id", "id")
+                    .column("v.dept_name", "departmentName")
+                    .where(WherePredicate.eq("v.dept_name", "Computer Science"))
+                    .build();
+
+            BoundSql boundSql = SelectBuilder.of(dialect).build(query);
+
+            assertThat(boundSql.sql())
+                    .isEqualTo("SELECT \"v\".\"id\", \"v\".\"dept_name\" AS \"departmentName\" FROM \"vw_student_summary\" AS \"v\" WHERE \"v\".\"dept_name\" = ?");
+            assertThat(boundSql.parameters()).containsExactly("Computer Science");
+        }
+
+        @Test
         @DisplayName("Should support subquery in FROM clause")
         void shouldSupportSubquerySource() {
             SelectQuery subquery = SelectQuery.from("students")
@@ -210,6 +258,21 @@ class QueryBuildersTest {
         }
 
         @Test
+        @DisplayName("Should throw ReadOnlyViewException when targeting database-backed view in forEntity (TASK-7.3)")
+        void shouldRejectInsertOnDatabaseBackedView() {
+            assertThatThrownBy(() -> InsertBuilder.forEntity(dialect, studentSummaryView))
+                    .isInstanceOf(ReadOnlyViewException.class)
+                    .hasMessageContaining("StudentSummary")
+                    .hasMessageContaining("INSERT")
+                    .satisfies(e -> {
+                        ReadOnlyViewException roe = (ReadOnlyViewException) e;
+                        assertThat(roe.getEntityName()).isEqualTo("StudentSummary");
+                        assertThat(roe.getOperation()).isEqualTo("INSERT");
+                        assertThat(roe.getErrorCode()).isEqualTo("ERR_READ_ONLY_VIEW");
+                    });
+        }
+
+        @Test
         @DisplayName("Should throw ReadOnlyViewException when into() receives a DatabaseView source")
         void shouldRejectInsertOnDatabaseViewSource() {
             assertThatThrownBy(() -> InsertBuilder.of(dialect).into(SourceTable.view("vw_students")))
@@ -264,6 +327,30 @@ class QueryBuildersTest {
                     .hasMessageContaining("StudentDashboard")
                     .hasMessageContaining("UPDATE");
         }
+
+        @Test
+        @DisplayName("Should throw ReadOnlyViewException when targeting database-backed view in forEntity (TASK-7.3)")
+        void shouldRejectUpdateOnDatabaseBackedView() {
+            assertThatThrownBy(() -> UpdateBuilder.forEntity(dialect, studentSummaryView))
+                    .isInstanceOf(ReadOnlyViewException.class)
+                    .hasMessageContaining("StudentSummary")
+                    .hasMessageContaining("UPDATE")
+                    .satisfies(e -> {
+                        ReadOnlyViewException roe = (ReadOnlyViewException) e;
+                        assertThat(roe.getEntityName()).isEqualTo("StudentSummary");
+                        assertThat(roe.getOperation()).isEqualTo("UPDATE");
+                        assertThat(roe.getErrorCode()).isEqualTo("ERR_READ_ONLY_VIEW");
+                    });
+        }
+
+        @Test
+        @DisplayName("Should throw ReadOnlyViewException when table() receives a DatabaseView source (TASK-7.3)")
+        void shouldRejectUpdateOnDatabaseViewSource() {
+            assertThatThrownBy(() -> UpdateBuilder.of(dialect).table(SourceTable.view("vw_student_summary")))
+                    .isInstanceOf(ReadOnlyViewException.class)
+                    .hasMessageContaining("vw_student_summary")
+                    .hasMessageContaining("UPDATE");
+        }
     }
 
     @Nested
@@ -303,6 +390,30 @@ class QueryBuildersTest {
             assertThatThrownBy(() -> DeleteBuilder.of(dialect).forEntity(studentDashboardView))
                     .isInstanceOf(ReadOnlyViewException.class)
                     .hasMessageContaining("StudentDashboard")
+                    .hasMessageContaining("DELETE");
+        }
+
+        @Test
+        @DisplayName("Should throw ReadOnlyViewException when targeting database-backed view in forEntity (TASK-7.3)")
+        void shouldRejectDeleteOnDatabaseBackedView() {
+            assertThatThrownBy(() -> DeleteBuilder.forEntity(dialect, studentSummaryView))
+                    .isInstanceOf(ReadOnlyViewException.class)
+                    .hasMessageContaining("StudentSummary")
+                    .hasMessageContaining("DELETE")
+                    .satisfies(e -> {
+                        ReadOnlyViewException roe = (ReadOnlyViewException) e;
+                        assertThat(roe.getEntityName()).isEqualTo("StudentSummary");
+                        assertThat(roe.getOperation()).isEqualTo("DELETE");
+                        assertThat(roe.getErrorCode()).isEqualTo("ERR_READ_ONLY_VIEW");
+                    });
+        }
+
+        @Test
+        @DisplayName("Should throw ReadOnlyViewException when from() receives a DatabaseView source (TASK-7.3)")
+        void shouldRejectDeleteOnDatabaseViewSource() {
+            assertThatThrownBy(() -> DeleteBuilder.of(dialect).from(SourceTable.view("vw_student_summary")))
+                    .isInstanceOf(ReadOnlyViewException.class)
+                    .hasMessageContaining("vw_student_summary")
                     .hasMessageContaining("DELETE");
         }
     }

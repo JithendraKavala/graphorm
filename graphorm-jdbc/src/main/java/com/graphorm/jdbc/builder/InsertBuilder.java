@@ -36,6 +36,18 @@ public final class InsertBuilder {
     }
 
     /**
+     * Factory method creating an {@link InsertBuilder} initialized from entity metadata.
+     *
+     * @param dialect the dialect to use
+     * @param entity  the entity metadata
+     * @return a new InsertBuilder instance
+     * @throws ReadOnlyViewException if the entity is marked read-only
+     */
+    public static InsertBuilder forEntity(SqlDialect dialect, EntityMetadata entity) {
+        return of(dialect).forEntity(entity);
+    }
+
+    /**
      * Initializes the target table from entity metadata, throwing {@link ReadOnlyViewException}
      * if the entity is a read-only view.
      *
