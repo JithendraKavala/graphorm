@@ -63,6 +63,18 @@ public interface AstVisitor<R> {
         return null;
     }
 
+    default R visitGroupByAttribute(GroupByAttributeNode groupByAttribute) {
+        return null;
+    }
+
+    default R visitAggregateAttribute(AggregateAttributeNode aggregateAttribute) {
+        return null;
+    }
+
+    default R visitExpressionAttribute(ExpressionAttributeNode expressionAttribute) {
+        return null;
+    }
+
     default R visitArgument(ArgumentNode argument) {
         return null;
     }

@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 34
+- **Completed Tasks**: 38
 - **In Progress**: 0
-- **Not Started**: 31
-- **Current Active Phase**: Phase 9 (Phase 8 100% Completed, Ready for Phase 9 & Milestone 3)
+- **Not Started**: 27
+- **Current Active Phase**: Phase 10 (Phase 9 & Milestone 3 100% Completed, Ready for Phase 10 & Milestone 4)
 
 ---
 
@@ -53,10 +53,10 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 8** | Virtual Views | `TASK-8.3` | Multi-Table Join SQL Generation | Completed | `TASK-8.2` | Parameterized SQL with `LEFT JOIN` and `INNER JOIN` | `SelectBuilder.java`, `MultiTableJoinSqlTest.java` |
 | **Phase 8** | Virtual Views | `TASK-8.4` | Pushdown Filter & Order-By Mapping for Joined Views | Completed | `TASK-8.3` | View field aliases mapped to qualified source columns | `ViewQueryPlanner.java`, `ViewQueryPlannerTest.java` |
 | **Phase 8** | Virtual Views | `TASK-8.5` | Testcontainers Multi-Table Joined View Tests | Completed | `TASK-8.4` | 3-table virtual joined view queries in PostgreSQL | `PostgresVirtualJoinedViewIntegrationTest.java` |
-| **Phase 9** | **Milestone 3** | `TASK-9.1` | Parser for `@aggregate`, `@expression`, `@@groupBy` | Not Started | `TASK-8.5` | Parse aggregation directives and group-by columns | Stage 4 views |
-| **Phase 9** | **Milestone 3** | `TASK-9.2` | SQL Builder for `GROUP BY`, `HAVING`, Aggregates | Not Started | `TASK-9.1` | Generates `COUNT`, `SUM`, `AVG`, `GROUP BY`, `HAVING` | Dialect support |
-| **Phase 9** | **Milestone 3** | `TASK-9.3` | Join Pruning Optimization | Not Started | `TASK-9.2` | Omit unselected joins when fields are not requested | Query optimization |
-| **Phase 9** | **Milestone 3** | `TASK-9.4` | Testcontainers Aggregation & View Tests | Not Started | `TASK-9.3` | Single SQL query executed for aggregated dashboard view | Milestone 3 verification |
+| **Phase 9** | **Milestone 3** | `TASK-9.1` | Parser for `@aggregate`, `@expression`, `@@groupBy` | Completed | `TASK-8.5` | Parse aggregation directives and group-by columns | `GroupByAttributeNode`, `AggregateAttributeNode`, `ExpressionAttributeNode`, `ViewAggregationSchemaTest.java` (10 tests) |
+| **Phase 9** | **Milestone 3** | `TASK-9.2` | SQL Builder for `GROUP BY`, `HAVING`, Aggregates | Completed | `TASK-9.1` | Generates `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `GROUP BY`, `HAVING` | `PostgreSqlDialect`, `SelectBuilder`, `ViewAggregationSqlTest.java` (4 tests) |
+| **Phase 9** | **Milestone 3** | `TASK-9.3` | Join Pruning Optimization | Completed | `TASK-9.2` | Omit unselected joins when fields are not requested | `JoinPruner.java`, `ViewQueryPlanner.java`, `JoinPrunerTest.java` (5 tests) |
+| **Phase 9** | **Milestone 3** | `TASK-9.4` | Testcontainers Aggregation & View Tests | Completed | `TASK-9.3` | Single SQL query executed for aggregated dashboard view | `PostgresAggregationViewIntegrationTest.java` (7 tests, Milestone 3 deliverable verified) |
 | **Phase 10** | **Milestone 4** | `TASK-10.1` | GraphQL SDL Type Inspector & Model Matching | Not Started | `TASK-6.4`, `TASK-9.4` | Maps `schema.graphqls` types to `ModelRegistry` | Dual schema mapping |
 | **Phase 10** | **Milestone 4** | `TASK-10.2` | Generic Model Query DataFetchers | Not Started | `TASK-10.1` | Auto-registers `Query.<model>s`, `Query.<model>` | Generic fetchers |
 | **Phase 10** | **Milestone 4** | `TASK-10.3` | Generic Model Mutation DataFetchers | Not Started | `TASK-10.2` | Auto-registers `create`, `update`, `delete` for models | Regular models only |

@@ -276,14 +276,19 @@ public final class SchemaToMetadataTransformer {
         }
 
         List<String> groupBy = new ArrayList<>();
-        Optional<BlockAttributeNode> groupByAttr = vmNode.groupByAttribute();
-        if (groupByAttr.isPresent()) {
-            Optional<ExpressionNode> argVal = groupByAttr.get().getPositionalArgumentValue(0);
-            if (argVal.isEmpty()) {
-                argVal = groupByAttr.get().getArgumentValue("fields");
-            }
-            if (argVal.isPresent()) {
-                groupBy.addAll(extractStringList(argVal.get()));
+        Optional<GroupByAttributeNode> gbClause = vmNode.groupByClause();
+        if (gbClause.isPresent()) {
+            groupBy.addAll(gbClause.get().columns());
+        } else {
+            Optional<BlockAttributeNode> groupByAttr = vmNode.groupByAttribute();
+            if (groupByAttr.isPresent()) {
+                Optional<ExpressionNode> argVal = groupByAttr.get().getPositionalArgumentValue(0);
+                if (argVal.isEmpty()) {
+                    argVal = groupByAttr.get().getArgumentValue("fields");
+                }
+                if (argVal.isPresent()) {
+                    groupBy.addAll(extractStringList(argVal.get()));
+                }
             }
         }
 
@@ -340,20 +345,31 @@ public final class SchemaToMetadataTransformer {
         Optional<FieldAttributeNode> aggAttr = field.aggregateAttribute();
         if (aggAttr.isPresent()) {
             isAggregate = true;
-            for (ArgumentNode arg : aggAttr.get().arguments()) {
-                if (arg.isNamed()) {
-                    aggregateFunc = arg.name().toUpperCase();
-                    expression = extractStringValue(arg.value());
-                    break;
+            Optional<AggregateAttributeNode> aggClause = field.aggregateClause();
+            if (aggClause.isPresent()) {
+                aggregateFunc = aggClause.get().function().toUpperCase();
+                expression = aggClause.get().expression();
+            } else {
+                for (ArgumentNode arg : aggAttr.get().arguments()) {
+                    if (arg.isNamed()) {
+                        aggregateFunc = arg.name().toUpperCase();
+                        expression = extractStringValue(arg.value());
+                        break;
+                    }
                 }
             }
         }
 
         Optional<FieldAttributeNode> exprAttr = field.expressionAttribute();
         if (exprAttr.isPresent()) {
-            expression = exprAttr.get().getPositionalArgumentValue(0)
-                    .map(SchemaToMetadataTransformer::extractStringValue)
-                    .orElse(null);
+            Optional<ExpressionAttributeNode> exprClause = field.expressionClause();
+            if (exprClause.isPresent()) {
+                expression = exprClause.get().expression();
+            } else {
+                expression = exprAttr.get().getPositionalArgumentValue(0)
+                        .map(SchemaToMetadataTransformer::extractStringValue)
+                        .orElse(null);
+            }
         }
 
         String relName = null;

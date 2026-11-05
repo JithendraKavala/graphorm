@@ -52,6 +52,22 @@ public record SelectQuery(
         return QueryType.SELECT;
     }
 
+    public boolean hasGroupBy() {
+        return !groupBy.isEmpty();
+    }
+
+    public boolean hasHaving() {
+        return having != null;
+    }
+
+    public boolean hasJoins() {
+        return !joins.isEmpty();
+    }
+
+    public boolean hasWhere() {
+        return where != null;
+    }
+
     /**
      * Creates a builder initialized with the given source table.
      *

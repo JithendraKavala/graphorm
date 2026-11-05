@@ -42,6 +42,14 @@ public record FieldNode(
         return hasAttribute("unique");
     }
 
+    public boolean isAggregate() {
+        return hasAttribute("aggregate");
+    }
+
+    public boolean isExpression() {
+        return hasAttribute("expression");
+    }
+
     public boolean hasAttribute(String attributeName) {
         return findAttribute(attributeName).isPresent();
     }
@@ -73,6 +81,68 @@ public record FieldNode(
 
     public Optional<FieldAttributeNode> mapAttribute() {
         return findAttribute("map");
+    }
+
+    /**
+     * Parses and returns the typed {@link AggregateAttributeNode} if {@code @aggregate} is declared.
+     *
+     * @return typed AggregateAttributeNode or empty if not present or malformed
+     */
+    public Optional<AggregateAttributeNode> aggregateClause() {
+        return aggregateAttribute().flatMap(attr -> {
+            // Check named argument like @aggregate(count: "e.id")
+            for (ArgumentNode arg : attr.arguments()) {
+                if (arg.isNamed()) {
+                    String func = arg.name();
+                    String expr = extractString(arg.value());
+                    if (expr != null) {
+                        return Optional.of(new AggregateAttributeNode(attr.position(), func, expr));
+                    }
+                }
+            }
+            // Check positional arguments: @aggregate("count", "e.id")
+            Optional<ExpressionNode> first = attr.getPositionalArgumentValue(0);
+            Optional<ExpressionNode> second = attr.getPositionalArgumentValue(1);
+            if (first.isPresent() && second.isPresent()) {
+                String func = extractString(first.get());
+                String expr = extractString(second.get());
+                if (func != null && expr != null) {
+                    return Optional.of(new AggregateAttributeNode(attr.position(), func, expr));
+                }
+            }
+            return Optional.empty();
+        });
+    }
+
+    /**
+     * Parses and returns the typed {@link ExpressionAttributeNode} if {@code @expression} is declared.
+     *
+     * @return typed ExpressionAttributeNode or empty if not present or malformed
+     */
+    public Optional<ExpressionAttributeNode> expressionClause() {
+        return expressionAttribute().flatMap(attr -> {
+            Optional<ExpressionNode> exprNode = attr.getPositionalArgumentValue(0)
+                    .or(() -> attr.getArgumentValue("value"))
+                    .or(() -> attr.getArgumentValue("expression"));
+            if (exprNode.isPresent()) {
+                String expr = extractString(exprNode.get());
+                if (expr != null && !expr.isBlank()) {
+                    return Optional.of(new ExpressionAttributeNode(attr.position(), expr));
+                }
+            }
+            return Optional.empty();
+        });
+    }
+
+    private static String extractString(ExpressionNode expr) {
+        if (expr instanceof StringLiteralNode str) {
+            return str.value();
+        } else if (expr instanceof IdentifierNode ident) {
+            return ident.name();
+        } else if (expr instanceof QualifiedIdentifierNode qid) {
+            return qid.asQualifiedString();
+        }
+        return expr != null ? expr.toString() : null;
     }
 
     @Override

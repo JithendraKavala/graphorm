@@ -1,89 +1,108 @@
 package com.graphorm.schema.validation;
 
-import com.graphorm.schema.ast.*;
+import com.graphorm.schema.ast.AggregateAttributeNode;
+import com.graphorm.schema.ast.ArrayLiteralNode;
+import com.graphorm.schema.ast.BlockAttributeNode;
+import com.graphorm.schema.ast.CompositeTypeNode;
+import com.graphorm.schema.ast.EnumNode;
+import com.graphorm.schema.ast.EnumValueNode;
+import com.graphorm.schema.ast.ExpressionAttributeNode;
+import com.graphorm.schema.ast.ExpressionNode;
+import com.graphorm.schema.ast.FieldAttributeNode;
+import com.graphorm.schema.ast.FieldNode;
+import com.graphorm.schema.ast.IdentifierNode;
+import com.graphorm.schema.ast.ModelNode;
+import com.graphorm.schema.ast.QualifiedIdentifierNode;
+import com.graphorm.schema.ast.SchemaDocument;
+import com.graphorm.schema.ast.SourcePosition;
+import com.graphorm.schema.ast.StringLiteralNode;
+import com.graphorm.schema.ast.ViewModelNode;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 
 /**
- * Semantic validation engine enforcing relational, primary key, view model,
- * and read-only invariants across the parsed schema document.
+ * Semantic validation engine for GraphORM schema documents.
+ * Verifies naming uniqueness, primary keys, relationships, circular dependencies,
+ * and view model read-only invariants.
  */
 public final class SchemaValidator {
 
     private static final Set<String> BUILT_IN_SCALARS = Set.of(
-            "Int",
-            "BigInt",
-            "String",
-            "Boolean",
-            "Float",
-            "DateTime",
-            "Json",
-            "Bytes"
+            "String", "Int", "BigInt", "Float", "Decimal",
+            "Boolean", "DateTime", "Date", "Time", "Json", "UUID", "Bytes"
+    );
+
+    private static final Set<String> SUPPORTED_AGGREGATES = Set.of(
+            "count", "sum", "avg", "min", "max"
     );
 
     private SchemaValidator() {}
 
     /**
-     * Validates the schema document and returns a {@link ValidationResult}.
+     * Validates a parsed {@link SchemaDocument} and returns a {@link ValidationResult}.
      *
-     * @param document the parsed AST schema document
-     * @return validation result containing all detected errors and warnings
+     * @param document the parsed AST document
+     * @return the validation result containing any diagnostic errors or warnings
      */
     public static ValidationResult validate(SchemaDocument document) {
-        if (document == null) {
-            return ValidationResult.of(List.of(Diagnostic.error("Schema document is null", SourcePosition.unknown())));
-        }
-
+        Objects.requireNonNull(document, "SchemaDocument must not be null");
         List<Diagnostic> diagnostics = new ArrayList<>();
 
-        // 1. Entity name uniqueness
-        validateEntityUniqueness(document, diagnostics);
+        // 1. Top-level declaration name uniqueness
+        validateTopLevelUniqueness(document, diagnostics);
 
-        // 2. Enum validations
+        // 2. Validate Enum declarations
         validateEnums(document, diagnostics);
 
-        // 3. Composite type validations
+        // 3. Validate Composite Types
         validateCompositeTypes(document, diagnostics);
 
-        // 4. Model validations (PK, fields, relations)
+        // 4. Validate Models (PKs, fields, relations)
         validateModels(document, diagnostics);
 
-        // 5. View model validations (read-only, @@from, joins, groupBy)
+        // 5. Validate View Models (read-only invariant, @@view or @@from, join clauses, aggregations)
         validateViewModels(document, diagnostics);
 
-        // 6. Cyclic view reference detection
+        // 6. Detect circular view model dependencies
         validateViewCycles(document, diagnostics);
 
-        return ValidationResult.of(diagnostics);
+        return new ValidationResult(diagnostics);
     }
 
-    private static void validateEntityUniqueness(SchemaDocument document, List<Diagnostic> diagnostics) {
+    private static void validateTopLevelUniqueness(SchemaDocument document, List<Diagnostic> diagnostics) {
         Map<String, SourcePosition> declared = new HashMap<>();
 
         for (ModelNode m : document.models()) {
-            checkDuplicate(m.name(), m.position(), declared, diagnostics);
+            checkAndRegisterName(m.name(), m.position(), declared, "entity", diagnostics);
         }
-        for (ViewModelNode vm : document.viewModels()) {
-            checkDuplicate(vm.name(), vm.position(), declared, diagnostics);
+        for (ViewModelNode v : document.viewModels()) {
+            checkAndRegisterName(v.name(), v.position(), declared, "entity", diagnostics);
         }
-        for (CompositeTypeNode ct : document.compositeTypes()) {
-            checkDuplicate(ct.name(), ct.position(), declared, diagnostics);
+        for (CompositeTypeNode t : document.compositeTypes()) {
+            checkAndRegisterName(t.name(), t.position(), declared, "entity", diagnostics);
         }
         for (EnumNode e : document.enums()) {
-            checkDuplicate(e.name(), e.position(), declared, diagnostics);
+            checkAndRegisterName(e.name(), e.position(), declared, "entity", diagnostics);
         }
     }
 
-    private static void checkDuplicate(
+    private static void checkAndRegisterName(
             String name,
             SourcePosition pos,
             Map<String, SourcePosition> declared,
+            String kind,
             List<Diagnostic> diagnostics
     ) {
         if (declared.containsKey(name)) {
-            SourcePosition prev = declared.get(name);
             diagnostics.add(Diagnostic.error(
-                    "Duplicate declaration: entity '" + name + "' is already defined at line " + prev.line(),
+                    "Duplicate declaration: " + kind + " '" + name + "' conflicts with previous declaration at " + declared.get(name),
                     pos
             ));
         } else {
@@ -120,6 +139,13 @@ public final class SchemaValidator {
 
     private static void validateModels(SchemaDocument document, List<Diagnostic> diagnostics) {
         for (ModelNode model : document.models()) {
+            if (model.hasAttribute("groupBy")) {
+                diagnostics.add(Diagnostic.error(
+                        "Model '" + model.name() + "' cannot declare block @@groupBy. Group-by is only permitted on view models.",
+                        model.findAttribute("groupBy").get().position()
+                ));
+            }
+
             // Field uniqueness and type resolution
             validateFieldList(model.name(), model.fields(), document, diagnostics, true);
 
@@ -291,6 +317,66 @@ public final class SchemaValidator {
                 }
             }
 
+            // Field-level aggregate and expression validation
+            for (FieldNode field : vm.fields()) {
+                Optional<FieldAttributeNode> aggOpt = field.aggregateAttribute();
+                Optional<FieldAttributeNode> exprOpt = field.expressionAttribute();
+
+                if (aggOpt.isPresent() && exprOpt.isPresent()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Field '" + field.name() + "' in view '" + vm.name() + "' cannot declare both @aggregate and @expression",
+                            aggOpt.get().position()
+                    ));
+                }
+
+                if (aggOpt.isPresent()) {
+                    FieldAttributeNode agg = aggOpt.get();
+                    if (agg.arguments().isEmpty()) {
+                        diagnostics.add(Diagnostic.error(
+                                "Aggregate directive @aggregate on field '" + field.name() + "' must specify a function (count, sum, avg, min, max) and target expression",
+                                agg.position()
+                        ));
+                    } else {
+                        Optional<AggregateAttributeNode> parsedAgg = field.aggregateClause();
+                        if (parsedAgg.isEmpty()) {
+                            String funcName = agg.arguments().get(0).isNamed()
+                                    ? agg.arguments().get(0).name()
+                                    : extractIdentifierOrString(agg.arguments().get(0).value());
+                            if (funcName != null && !SUPPORTED_AGGREGATES.contains(funcName.toLowerCase())) {
+                                diagnostics.add(Diagnostic.error(
+                                        "Unsupported aggregate function '" + funcName + "' on field '" + field.name() + "'. Supported functions: count, sum, avg, min, max",
+                                        agg.position()
+                                ));
+                            } else {
+                                diagnostics.add(Diagnostic.error(
+                                        "Aggregate directive @aggregate on field '" + field.name() + "' must specify a target expression (e.g. @aggregate(count: \"column\"))",
+                                        agg.position()
+                                ));
+                            }
+                        } else {
+                            AggregateAttributeNode aggNode = parsedAgg.get();
+                            if (!SUPPORTED_AGGREGATES.contains(aggNode.function().toLowerCase())) {
+                                diagnostics.add(Diagnostic.error(
+                                        "Unsupported aggregate function '" + aggNode.function() + "' on field '" + field.name() + "'. Supported functions: count, sum, avg, min, max",
+                                        agg.position()
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                if (exprOpt.isPresent()) {
+                    FieldAttributeNode expr = exprOpt.get();
+                    Optional<ExpressionAttributeNode> parsedExpr = field.expressionClause();
+                    if (parsedExpr.isEmpty()) {
+                        diagnostics.add(Diagnostic.error(
+                                "Expression directive @expression on field '" + field.name() + "' must specify a non-empty expression",
+                                expr.position()
+                        ));
+                    }
+                }
+            }
+
             // Strategy check
             if (vm.isDatabaseBacked()) {
                 // Strategy A: database-backed view (marked with @@view)
@@ -332,6 +418,33 @@ public final class SchemaValidator {
 
                 for (BlockAttributeNode join : vm.joinAttributes()) {
                     validateJoinAttribute(vm, join, aliases, document, diagnostics);
+                }
+
+                // Validate @@groupBy if present
+                if (vm.groupByAttribute().isPresent()) {
+                    BlockAttributeNode gb = vm.groupByAttribute().get();
+                    Optional<ExpressionNode> argVal = gb.getPositionalArgumentValue(0).or(() -> gb.getArgumentValue("fields"));
+                    if (argVal.isEmpty() || !(argVal.get() instanceof ArrayLiteralNode arrayNode)) {
+                        diagnostics.add(Diagnostic.error(
+                                "Block @@groupBy in view '" + vm.name() + "' must specify an array of field/column names, e.g. @@groupBy([\"s.id\", \"s.name\"])",
+                                gb.position()
+                        ));
+                    } else if (arrayNode.elements().isEmpty()) {
+                        diagnostics.add(Diagnostic.error(
+                                "Block @@groupBy in view '" + vm.name() + "' cannot be empty",
+                                gb.position()
+                        ));
+                    } else {
+                        for (ExpressionNode elem : arrayNode.elements()) {
+                            String col = extractIdentifierOrString(elem);
+                            if (col == null || col.isBlank()) {
+                                diagnostics.add(Diagnostic.error(
+                                        "Invalid column reference in @@groupBy in view '" + vm.name() + "'",
+                                        elem.position()
+                                ));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -464,6 +577,21 @@ public final class SchemaValidator {
                         "Duplicate field '" + field.name() + "' in '" + containerName + "'",
                         field.position()
                 ));
+            }
+
+            if (isModel) {
+                if (field.hasAttribute("aggregate")) {
+                    diagnostics.add(Diagnostic.error(
+                            "Model '" + containerName + "' cannot declare @aggregate on field '" + field.name() + "'. Aggregations are only permitted on view models.",
+                            field.findAttribute("aggregate").get().position()
+                    ));
+                }
+                if (field.hasAttribute("expression")) {
+                    diagnostics.add(Diagnostic.error(
+                            "Model '" + containerName + "' cannot declare @expression on field '" + field.name() + "'. Computed expressions are only permitted on view models.",
+                            field.findAttribute("expression").get().position()
+                    ));
+                }
             }
 
             // Check field type resolution

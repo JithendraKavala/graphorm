@@ -5,123 +5,126 @@ import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.ViewJoinMetadata;
 import com.graphorm.core.metadata.ViewModelMetadata;
+import com.graphorm.core.query.ComparisonOperator;
+import com.graphorm.core.query.GroupByClause;
+import com.graphorm.core.query.HavingPredicate;
 import com.graphorm.core.query.JoinClause;
+import com.graphorm.core.query.JoinConditionParser;
 import com.graphorm.core.query.OrderByClause;
-import com.graphorm.core.query.OrderDirection;
 import com.graphorm.core.query.ProjectedColumn;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.WherePredicate;
-import com.graphorm.core.query.JoinConditionParser;
+import com.graphorm.jdbc.dialect.AggregateType;
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+import com.graphorm.jdbc.dialect.SqlDialect;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
- * Unified query planner for View Models (Stage 1 Database-Backed and Stage 2/3 Virtual Joined Views).
+ * Unified query planner for View Models (Stage 1 Database-Backed, Stage 2/3 Virtual Joined Views,
+ * and Stage 4 Aggregations, GROUP BY, and Join Pruning).
  * <p>
  * Handles:
  * <ul>
  *     <li>Source model dependency resolution and dynamic join tree construction.</li>
- *     <li>Field mapping and qualified column alias projection.</li>
+ *     <li>Aggregation function formatting and expression projection.</li>
  *     <li>Pushdown filter and order-by mapping from view field aliases to source table columns.</li>
+ *     <li>HAVING clause mapping and automatic routing of aggregate predicates.</li>
+ *     <li>Join pruning optimization when projected fields do not require joined tables.</li>
+ *     <li>Automatic omission of GROUP BY when no aggregations are selected.</li>
  * </ul>
  */
 public final class ViewQueryPlanner {
 
+    private static final SqlDialect DEFAULT_DIALECT = new PostgreSqlDialect();
+
+    private static final Set<String> AGGREGATE_PREFIXES = Set.of(
+            "COUNT(", "SUM(", "AVG(", "MIN(", "MAX("
+    );
+
     private ViewQueryPlanner() {}
 
     /**
-     * Creates a {@link ViewQueryBuilder} configured for the specified view model and model registry.
+     * Creates a {@link ViewQueryBuilder} configured for the specified view model and model registry
+     * using the default PostgreSQL dialect.
      *
      * @param view     the view model metadata
      * @param registry the model registry containing source and joined models
-     * @return a fluent ViewQueryBuilder pre-configured with projection and joins
+     * @return a fluent ViewQueryBuilder
      */
     public static ViewQueryBuilder forView(ViewModelMetadata view, ModelRegistry registry) {
-        return plan(view, registry);
+        return plan(view, registry, DEFAULT_DIALECT);
     }
 
     /**
-     * Plans a query for the specified view model, constructing the join tree and projections.
+     * Creates a {@link ViewQueryBuilder} configured for the specified view model, model registry, and SQL dialect.
+     *
+     * @param view     the view model metadata
+     * @param registry the model registry
+     * @param dialect  the SQL dialect
+     * @return a fluent ViewQueryBuilder
+     */
+    public static ViewQueryBuilder forView(ViewModelMetadata view, ModelRegistry registry, SqlDialect dialect) {
+        return plan(view, registry, dialect);
+    }
+
+    /**
+     * Plans a query for the specified view model using the default PostgreSQL dialect.
      *
      * @param view     the view model metadata
      * @param registry the model registry
      * @return a ViewQueryBuilder
      */
     public static ViewQueryBuilder plan(ViewModelMetadata view, ModelRegistry registry) {
+        return plan(view, registry, DEFAULT_DIALECT);
+    }
+
+    /**
+     * Plans a query for the specified view model with explicit SQL dialect.
+     *
+     * @param view     the view model metadata
+     * @param registry the model registry
+     * @param dialect  the SQL dialect
+     * @return a ViewQueryBuilder
+     */
+    public static ViewQueryBuilder plan(ViewModelMetadata view, ModelRegistry registry, SqlDialect dialect) {
+        return plan(view, registry, null, dialect);
+    }
+
+    /**
+     * Plans a query for the specified view model with selective field projection and explicit SQL dialect.
+     *
+     * @param view           the view model metadata
+     * @param registry       the model registry
+     * @param selectedFields the subset of view field names to project (null or empty for all fields)
+     * @param dialect        the SQL dialect
+     * @return a ViewQueryBuilder
+     */
+    public static ViewQueryBuilder plan(
+            ViewModelMetadata view,
+            ModelRegistry registry,
+            Collection<String> selectedFields,
+            SqlDialect dialect
+    ) {
         Objects.requireNonNull(view, "ViewModelMetadata must not be null");
+        SqlDialect activeDialect = dialect != null ? dialect : DEFAULT_DIALECT;
 
-        // Strategy A: Database-backed view
-        if (view.isDatabaseBacked() || view.sourceModelName() == null) {
-            SourceTable source = SourceTable.view(view.viewName());
-            SelectQuery.Builder sqBuilder = SelectQuery.from(source);
-            for (FieldMetadata field : view.fields()) {
-                if (!field.isRelation()) {
-                    sqBuilder.column(field.dbColumnName(), field.name());
-                }
-            }
-            return new ViewQueryBuilder(view, registry, sqBuilder);
-        }
-
-        // Strategy B: GraphORM-defined virtual view
-        Objects.requireNonNull(registry, "ModelRegistry is required for virtual view queries");
-
-        ModelMetadata sourceModel = registry.getModel(view.sourceModelName());
-        SourceTable source = SourceTable.table(sourceModel.tableName());
-        String sourceAlias = view.sourceAlias();
-
-        SelectQuery.Builder sqBuilder = SelectQuery.from(source);
-        if (sourceAlias != null && !sourceAlias.isBlank()) {
-            sqBuilder.as(sourceAlias);
-        }
-
-        // 1. Projection columns
-        for (FieldMetadata field : view.fields()) {
-            if (!field.isRelation()) {
-                String expression = field.dbColumnName();
-                if (expression == null || expression.isBlank()) {
-                    expression = sourceAlias != null ? sourceAlias + "." + field.name() : field.name();
-                } else if (!expression.contains(".") && !expression.contains("(") && sourceAlias != null) {
-                    expression = sourceAlias + "." + expression;
-                }
-                sqBuilder.column(expression, field.name());
-            }
-        }
-
-        // 2. Joins
-        Map<String, ModelMetadata> aliasToModelMap = new HashMap<>();
-        if (sourceAlias != null) {
-            aliasToModelMap.put(sourceAlias, sourceModel);
-        }
-
-        for (ViewJoinMetadata joinMeta : view.joinDefinitions()) {
-            ModelMetadata joinModel = registry.getModel(joinMeta.targetModel());
-            aliasToModelMap.put(joinMeta.alias(), joinModel);
-        }
-
-        for (ViewJoinMetadata joinMeta : view.joinDefinitions()) {
-            ModelMetadata joinModel = registry.getModel(joinMeta.targetModel());
-            SourceTable targetTable = SourceTable.table(joinModel.tableName());
-
-            WherePredicate joinCondition = JoinConditionParser.parse(
-                    joinMeta.onCondition(),
-                    ident -> resolveQualifiedColumn(ident, aliasToModelMap)
-            );
-
-            sqBuilder.join(new JoinClause(joinMeta.joinType(), targetTable, joinMeta.alias(), joinCondition));
-        }
-
-        return new ViewQueryBuilder(view, registry, sqBuilder);
+        return new ViewQueryBuilder(view, registry, activeDialect, selectedFields);
     }
 
     /**
      * Resolves an identifier like "s.departmentId" into qualified database column "s.department_id".
      */
-    private static String resolveQualifiedColumn(String identifier, Map<String, ModelMetadata> aliasToModelMap) {
+    static String resolveQualifiedColumn(String identifier, Map<String, ModelMetadata> aliasToModelMap) {
         if (identifier == null) {
             return null;
         }
@@ -139,32 +142,87 @@ public final class ViewQueryPlanner {
     }
 
     /**
+     * Builds the field-to-column mapping dictionary for the given view model.
+     */
+    public static Map<String, String> buildFieldToColumnMap(
+            ViewModelMetadata view,
+            Map<String, ModelMetadata> aliasToModelMap,
+            SqlDialect dialect
+    ) {
+        Map<String, String> map = new HashMap<>();
+        String sourceAlias = view.sourceAlias();
+
+        for (FieldMetadata field : view.fields()) {
+            if (field.isRelation()) {
+                continue;
+            }
+
+            String expression;
+            if (field.isAggregate()) {
+                String raw = field.expression() != null ? field.expression() : field.dbColumnName();
+                String resolved = resolveQualifiedColumn(raw, aliasToModelMap);
+                AggregateType aggType = AggregateType.valueOf(field.aggregateFunction().toUpperCase());
+                expression = dialect.buildAggregateSql(aggType, resolved);
+            } else if (field.expression() != null && !field.expression().isBlank()) {
+                expression = field.expression();
+            } else {
+                expression = field.dbColumnName();
+                if (expression == null || expression.isBlank()) {
+                    expression = field.name();
+                }
+                if (!view.isDatabaseBacked() && sourceAlias != null && !expression.contains(".") && !expression.contains("(")) {
+                    expression = sourceAlias + "." + expression;
+                }
+            }
+            map.put(field.name(), expression);
+        }
+        return map;
+    }
+
+    /**
      * Maps view field names in a {@link WherePredicate} to underlying source database column expressions.
-     *
-     * @param predicate the predicate using view field names (e.g. "studentName == 'Alice'")
-     * @param view      the view metadata
-     * @return the transformed predicate with source column expressions (e.g. "s.name == 'Alice'")
      */
     public static WherePredicate mapFilter(WherePredicate predicate, ViewModelMetadata view) {
+        return mapFilter(predicate, view, Map.of(), DEFAULT_DIALECT);
+    }
+
+    /**
+     * Maps view field names in a {@link WherePredicate} to underlying source database column expressions
+     * using the model registry and dialect.
+     */
+    public static WherePredicate mapFilter(
+            WherePredicate predicate,
+            ViewModelMetadata view,
+            Map<String, ModelMetadata> aliasToModelMap,
+            SqlDialect dialect
+    ) {
         if (predicate == null || view == null) {
             return predicate;
         }
-        Map<String, String> fieldToColumnMap = buildFieldToColumnMap(view);
+        Map<String, String> fieldToColumnMap = buildFieldToColumnMap(view, aliasToModelMap, dialect);
         return transformPredicate(predicate, fieldToColumnMap);
     }
 
     /**
      * Maps view field names in order-by clauses to qualified source database columns.
-     *
-     * @param orderByList the order-by clauses
-     * @param view        the view metadata
-     * @return the mapped order-by clauses
      */
     public static List<OrderByClause> mapOrderBy(List<OrderByClause> orderByList, ViewModelMetadata view) {
+        return mapOrderBy(orderByList, view, Map.of(), DEFAULT_DIALECT);
+    }
+
+    /**
+     * Maps view field names in order-by clauses using the model registry and dialect.
+     */
+    public static List<OrderByClause> mapOrderBy(
+            List<OrderByClause> orderByList,
+            ViewModelMetadata view,
+            Map<String, ModelMetadata> aliasToModelMap,
+            SqlDialect dialect
+    ) {
         if (orderByList == null || orderByList.isEmpty() || view == null) {
             return orderByList == null ? List.of() : orderByList;
         }
-        Map<String, String> fieldToColumnMap = buildFieldToColumnMap(view);
+        Map<String, String> fieldToColumnMap = buildFieldToColumnMap(view, aliasToModelMap, dialect);
         List<OrderByClause> mapped = new ArrayList<>();
         for (OrderByClause ob : orderByList) {
             String expr = ob.expression();
@@ -172,23 +230,6 @@ public final class ViewQueryPlanner {
             mapped.add(new OrderByClause(mappedExpr, ob.direction(), ob.nullsOrder()));
         }
         return List.copyOf(mapped);
-    }
-
-    private static Map<String, String> buildFieldToColumnMap(ViewModelMetadata view) {
-        Map<String, String> map = new HashMap<>();
-        String sourceAlias = view.sourceAlias();
-
-        for (FieldMetadata field : view.fields()) {
-            String dbCol = field.dbColumnName();
-            if (dbCol == null || dbCol.isBlank()) {
-                dbCol = field.name();
-            }
-            if (!view.isDatabaseBacked() && sourceAlias != null && !dbCol.contains(".") && !dbCol.contains("(")) {
-                dbCol = sourceAlias + "." + dbCol;
-            }
-            map.put(field.name(), dbCol);
-        }
-        return map;
     }
 
     private static WherePredicate transformPredicate(WherePredicate predicate, Map<String, String> columnMap) {
@@ -237,17 +278,97 @@ public final class ViewQueryPlanner {
     }
 
     /**
-     * Fluent builder for view queries, with automatic pushdown filter and order-by mapping.
+     * Determines whether a predicate targets an aggregate expression.
+     */
+    private static boolean isAggregatePredicate(WherePredicate predicate) {
+        if (predicate == null) {
+            return false;
+        }
+        if (predicate instanceof WherePredicate.BinaryPredicate b) {
+            return containsAggregateFunction(b.column());
+        }
+        if (predicate instanceof WherePredicate.ColumnComparisonPredicate c) {
+            return containsAggregateFunction(c.leftColumn()) || containsAggregateFunction(c.rightColumn());
+        }
+        if (predicate instanceof WherePredicate.InPredicate in) {
+            return containsAggregateFunction(in.column());
+        }
+        if (predicate instanceof WherePredicate.IsNullPredicate isNull) {
+            return containsAggregateFunction(isNull.column());
+        }
+        if (predicate instanceof WherePredicate.BetweenPredicate between) {
+            return containsAggregateFunction(between.column());
+        }
+        if (predicate instanceof WherePredicate.AndPredicate and) {
+            return and.predicates().stream().anyMatch(ViewQueryPlanner::isAggregatePredicate);
+        }
+        if (predicate instanceof WherePredicate.OrPredicate or) {
+            return or.predicates().stream().anyMatch(ViewQueryPlanner::isAggregatePredicate);
+        }
+        if (predicate instanceof WherePredicate.NotPredicate not) {
+            return isAggregatePredicate(not.predicate());
+        }
+        if (predicate instanceof WherePredicate.RawPredicate raw) {
+            return containsAggregateFunction(raw.sql());
+        }
+        return false;
+    }
+
+    private static boolean containsAggregateFunction(String expression) {
+        if (expression == null || expression.isBlank()) {
+            return false;
+        }
+        String upper = expression.toUpperCase();
+        for (String prefix : AGGREGATE_PREFIXES) {
+            if (upper.contains(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Fluent builder for view queries, with automatic pushdown filter, order-by mapping,
+     * aggregation formatting, HAVING routing, and join pruning.
      */
     public static final class ViewQueryBuilder {
         private final ViewModelMetadata view;
         private final ModelRegistry registry;
-        private final SelectQuery.Builder innerBuilder;
+        private final SqlDialect dialect;
+        private final Set<String> selectedFields = new LinkedHashSet<>();
+        private final List<OrderByClause> orderByList = new ArrayList<>();
+        private final Map<String, ModelMetadata> aliasToModelMap = new HashMap<>();
 
-        private ViewQueryBuilder(ViewModelMetadata view, ModelRegistry registry, SelectQuery.Builder innerBuilder) {
+        private WherePredicate wherePredicate;
+        private HavingPredicate havingPredicate;
+        private Integer limit;
+        private Integer offset;
+
+        private ViewQueryBuilder(
+                ViewModelMetadata view,
+                ModelRegistry registry,
+                SqlDialect dialect,
+                Collection<String> selectedFields
+        ) {
             this.view = view;
             this.registry = registry;
-            this.innerBuilder = innerBuilder;
+            this.dialect = dialect != null ? dialect : DEFAULT_DIALECT;
+
+            if (selectedFields != null && !selectedFields.isEmpty()) {
+                this.selectedFields.addAll(selectedFields);
+            }
+
+            // Populate alias map
+            if (view.sourceAlias() != null && registry != null && view.sourceModelName() != null) {
+                ModelMetadata sourceModel = registry.getModel(view.sourceModelName());
+                aliasToModelMap.put(view.sourceAlias(), sourceModel);
+            }
+            if (registry != null) {
+                for (ViewJoinMetadata joinMeta : view.joinDefinitions()) {
+                    ModelMetadata joinModel = registry.getModel(joinMeta.targetModel());
+                    aliasToModelMap.put(joinMeta.alias(), joinModel);
+                }
+            }
         }
 
         public ViewModelMetadata view() {
@@ -258,80 +379,314 @@ public final class ViewQueryPlanner {
             return registry;
         }
 
-        public SelectQuery.Builder toSelectQueryBuilder() {
-            return innerBuilder;
+        public SqlDialect dialect() {
+            return dialect;
         }
 
         /**
-         * Sets the WHERE predicate, automatically mapping view field names to qualified source columns.
+         * Selects only a specific subset of view fields to project in the SQL query.
          *
-         * @param predicate the predicate using view field names
+         * @param fieldNames the view field names to project
          * @return this builder
          */
-        public ViewQueryBuilder where(WherePredicate predicate) {
-            if (predicate != null) {
-                WherePredicate mapped = mapFilter(predicate, view);
-                innerBuilder.where(mapped);
+        public ViewQueryBuilder select(String... fieldNames) {
+            if (fieldNames != null) {
+                this.selectedFields.addAll(List.of(fieldNames));
             }
             return this;
         }
 
         /**
-         * Adds an order-by clause, automatically mapping the view field name to qualified source column.
+         * Selects only a specific subset of view fields to project in the SQL query.
+         *
+         * @param fieldNames the view field names to project
+         * @return this builder
+         */
+        public ViewQueryBuilder select(Collection<String> fieldNames) {
+            if (fieldNames != null) {
+                this.selectedFields.addAll(fieldNames);
+            }
+            return this;
+        }
+
+        /**
+         * Sets the WHERE predicate, automatically mapping view field names to qualified source columns
+         * and routing aggregate predicates to HAVING when necessary.
+         *
+         * @param predicate the predicate using view field names
+         * @return this builder
+         */
+        public ViewQueryBuilder where(WherePredicate predicate) {
+            this.wherePredicate = predicate;
+            return this;
+        }
+
+        /**
+         * Sets the HAVING predicate for filtering aggregated groups.
+         *
+         * @param predicate the predicate applied after grouping
+         * @return this builder
+         */
+        public ViewQueryBuilder having(WherePredicate predicate) {
+            this.havingPredicate = predicate != null ? HavingPredicate.of(predicate) : null;
+            return this;
+        }
+
+        /**
+         * Sets the HAVING predicate for filtering aggregated groups.
+         *
+         * @param having the having predicate
+         * @return this builder
+         */
+        public ViewQueryBuilder having(HavingPredicate having) {
+            this.havingPredicate = having;
+            return this;
+        }
+
+        /**
+         * Adds an order-by clause in ascending order.
          *
          * @param fieldName the view field name
          * @return this builder
          */
         public ViewQueryBuilder orderByAsc(String fieldName) {
-            String mapped = buildFieldToColumnMap(view).getOrDefault(fieldName, fieldName);
-            innerBuilder.orderByAsc(mapped);
+            this.orderByList.add(OrderByClause.asc(fieldName));
             return this;
         }
 
         /**
-         * Adds an order-by clause in descending order, mapping the field name.
+         * Adds an order-by clause in descending order.
          *
          * @param fieldName the view field name
          * @return this builder
          */
         public ViewQueryBuilder orderByDesc(String fieldName) {
-            String mapped = buildFieldToColumnMap(view).getOrDefault(fieldName, fieldName);
-            innerBuilder.orderByDesc(mapped);
+            this.orderByList.add(OrderByClause.desc(fieldName));
             return this;
         }
 
         /**
-         * Adds custom order-by clauses, mapping field names.
+         * Adds custom order-by clauses.
          *
          * @param orderBy the order by clauses
          * @return this builder
          */
         public ViewQueryBuilder orderBy(OrderByClause... orderBy) {
             if (orderBy != null) {
-                for (OrderByClause ob : mapOrderBy(List.of(orderBy), view)) {
-                    innerBuilder.orderBy(ob);
-                }
+                this.orderByList.addAll(List.of(orderBy));
             }
             return this;
         }
 
         public ViewQueryBuilder limit(Integer limit) {
-            innerBuilder.limit(limit);
+            this.limit = limit;
             return this;
         }
 
         public ViewQueryBuilder offset(Integer offset) {
-            innerBuilder.offset(offset);
+            this.offset = offset;
             return this;
         }
 
         /**
-         * Builds the final {@link SelectQuery} AST.
+         * Builds the final optimized {@link SelectQuery} AST, executing join pruning and GROUP BY optimization.
          *
          * @return immutable SelectQuery
          */
         public SelectQuery build() {
-            return innerBuilder.build();
+            // Strategy A: Database-backed view
+            if (view.isDatabaseBacked() || view.sourceModelName() == null) {
+                SourceTable source = SourceTable.view(view.viewName());
+                List<ProjectedColumn> columns = new ArrayList<>();
+                for (FieldMetadata field : view.fields()) {
+                    if (!field.isRelation()) {
+                        if (selectedFields.isEmpty() || selectedFields.contains(field.name())) {
+                            columns.add(ProjectedColumn.of(field.dbColumnName(), field.name()));
+                        }
+                    }
+                }
+                WherePredicate mappedWhere = mapFilter(wherePredicate, view, aliasToModelMap, dialect);
+                List<OrderByClause> mappedOrderBy = mapOrderBy(orderByList, view, aliasToModelMap, dialect);
+
+                return new SelectQuery(
+                        source,
+                        null,
+                        columns,
+                        List.of(),
+                        mappedWhere,
+                        List.of(),
+                        havingPredicate,
+                        mappedOrderBy,
+                        limit,
+                        offset
+                );
+            }
+
+            // Strategy B: GraphORM-defined virtual view
+            Objects.requireNonNull(registry, "ModelRegistry is required for virtual view queries");
+
+            ModelMetadata sourceModel = registry.getModel(view.sourceModelName());
+            SourceTable sourceTable = SourceTable.table(sourceModel.tableName());
+            String sourceAlias = view.sourceAlias();
+
+            // 1. Projected columns
+            List<ProjectedColumn> projectedColumns = new ArrayList<>();
+            for (FieldMetadata field : view.fields()) {
+                if (field.isRelation()) {
+                    continue;
+                }
+                if (!selectedFields.isEmpty() && !selectedFields.contains(field.name())) {
+                    continue;
+                }
+
+                String expression;
+                if (field.isAggregate()) {
+                    String raw = field.expression() != null ? field.expression() : field.dbColumnName();
+                    String resolved = resolveQualifiedColumn(raw, aliasToModelMap);
+                    AggregateType aggType = AggregateType.valueOf(field.aggregateFunction().toUpperCase());
+                    expression = dialect.buildAggregateSql(aggType, resolved);
+                } else if (field.expression() != null && !field.expression().isBlank()) {
+                    expression = field.expression();
+                } else {
+                    expression = field.dbColumnName();
+                    if (expression == null || expression.isBlank()) {
+                        expression = sourceAlias != null ? sourceAlias + "." + field.name() : field.name();
+                    } else if (!expression.contains(".") && !expression.contains("(") && sourceAlias != null) {
+                        expression = sourceAlias + "." + expression;
+                    }
+                }
+                projectedColumns.add(ProjectedColumn.of(expression, field.name()));
+            }
+
+            // 2. Joins
+            List<JoinClause> allJoins = new ArrayList<>();
+            for (ViewJoinMetadata joinMeta : view.joinDefinitions()) {
+                ModelMetadata joinModel = registry.getModel(joinMeta.targetModel());
+                SourceTable targetTable = SourceTable.table(joinModel.tableName());
+
+                WherePredicate joinCondition = JoinConditionParser.parse(
+                        joinMeta.onCondition(),
+                        ident -> resolveQualifiedColumn(ident, aliasToModelMap)
+                );
+
+                allJoins.add(new JoinClause(joinMeta.joinType(), targetTable, joinMeta.alias(), joinCondition));
+            }
+
+            // 3. Filter mapping & automatic HAVING separation
+            WherePredicate mappedWhere = mapFilter(wherePredicate, view, aliasToModelMap, dialect);
+            HavingPredicate mappedHaving = havingPredicate != null
+                    ? HavingPredicate.of(mapFilter(havingPredicate.predicate(), view, aliasToModelMap, dialect))
+                    : null;
+
+            // Separate aggregate predicates from WHERE to HAVING if present
+            WherePredicate finalWhere = mappedWhere;
+            HavingPredicate finalHaving = mappedHaving;
+
+            if (mappedWhere != null && isAggregatePredicate(mappedWhere)) {
+                FilterPartition partition = partitionFilter(mappedWhere);
+                finalWhere = partition.wherePart;
+                if (partition.havingPart != null) {
+                    if (finalHaving == null) {
+                        finalHaving = HavingPredicate.of(partition.havingPart);
+                    } else {
+                        finalHaving = HavingPredicate.of(finalHaving.predicate().and(partition.havingPart));
+                    }
+                }
+            }
+
+            // 4. Order By mapping
+            List<OrderByClause> mappedOrderBy = mapOrderBy(orderByList, view, aliasToModelMap, dialect);
+
+            // 5. Group By mapping
+            List<GroupByClause> declaredGroupBy = new ArrayList<>();
+            for (String groupCol : view.groupByColumns()) {
+                String resolved = resolveQualifiedColumn(groupCol, aliasToModelMap);
+                declaredGroupBy.add(GroupByClause.of(resolved));
+            }
+
+            // 6. Join Pruning and GROUP BY Optimization
+            JoinPruner.PruningResult pruned = JoinPruner.prune(
+                    sourceAlias,
+                    allJoins,
+                    projectedColumns,
+                    finalWhere,
+                    finalHaving,
+                    mappedOrderBy,
+                    declaredGroupBy
+            );
+
+            return new SelectQuery(
+                    sourceTable,
+                    sourceAlias,
+                    projectedColumns,
+                    pruned.joins(),
+                    finalWhere,
+                    pruned.groupBy(),
+                    finalHaving,
+                    mappedOrderBy,
+                    limit,
+                    offset
+            );
+        }
+
+        /**
+         * Creates a {@link SelectQuery.Builder} populated with this planned query.
+         *
+         * @return SelectQuery.Builder
+         */
+        public SelectQuery.Builder toSelectQueryBuilder() {
+            SelectQuery sq = build();
+            SelectQuery.Builder b = SelectQuery.from(sq.source()).as(sq.tableAlias());
+            for (ProjectedColumn pc : sq.columns()) {
+                b.column(pc);
+            }
+            for (JoinClause j : sq.joins()) {
+                b.join(j);
+            }
+            if (sq.where() != null) {
+                b.where(sq.where());
+            }
+            for (GroupByClause gb : sq.groupBy()) {
+                b.groupBy(gb);
+            }
+            if (sq.having() != null) {
+                b.having(sq.having());
+            }
+            for (OrderByClause ob : sq.orderBy()) {
+                b.orderBy(ob);
+            }
+            if (sq.limit() != null) {
+                b.limit(sq.limit());
+            }
+            if (sq.offset() != null) {
+                b.offset(sq.offset());
+            }
+            return b;
+        }
+
+        private record FilterPartition(WherePredicate wherePart, WherePredicate havingPart) {}
+
+        private FilterPartition partitionFilter(WherePredicate predicate) {
+            if (predicate instanceof WherePredicate.AndPredicate and) {
+                List<WherePredicate> whereChildren = new ArrayList<>();
+                List<WherePredicate> havingChildren = new ArrayList<>();
+                for (WherePredicate p : and.predicates()) {
+                    if (isAggregatePredicate(p)) {
+                        havingChildren.add(p);
+                    } else {
+                        whereChildren.add(p);
+                    }
+                }
+                WherePredicate w = whereChildren.isEmpty() ? null
+                        : (whereChildren.size() == 1 ? whereChildren.getFirst() : WherePredicate.and(whereChildren));
+                WherePredicate h = havingChildren.isEmpty() ? null
+                        : (havingChildren.size() == 1 ? havingChildren.getFirst() : WherePredicate.and(havingChildren));
+                return new FilterPartition(w, h);
+            } else if (isAggregatePredicate(predicate)) {
+                return new FilterPartition(null, predicate);
+            } else {
+                return new FilterPartition(predicate, null);
+            }
         }
     }
 }

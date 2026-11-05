@@ -123,6 +123,27 @@ public record ViewModelNode(
         return List.copyOf(list);
     }
 
+    /**
+     * Parses and returns the typed {@link GroupByAttributeNode} if {@code @@groupBy} is declared.
+     *
+     * @return typed GroupByAttributeNode or empty if not present
+     */
+    public Optional<GroupByAttributeNode> groupByClause() {
+        return groupByAttribute().map(gb -> {
+            List<String> cols = new ArrayList<>();
+            Optional<ExpressionNode> argVal = gb.getPositionalArgumentValue(0).or(() -> gb.getArgumentValue("fields"));
+            if (argVal.isPresent() && argVal.get() instanceof ArrayLiteralNode array) {
+                for (ExpressionNode elem : array.elements()) {
+                    String col = extractStringOrIdent(elem);
+                    if (col != null) {
+                        cols.add(col);
+                    }
+                }
+            }
+            return new GroupByAttributeNode(gb.position(), cols);
+        });
+    }
+
     private static String extractStringOrIdent(ExpressionNode expr) {
         if (expr instanceof StringLiteralNode str) {
             return str.value();
