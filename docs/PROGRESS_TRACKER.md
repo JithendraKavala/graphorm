@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 12
+- **Completed Tasks**: 17
 - **In Progress**: 0
-- **Not Started**: 53
-- **Current Active Phase**: Phase 4 (Phase 3 100% Completed, Ready for Phase 4)
+- **Not Started**: 48
+- **Current Active Phase**: Phase 5 (Phase 4 & Milestone 1 100% Completed, Ready for Phase 5)
 
 ---
 
@@ -31,11 +31,11 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 3** | Parsing | `TASK-3.3` | Diagnostic Error Reporting & Syntax Listener | Completed | `TASK-3.2` | Syntax errors display source line and column caret | `DiagnosticErrorListener`, `Diagnostic` with caret formatting, `SchemaValidationException` |
 | **Phase 3** | Parsing | `TASK-3.4` | Semantic Validation Engine | Completed | `TASK-3.3` | PK, relation, view join, cycle, read-only checks pass | `SchemaValidator`, `CycleDetector` with DFS cycle detection, 20 unit tests |
 | **Phase 3** | Parsing | `TASK-3.5` | Schema-to-Metadata Transformer | Completed | `TASK-3.4` | AST transformed into immutable `ModelRegistry` | `SchemaToMetadataTransformer`, Milestone 3 deliverable verified with Student, Department, StudentDashboard, Address |
-| **Phase 4** | **Milestone 1** | `TASK-4.1` | `SqlDialect` & `PostgreSqlDialect` | Not Started | `TASK-2.4` | Double quoting, limit/offset, positional `?` placeholders | Dialect unit tests |
-| **Phase 4** | **Milestone 1** | `TASK-4.2` | CRUD Query Builders & Parameter Extraction | Not Started | `TASK-4.1` | `SelectBuilder`, `InsertBuilder`, `UpdateBuilder`, `DeleteBuilder` | Read-only view guards |
-| **Phase 4** | **Milestone 1** | `TASK-4.3` | `DynamicRowMapper` & Type Conversion | Not Started | `TASK-4.2` | Maps `ResultSet` to Java types and records | Handles all scalars & nulls |
-| **Phase 4** | **Milestone 1** | `TASK-4.4` | `JdbcExecutor` & Resource Management | Not Started | `TASK-4.3` | Safe execution, parameter binding, auto-close resources | Zero connection leaks |
-| **Phase 4** | **Milestone 1** | `TASK-4.5` | Testcontainers PostgreSQL CRUD Integration Tests | Not Started | `TASK-4.4` | Full CRUD operations execute against real PostgreSQL | Milestone 1 verification |
+| **Phase 4** | **Milestone 1** | `TASK-4.1` | `SqlDialect` & `PostgreSqlDialect` | Completed | `TASK-2.4` | Double quoting, limit/offset, positional `?` placeholders | PostgreSqlDialect, AggregateType, PostgreSqlDialectTest |
+| **Phase 4** | **Milestone 1** | `TASK-4.2` | CRUD Query Builders & Parameter Extraction | Completed | `TASK-4.1` | `SelectBuilder`, `InsertBuilder`, `UpdateBuilder`, `DeleteBuilder` | BoundSql, WhereClauseBuilder, OrderByClauseBuilder, read-only view guards verified |
+| **Phase 4** | **Milestone 1** | `TASK-4.3` | `DynamicRowMapper` & Type Conversion | Completed | `TASK-4.2` | Maps `ResultSet` to Java types, records, and models | DynamicRowMapperTest covering all scalar types, records, and null defaults |
+| **Phase 4** | **Milestone 1** | `TASK-4.4` | `JdbcExecutor` & Resource Management | Completed | `TASK-4.3` | Safe execution, parameter binding, auto-close resources | JdbcExecutor, JdbcTransactionManager, 0 connection leaks verified |
+| **Phase 4** | **Milestone 1** | `TASK-4.5` | Testcontainers PostgreSQL CRUD Integration Tests | Completed | `TASK-4.4` | Full CRUD operations execute against real PostgreSQL | PostgresCrudIntegrationTest, Milestone 1 deliverable verified |
 | **Phase 5** | Querying | `TASK-5.1` | `WherePredicate` Composable Tree | Not Started | `TASK-4.5` | Recursive `AND`, `OR`, `NOT`, and comparison operators | Composable AST |
 | **Phase 5** | Querying | `TASK-5.2` | `WhereClauseBuilder` Parameterized Rendering | Not Started | `TASK-5.1` | Parameterized SQL WHERE clause with bound values | 100% parameterization |
 | **Phase 5** | Querying | `TASK-5.3` | `OrderByClauseBuilder` Multi-Column Sorting | Not Started | `TASK-5.2` | Direction (`ASC`, `DESC`) and nulls positioning | Pushdown sorting |

@@ -1,5 +1,6 @@
 package com.graphorm.core.query;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -22,7 +23,7 @@ public record InsertQuery(
         if (values.isEmpty()) {
             throw new IllegalArgumentException("Insert query must specify at least one column value");
         }
-        values = Map.copyOf(values);
+        values = Collections.unmodifiableMap(new LinkedHashMap<>(values));
     }
 
     @Override
