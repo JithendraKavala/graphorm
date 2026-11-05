@@ -1,0 +1,89 @@
+package com.graphorm.graphql.fetcher;
+
+import com.graphorm.core.metadata.ModelRegistry;
+import com.graphorm.core.metadata.ViewModelMetadata;
+import com.graphorm.core.query.OrderByClause;
+import com.graphorm.core.query.SelectQuery;
+import com.graphorm.core.query.WherePredicate;
+import com.graphorm.graphql.binding.ArgumentBinder;
+import com.graphorm.jdbc.dialect.SqlDialect;
+import com.graphorm.jdbc.executor.JdbcExecutor;
+import com.graphorm.jdbc.view.ViewQueryPlanner;
+import graphql.schema.DataFetcher;
+import graphql.schema.DataFetchingEnvironment;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Generic GraphQL {@link DataFetcher} for querying a list of view model entities (e.g. {@code Query.studentDashboards}).
+ * Translates filters, sorting, and pagination via {@link ViewQueryPlanner} with automatic join pruning and aggregate handling.
+ */
+public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>>> {
+
+    private static final Logger log = LoggerFactory.getLogger(ViewListDataFetcher.class);
+
+    private final ViewModelMetadata view;
+    private final ModelRegistry registry;
+    private final JdbcExecutor executor;
+    private final ArgumentBinder argumentBinder;
+    private final SqlDialect dialect;
+
+    public ViewListDataFetcher(
+            ViewModelMetadata view,
+            ModelRegistry registry,
+            JdbcExecutor executor,
+            ArgumentBinder argumentBinder,
+            SqlDialect dialect
+    ) {
+        this.view = Objects.requireNonNull(view, "ViewModelMetadata must not be null");
+        this.registry = Objects.requireNonNull(registry, "ModelRegistry must not be null");
+        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
+        this.argumentBinder = argumentBinder != null ? argumentBinder : new ArgumentBinder();
+        this.dialect = dialect != null ? dialect : executor.dialect();
+    }
+
+    public ViewListDataFetcher(ViewModelMetadata view, ModelRegistry registry, JdbcExecutor executor) {
+        this(view, registry, executor, new ArgumentBinder(), executor.dialect());
+    }
+
+    @Override
+    public List<Map<String, Object>> get(DataFetchingEnvironment env) {
+        log.debug("Executing ViewListDataFetcher for view: {}", view.name());
+
+        ViewQueryPlanner.ViewQueryBuilder builder = ViewQueryPlanner.forView(view, registry, dialect);
+
+        WherePredicate where = argumentBinder.bindWhere(env, view);
+        if (where != null) {
+            builder.where(where);
+        }
+
+        List<OrderByClause> orderBy = argumentBinder.bindOrderBy(env, view);
+        if (!orderBy.isEmpty()) {
+            builder.orderBy(orderBy.toArray(new OrderByClause[0]));
+        }
+
+        Integer limit = argumentBinder.bindLimit(env);
+        if (limit != null) {
+            builder.limit(limit);
+        }
+
+        Integer offset = argumentBinder.bindOffset(env);
+        if (offset != null) {
+            builder.offset(offset);
+        }
+
+        SelectQuery query = builder.build();
+        List<Map<String, Object>> rows = executor.queryForList(query);
+        return rows.stream()
+                .map(r -> EntityRowNormalizer.normalize(r, view))
+                .toList();
+    }
+
+    public ViewModelMetadata view() {
+        return view;
+    }
+}

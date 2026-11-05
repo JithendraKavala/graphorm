@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 38
+- **Completed Tasks**: 44
 - **In Progress**: 0
-- **Not Started**: 27
-- **Current Active Phase**: Phase 10 (Phase 9 & Milestone 3 100% Completed, Ready for Phase 10 & Milestone 4)
+- **Not Started**: 21
+- **Current Active Phase**: Phase 11 (Phase 10 & Milestone 4 100% Completed, Ready for Phase 11 & Milestone 5)
 
 ---
 
@@ -57,12 +57,12 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 9** | **Milestone 3** | `TASK-9.2` | SQL Builder for `GROUP BY`, `HAVING`, Aggregates | Completed | `TASK-9.1` | Generates `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `GROUP BY`, `HAVING` | `PostgreSqlDialect`, `SelectBuilder`, `ViewAggregationSqlTest.java` (4 tests) |
 | **Phase 9** | **Milestone 3** | `TASK-9.3` | Join Pruning Optimization | Completed | `TASK-9.2` | Omit unselected joins when fields are not requested | `JoinPruner.java`, `ViewQueryPlanner.java`, `JoinPrunerTest.java` (5 tests) |
 | **Phase 9** | **Milestone 3** | `TASK-9.4` | Testcontainers Aggregation & View Tests | Completed | `TASK-9.3` | Single SQL query executed for aggregated dashboard view | `PostgresAggregationViewIntegrationTest.java` (7 tests, Milestone 3 deliverable verified) |
-| **Phase 10** | **Milestone 4** | `TASK-10.1` | GraphQL SDL Type Inspector & Model Matching | Not Started | `TASK-6.4`, `TASK-9.4` | Maps `schema.graphqls` types to `ModelRegistry` | Dual schema mapping |
-| **Phase 10** | **Milestone 4** | `TASK-10.2` | Generic Model Query DataFetchers | Not Started | `TASK-10.1` | Auto-registers `Query.<model>s`, `Query.<model>` | Generic fetchers |
-| **Phase 10** | **Milestone 4** | `TASK-10.3` | Generic Model Mutation DataFetchers | Not Started | `TASK-10.2` | Auto-registers `create`, `update`, `delete` for models | Regular models only |
-| **Phase 10** | **Milestone 4** | `TASK-10.4` | Generic View Query DataFetchers (Read-Only) | Not Started | `TASK-10.3` | Registers view queries, strictly omits view mutations | Read-only guard |
-| **Phase 10** | **Milestone 4** | `TASK-10.5` | GraphQL Argument Binder | Not Started | `TASK-10.4` | Converts GraphQL arguments to `WherePredicate` | Dynamic filtering |
-| **Phase 10** | **Milestone 4** | `TASK-10.6` | End-to-End GraphQL Execution Tests | Not Started | `TASK-10.5` | Models and views queried via GraphQL Java engine | Milestone 4 verification |
+| **Phase 10** | **Milestone 4** | `TASK-10.1` | GraphQL SDL Type Inspector & Model Matching | Completed | `TASK-6.4`, `TASK-9.4` | Maps `schema.graphqls` types to `ModelRegistry` | `GraphQlTypeInspector.java`, `GraphQlOperationBinding.java`, `GraphQlOperationKind.java`, `GraphQlTypeInspectorTest.java` (2 tests) |
+| **Phase 10** | **Milestone 4** | `TASK-10.2` | Generic Model Query DataFetchers | Completed | `TASK-10.1` | Auto-registers `Query.<model>s`, `Query.<model>` | `ModelListDataFetcher.java`, `ModelSingleDataFetcher.java`, `EntityRowNormalizer.java` |
+| **Phase 10** | **Milestone 4** | `TASK-10.3` | Generic Model Mutation DataFetchers | Completed | `TASK-10.2` | Auto-registers `create`, `update`, `delete` for models | `ModelCreateDataFetcher.java`, `ModelUpdateDataFetcher.java`, `ModelDeleteDataFetcher.java` |
+| **Phase 10** | **Milestone 4** | `TASK-10.4` | Generic View Query DataFetchers (Read-Only) | Completed | `TASK-10.3` | Registers view queries, strictly omits view mutations | `ViewListDataFetcher.java`, `ViewSingleDataFetcher.java`, `GraphOrmGraphQlRegistrarTest.java` (strict read-only guard) |
+| **Phase 10** | **Milestone 4** | `TASK-10.5` | GraphQL Argument Binder | Completed | `TASK-10.4` | Converts GraphQL arguments to `WherePredicate` | `ArgumentBinder.java`, `ArgumentBinderTest.java` (10 tests) |
+| **Phase 10** | **Milestone 4** | `TASK-10.6` | End-to-End GraphQL Execution Tests | Completed | `TASK-10.5` | Models and views queried via GraphQL Java engine | `PostgresGraphQlExecutionIntegrationTest.java` (10 tests, Milestone 4 verified) |
 | **Phase 11** | **Milestone 5** | `TASK-11.1` | `SelectionSetAnalyzer` for Field Trees | Not Started | `TASK-10.6` | Traverses GraphQL selection set | Selection set analysis |
 | **Phase 11** | **Milestone 5** | `TASK-11.2` | Selective Column Projection in SQL | Not Started | `TASK-11.1` | `SELECT` statement includes only requested fields | Over-fetching eliminated |
 | **Phase 11** | **Milestone 5** | `TASK-11.3` | Hidden Dependency Foreign Key Injection | Not Started | `TASK-11.2` | Auto-injects hidden foreign keys with `isHidden=true` | Downstream batching |
