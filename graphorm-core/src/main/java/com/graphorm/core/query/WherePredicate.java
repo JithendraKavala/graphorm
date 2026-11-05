@@ -3,6 +3,7 @@ package com.graphorm.core.query;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -24,7 +25,7 @@ public sealed interface WherePredicate permits
      * Combines this predicate with another using a logical AND.
      *
      * @param other the other predicate
-     * @return a new combined {@link AndPredicate}
+     * @return a new combined {@link AndPredicate} or simplified predicate
      */
     default WherePredicate and(WherePredicate other) {
         Objects.requireNonNull(other, "Predicate to AND must not be null");
@@ -35,7 +36,7 @@ public sealed interface WherePredicate permits
      * Combines this predicate with another using a logical OR.
      *
      * @param other the other predicate
-     * @return a new combined {@link OrPredicate}
+     * @return a new combined {@link OrPredicate} or simplified predicate
      */
     default WherePredicate or(WherePredicate other) {
         Objects.requireNonNull(other, "Predicate to OR must not be null");
@@ -45,7 +46,7 @@ public sealed interface WherePredicate permits
     /**
      * Negates this predicate using a logical NOT.
      *
-     * @return a new {@link NotPredicate}
+     * @return a new {@link NotPredicate} (or the unwrapped inner predicate if already negated)
      */
     default WherePredicate negate() {
         return WherePredicate.not(this);
@@ -111,7 +112,7 @@ public sealed interface WherePredicate permits
                 throw new IllegalArgumentException("Column must not be blank");
             }
             Objects.requireNonNull(values, "Values must not be null");
-            values = List.copyOf(values);
+            values = Collections.unmodifiableList(new ArrayList<>(values));
         }
     }
 
@@ -165,27 +166,83 @@ public sealed interface WherePredicate permits
     }
 
     static WherePredicate gt(String column, Object value) {
+        Objects.requireNonNull(value, "Value for gt must not be null");
         return new BinaryPredicate(column, ComparisonOperator.GREATER_THAN, value);
     }
 
     static WherePredicate gte(String column, Object value) {
+        Objects.requireNonNull(value, "Value for gte must not be null");
         return new BinaryPredicate(column, ComparisonOperator.GREATER_THAN_OR_EQUAL, value);
     }
 
     static WherePredicate lt(String column, Object value) {
+        Objects.requireNonNull(value, "Value for lt must not be null");
         return new BinaryPredicate(column, ComparisonOperator.LESS_THAN, value);
     }
 
     static WherePredicate lte(String column, Object value) {
+        Objects.requireNonNull(value, "Value for lte must not be null");
         return new BinaryPredicate(column, ComparisonOperator.LESS_THAN_OR_EQUAL, value);
     }
 
     static WherePredicate like(String column, String pattern) {
+        Objects.requireNonNull(pattern, "Pattern for like must not be null");
         return new BinaryPredicate(column, ComparisonOperator.LIKE, pattern);
     }
 
     static WherePredicate ilike(String column, String pattern) {
+        Objects.requireNonNull(pattern, "Pattern for ilike must not be null");
         return new BinaryPredicate(column, ComparisonOperator.ILIKE, pattern);
+    }
+
+    static WherePredicate notLike(String column, String pattern) {
+        return not(like(column, pattern));
+    }
+
+    static WherePredicate notILike(String column, String pattern) {
+        return not(ilike(column, pattern));
+    }
+
+    static WherePredicate contains(String column, String substring) {
+        Objects.requireNonNull(substring, "Substring for contains must not be null");
+        return like(column, "%" + substring + "%");
+    }
+
+    static WherePredicate startsWith(String column, String prefix) {
+        Objects.requireNonNull(prefix, "Prefix for startsWith must not be null");
+        return like(column, prefix + "%");
+    }
+
+    static WherePredicate endsWith(String column, String suffix) {
+        Objects.requireNonNull(suffix, "Suffix for endsWith must not be null");
+        return like(column, "%" + suffix);
+    }
+
+    static WherePredicate iContains(String column, String substring) {
+        Objects.requireNonNull(substring, "Substring for iContains must not be null");
+        return ilike(column, "%" + substring + "%");
+    }
+
+    static WherePredicate iStartsWith(String column, String prefix) {
+        Objects.requireNonNull(prefix, "Prefix for iStartsWith must not be null");
+        return ilike(column, prefix + "%");
+    }
+
+    static WherePredicate iEndsWith(String column, String suffix) {
+        Objects.requireNonNull(suffix, "Suffix for iEndsWith must not be null");
+        return ilike(column, "%" + suffix);
+    }
+
+    static WherePredicate containsIgnoreCase(String column, String substring) {
+        return iContains(column, substring);
+    }
+
+    static WherePredicate startsWithIgnoreCase(String column, String prefix) {
+        return iStartsWith(column, prefix);
+    }
+
+    static WherePredicate endsWithIgnoreCase(String column, String suffix) {
+        return iEndsWith(column, suffix);
     }
 
     static WherePredicate in(String column, Collection<?> values) {
@@ -220,6 +277,10 @@ public sealed interface WherePredicate permits
         return new BetweenPredicate(column, lower, upper);
     }
 
+    static WherePredicate notBetween(String column, Object lower, Object upper) {
+        return not(between(column, lower, upper));
+    }
+
     static WherePredicate and(WherePredicate... predicates) {
         Objects.requireNonNull(predicates, "Predicates must not be null");
         return and(Arrays.asList(predicates));
@@ -235,6 +296,12 @@ public sealed interface WherePredicate permits
             } else {
                 flattened.add(p);
             }
+        }
+        if (flattened.isEmpty()) {
+            throw new IllegalArgumentException("AndPredicate must contain at least one predicate");
+        }
+        if (flattened.size() == 1) {
+            return flattened.getFirst();
         }
         return new AndPredicate(flattened);
     }
@@ -254,6 +321,12 @@ public sealed interface WherePredicate permits
             } else {
                 flattened.add(p);
             }
+        }
+        if (flattened.isEmpty()) {
+            throw new IllegalArgumentException("OrPredicate must contain at least one predicate");
+        }
+        if (flattened.size() == 1) {
+            return flattened.getFirst();
         }
         return new OrPredicate(flattened);
     }

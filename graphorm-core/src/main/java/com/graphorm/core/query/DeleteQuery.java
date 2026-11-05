@@ -24,11 +24,7 @@ public record DeleteQuery(
     }
 
     /**
-     * Creates a builder for a DELETE query from the specified table.
-     *
-     * @param tableName the target physical table name
-     * @return a new Builder instance
-     */
+     * Creates a builder for a DELETE query from the specified table.\n     *\n     * @param tableName the target physical table name\n     * @return a new Builder instance\n     */
     public static Builder from(String tableName) {
         return new Builder(SourceTable.table(tableName));
     }
@@ -56,6 +52,26 @@ public record DeleteQuery(
 
         public Builder where(WherePredicate where) {
             this.where = where;
+            return this;
+        }
+
+        public Builder andWhere(WherePredicate predicate) {
+            Objects.requireNonNull(predicate, "Predicate must not be null");
+            if (this.where == null) {
+                this.where = predicate;
+            } else {
+                this.where = this.where.and(predicate);
+            }
+            return this;
+        }
+
+        public Builder orWhere(WherePredicate predicate) {
+            Objects.requireNonNull(predicate, "Predicate must not be null");
+            if (this.where == null) {
+                this.where = predicate;
+            } else {
+                this.where = this.where.or(predicate);
+            }
             return this;
         }
 

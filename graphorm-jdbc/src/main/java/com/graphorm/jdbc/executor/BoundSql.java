@@ -12,12 +12,20 @@ import java.util.Objects;
  */
 public record BoundSql(String sql, List<Object> parameters) {
 
+    public static final BoundSql EMPTY = new BoundSql("", List.of());
+
     public BoundSql {
         Objects.requireNonNull(sql, "SQL statement must not be null");
-        if (sql.isBlank()) {
-            throw new IllegalArgumentException("SQL statement must not be blank");
-        }
         parameters = parameters == null ? List.of() : List.copyOf(parameters);
+    }
+
+    /**
+     * Returns an empty {@link BoundSql} snippet.
+     *
+     * @return the empty BoundSql instance
+     */
+    public static BoundSql empty() {
+        return EMPTY;
     }
 
     /**

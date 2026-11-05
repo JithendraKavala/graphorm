@@ -83,6 +83,26 @@ public record UpdateQuery(
             return this;
         }
 
+        public Builder andWhere(WherePredicate predicate) {
+            Objects.requireNonNull(predicate, "Predicate must not be null");
+            if (this.where == null) {
+                this.where = predicate;
+            } else {
+                this.where = this.where.and(predicate);
+            }
+            return this;
+        }
+
+        public Builder orWhere(WherePredicate predicate) {
+            Objects.requireNonNull(predicate, "Predicate must not be null");
+            if (this.where == null) {
+                this.where = predicate;
+            } else {
+                this.where = this.where.or(predicate);
+            }
+            return this;
+        }
+
         public UpdateQuery build() {
             return new UpdateQuery(table, values, where);
         }

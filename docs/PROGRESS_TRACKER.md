@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 17
+- **Completed Tasks**: 21
 - **In Progress**: 0
-- **Not Started**: 48
-- **Current Active Phase**: Phase 5 (Phase 4 & Milestone 1 100% Completed, Ready for Phase 5)
+- **Not Started**: 44
+- **Current Active Phase**: Phase 6 (Phase 5 100% Completed, Ready for Phase 6)
 
 ---
 
@@ -36,10 +36,10 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 4** | **Milestone 1** | `TASK-4.3` | `DynamicRowMapper` & Type Conversion | Completed | `TASK-4.2` | Maps `ResultSet` to Java types, records, and models | DynamicRowMapperTest covering all scalar types, records, and null defaults |
 | **Phase 4** | **Milestone 1** | `TASK-4.4` | `JdbcExecutor` & Resource Management | Completed | `TASK-4.3` | Safe execution, parameter binding, auto-close resources | JdbcExecutor, JdbcTransactionManager, 0 connection leaks verified |
 | **Phase 4** | **Milestone 1** | `TASK-4.5` | Testcontainers PostgreSQL CRUD Integration Tests | Completed | `TASK-4.4` | Full CRUD operations execute against real PostgreSQL | PostgresCrudIntegrationTest, Milestone 1 deliverable verified |
-| **Phase 5** | Querying | `TASK-5.1` | `WherePredicate` Composable Tree | Not Started | `TASK-4.5` | Recursive `AND`, `OR`, `NOT`, and comparison operators | Composable AST |
-| **Phase 5** | Querying | `TASK-5.2` | `WhereClauseBuilder` Parameterized Rendering | Not Started | `TASK-5.1` | Parameterized SQL WHERE clause with bound values | 100% parameterization |
-| **Phase 5** | Querying | `TASK-5.3` | `OrderByClauseBuilder` Multi-Column Sorting | Not Started | `TASK-5.2` | Direction (`ASC`, `DESC`) and nulls positioning | Pushdown sorting |
-| **Phase 5** | Querying | `TASK-5.4` | Testcontainers Integration for Filter & Pagination | Not Started | `TASK-5.3` | Complex queries execute with pushdown on PostgreSQL | Integration tests |
+| **Phase 5** | Querying | `TASK-5.1` | `WherePredicate` Composable Tree | Completed | `TASK-4.5` | Recursive `AND`, `OR`, `NOT`, and comparison operators | `WherePredicateTest.java`, binary, string helpers, in/notIn, between, recursive tree flattening |
+| **Phase 5** | Querying | `TASK-5.2` | `WhereClauseBuilder` Parameterized Rendering | Completed | `TASK-5.1` | Parameterized SQL WHERE clause with bound values | `WhereClauseBuilderTest.java`, 100% parameter extraction, acceptance filter verified |
+| **Phase 5** | Querying | `TASK-5.3` | `OrderByClauseBuilder` Multi-Column Sorting | Completed | `TASK-5.2` | Direction (`ASC`, `DESC`) and nulls positioning | `OrderByClauseTest.java`, `OrderByClauseBuilderTest.java`, direction & NULLS FIRST/LAST |
+| **Phase 5** | Querying | `TASK-5.4` | Testcontainers Integration for Filter & Pagination | Completed | `TASK-5.3` | Complex queries execute with pushdown on PostgreSQL | `PostgresFilterPaginationIntegrationTest.java`, Testcontainers pushdown verified on PostgreSQL |
 | **Phase 6** | Relations | `TASK-6.1` | `RelationPlanner` for 1:1, 1:N, N:1 Relations | Not Started | `TASK-5.4` | Relationship plan generated for key lookups | Planning abstraction |
 | **Phase 6** | Relations | `TASK-6.2` | `BatchRelationLoader` via `WHERE IN (?)` | Not Started | `TASK-6.1` | Batched query execution and result association | DataLoader foundation |
 | **Phase 6** | Relations | `TASK-6.3` | SQL Statement Counter Test Utility | Not Started | `TASK-6.2` | Tracks exact JDBC statement execution counts | Assertion harness |

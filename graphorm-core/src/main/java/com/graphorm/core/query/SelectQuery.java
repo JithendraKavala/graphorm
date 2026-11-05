@@ -158,6 +158,26 @@ public record SelectQuery(
             return this;
         }
 
+        public Builder andWhere(WherePredicate predicate) {
+            Objects.requireNonNull(predicate, "Predicate must not be null");
+            if (this.where == null) {
+                this.where = predicate;
+            } else {
+                this.where = this.where.and(predicate);
+            }
+            return this;
+        }
+
+        public Builder orWhere(WherePredicate predicate) {
+            Objects.requireNonNull(predicate, "Predicate must not be null");
+            if (this.where == null) {
+                this.where = predicate;
+            } else {
+                this.where = this.where.or(predicate);
+            }
+            return this;
+        }
+
         public Builder groupBy(GroupByClause groupBy) {
             this.groupBy.add(Objects.requireNonNull(groupBy, "GroupBy must not be null"));
             return this;
@@ -199,16 +219,39 @@ public record SelectQuery(
             return this;
         }
 
+        public Builder orderBy(OrderByClause... orderBy) {
+            if (orderBy != null) {
+                for (OrderByClause clause : orderBy) {
+                    if (clause != null) {
+                        this.orderBy.add(clause);
+                    }
+                }
+            }
+            return this;
+        }
+
         public Builder orderBy(String expression, OrderDirection direction) {
             return orderBy(new OrderByClause(expression, direction, NullsOrder.DEFAULT));
+        }
+
+        public Builder orderBy(String expression, OrderDirection direction, NullsOrder nullsOrder) {
+            return orderBy(new OrderByClause(expression, direction, nullsOrder));
         }
 
         public Builder orderByAsc(String expression) {
             return orderBy(OrderByClause.asc(expression));
         }
 
+        public Builder orderByAsc(String expression, NullsOrder nullsOrder) {
+            return orderBy(OrderByClause.asc(expression, nullsOrder));
+        }
+
         public Builder orderByDesc(String expression) {
             return orderBy(OrderByClause.desc(expression));
+        }
+
+        public Builder orderByDesc(String expression, NullsOrder nullsOrder) {
+            return orderBy(OrderByClause.desc(expression, nullsOrder));
         }
 
         public Builder orderBy(List<OrderByClause> orderBy) {

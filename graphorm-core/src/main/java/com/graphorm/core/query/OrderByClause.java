@@ -28,6 +28,14 @@ public record OrderByClause(
         }
     }
 
+    public static OrderByClause of(String expression, OrderDirection direction) {
+        return new OrderByClause(expression, direction, NullsOrder.DEFAULT);
+    }
+
+    public static OrderByClause of(String expression, OrderDirection direction, NullsOrder nullsOrder) {
+        return new OrderByClause(expression, direction, nullsOrder);
+    }
+
     public static OrderByClause asc(String expression) {
         return new OrderByClause(expression, OrderDirection.ASC, NullsOrder.DEFAULT);
     }
@@ -42,5 +50,21 @@ public record OrderByClause(
 
     public static OrderByClause desc(String expression, NullsOrder nullsOrder) {
         return new OrderByClause(expression, OrderDirection.DESC, nullsOrder);
+    }
+
+    public static OrderByClause ascNullsFirst(String expression) {
+        return new OrderByClause(expression, OrderDirection.ASC, NullsOrder.FIRST);
+    }
+
+    public static OrderByClause ascNullsLast(String expression) {
+        return new OrderByClause(expression, OrderDirection.ASC, NullsOrder.LAST);
+    }
+
+    public static OrderByClause descNullsFirst(String expression) {
+        return new OrderByClause(expression, OrderDirection.DESC, NullsOrder.FIRST);
+    }
+
+    public static OrderByClause descNullsLast(String expression) {
+        return new OrderByClause(expression, OrderDirection.DESC, NullsOrder.LAST);
     }
 }

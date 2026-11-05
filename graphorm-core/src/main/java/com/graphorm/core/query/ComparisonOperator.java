@@ -5,7 +5,7 @@ package com.graphorm.core.query;
  */
 public enum ComparisonOperator {
     EQUALS("="),
-    NOT_EQUALS("<>"),
+    NOT_EQUALS("!="),
     GREATER_THAN(">"),
     GREATER_THAN_OR_EQUAL(">="),
     LESS_THAN("<"),

@@ -25,11 +25,11 @@ public final class WhereClauseBuilder {
      */
     public static BoundSql buildWhereClause(WherePredicate predicate, SqlDialect dialect) {
         if (predicate == null) {
-            return BoundSql.of("");
+            return BoundSql.empty();
         }
         BoundSql inner = build(predicate, dialect);
         if (inner.sql().isBlank()) {
-            return BoundSql.of("");
+            return BoundSql.empty();
         }
         return new BoundSql(" WHERE " + inner.sql(), inner.parameters());
     }
