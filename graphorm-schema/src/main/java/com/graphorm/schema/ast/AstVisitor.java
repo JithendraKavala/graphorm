@@ -55,6 +55,14 @@ public interface AstVisitor<R> {
         return null;
     }
 
+    default R visitFromAttribute(FromAttributeNode fromAttribute) {
+        return null;
+    }
+
+    default R visitJoinAttribute(JoinAttributeNode joinAttribute) {
+        return null;
+    }
+
     default R visitArgument(ArgumentNode argument) {
         return null;
     }

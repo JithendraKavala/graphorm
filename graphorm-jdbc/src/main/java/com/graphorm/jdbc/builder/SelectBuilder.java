@@ -3,6 +3,7 @@ package com.graphorm.jdbc.builder;
 import com.graphorm.core.metadata.EntityMetadata;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
+import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.ViewModelMetadata;
 import com.graphorm.core.query.GroupByClause;
 import com.graphorm.core.query.JoinClause;
@@ -12,6 +13,7 @@ import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.BoundSql;
+import com.graphorm.jdbc.view.ViewQueryPlanner;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,18 +49,40 @@ public final class SelectBuilder {
      * @return a configured SelectQuery.Builder
      */
     public static SelectQuery.Builder forEntity(EntityMetadata entity) {
+        return forEntity(entity, null);
+    }
+
+    /**
+     * Creates a {@link SelectQuery.Builder} pre-populated with an entity's columns, joins,
+     * and target tables, utilizing the {@link ModelRegistry} for virtual joined view models.
+     *
+     * @param entity   the entity metadata (Model or ViewModel)
+     * @param registry the model registry (required for virtual views with joins)
+     * @return a configured SelectQuery.Builder
+     */
+    public static SelectQuery.Builder forEntity(EntityMetadata entity, ModelRegistry registry) {
         Objects.requireNonNull(entity, "Entity metadata must not be null");
+
+        if (entity instanceof ViewModelMetadata vm && !vm.isDatabaseBacked() && registry != null) {
+            return ViewQueryPlanner.plan(vm, registry).toSelectQueryBuilder();
+        }
+
         String tableName;
+        SourceTable source;
         if (entity instanceof ModelMetadata model) {
             tableName = model.tableName();
+            source = SourceTable.table(tableName);
         } else if (entity instanceof ViewModelMetadata vm) {
             tableName = vm.viewName();
+            source = vm.isDatabaseBacked()
+                    ? SourceTable.view(tableName)
+                    : SourceTable.view(tableName);
         } else {
             tableName = entity.name().toLowerCase();
+            source = entity.isReadOnly()
+                    ? SourceTable.view(tableName)
+                    : SourceTable.table(tableName);
         }
-        SourceTable source = entity.isReadOnly()
-                ? SourceTable.view(tableName)
-                : SourceTable.table(tableName);
 
         SelectQuery.Builder builder = SelectQuery.from(source);
         for (FieldMetadata field : entity.fields()) {

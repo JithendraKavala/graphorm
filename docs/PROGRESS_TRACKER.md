@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 29
+- **Completed Tasks**: 34
 - **In Progress**: 0
-- **Not Started**: 36
-- **Current Active Phase**: Phase 8 (Phase 7 & Milestone 2 100% Completed, Ready for Phase 8)
+- **Not Started**: 31
+- **Current Active Phase**: Phase 9 (Phase 8 100% Completed, Ready for Phase 9 & Milestone 3)
 
 ---
 
@@ -48,11 +48,11 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 7** | **Milestone 2** | `TASK-7.2` | `SelectBuilder` Support for `SourceTable.DatabaseView` | Completed | `TASK-7.1` | SELECT queries target PostgreSQL physical views | `SelectBuilder.java`, `QueryBuildersTest.java`, view projection & alias support |
 | **Phase 7** | **Milestone 2** | `TASK-7.3` | Enforce Read-Only Constraint on DB Views | Completed | `TASK-7.2` | Insert/update/delete builders throw `ReadOnlyViewException` | `QueryGuards`, `InsertBuilder`, `UpdateBuilder`, `DeleteBuilder`, `QueryBuildersTest.java` |
 | **Phase 7** | **Milestone 2** | `TASK-7.4` | Testcontainers Tests for DB View Queries | Completed | `TASK-7.3` | Filtered, paginated queries against PostgreSQL view | `PostgresDatabaseViewIntegrationTest.java`, Milestone 2 deliverable verified on PostgreSQL |
-| **Phase 8** | Virtual Views | `TASK-8.1` | Parser Rules for `@@from`, `@@leftJoin`, `@@innerJoin` | Not Started | `TASK-7.4` | Parse virtual schema views and join directives | Stage 2 views |
-| **Phase 8** | Virtual Views | `TASK-8.2` | Join Condition Parser & AST Representation | Not Started | `TASK-8.1` | Strongly typed `JoinClause` constructed from schema | Join tree AST |
-| **Phase 8** | Virtual Views | `TASK-8.3` | Multi-Table Join SQL Generation | Not Started | `TASK-8.2` | Parameterized SQL with `LEFT JOIN` and `INNER JOIN` | Dialect generation |
-| **Phase 8** | Virtual Views | `TASK-8.4` | Pushdown Filter & Order-By Mapping for Joined Views | Not Started | `TASK-8.3` | View field aliases mapped to qualified source columns | Pushdown execution |
-| **Phase 8** | Virtual Views | `TASK-8.5` | Testcontainers Multi-Table Joined View Tests | Not Started | `TASK-8.4` | 3-table virtual joined view queries in PostgreSQL | Integration tests |
+| **Phase 8** | Virtual Views | `TASK-8.1` | Parser Rules for `@@from`, `@@leftJoin`, `@@innerJoin` | Completed | `TASK-7.4` | Parse virtual schema views and join directives | `FromAttributeNode`, `JoinAttributeNode`, `VirtualViewSchemaTest.java` |
+| **Phase 8** | Virtual Views | `TASK-8.2` | Join Condition Parser & AST Representation | Completed | `TASK-8.1` | Strongly typed `JoinClause` constructed from schema | `JoinConditionParser.java`, `ColumnComparisonPredicate`, `JoinConditionParserTest.java` |
+| **Phase 8** | Virtual Views | `TASK-8.3` | Multi-Table Join SQL Generation | Completed | `TASK-8.2` | Parameterized SQL with `LEFT JOIN` and `INNER JOIN` | `SelectBuilder.java`, `MultiTableJoinSqlTest.java` |
+| **Phase 8** | Virtual Views | `TASK-8.4` | Pushdown Filter & Order-By Mapping for Joined Views | Completed | `TASK-8.3` | View field aliases mapped to qualified source columns | `ViewQueryPlanner.java`, `ViewQueryPlannerTest.java` |
+| **Phase 8** | Virtual Views | `TASK-8.5` | Testcontainers Multi-Table Joined View Tests | Completed | `TASK-8.4` | 3-table virtual joined view queries in PostgreSQL | `PostgresVirtualJoinedViewIntegrationTest.java` |
 | **Phase 9** | **Milestone 3** | `TASK-9.1` | Parser for `@aggregate`, `@expression`, `@@groupBy` | Not Started | `TASK-8.5` | Parse aggregation directives and group-by columns | Stage 4 views |
 | **Phase 9** | **Milestone 3** | `TASK-9.2` | SQL Builder for `GROUP BY`, `HAVING`, Aggregates | Not Started | `TASK-9.1` | Generates `COUNT`, `SUM`, `AVG`, `GROUP BY`, `HAVING` | Dialect support |
 | **Phase 9** | **Milestone 3** | `TASK-9.3` | Join Pruning Optimization | Not Started | `TASK-9.2` | Omit unselected joins when fields are not requested | Query optimization |

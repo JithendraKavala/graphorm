@@ -59,6 +59,8 @@ public final class WhereClauseBuilder {
     ) {
         if (predicate instanceof WherePredicate.BinaryPredicate binary) {
             renderBinary(binary, dialect, sql, parameters);
+        } else if (predicate instanceof WherePredicate.ColumnComparisonPredicate colComp) {
+            renderColumnComparison(colComp, dialect, sql);
         } else if (predicate instanceof WherePredicate.AndPredicate and) {
             renderAnd(and, dialect, sql, parameters);
         } else if (predicate instanceof WherePredicate.OrPredicate or) {
@@ -77,6 +79,26 @@ public final class WhereClauseBuilder {
         } else {
             throw new UnsupportedOperationException("Unknown predicate type: " + predicate.getClass().getName());
         }
+    }
+
+    private static void renderColumnComparison(
+            WherePredicate.ColumnComparisonPredicate comp,
+            SqlDialect dialect,
+            StringBuilder sql
+    ) {
+        String quotedLeft = dialect.quoteIdentifier(comp.leftColumn());
+        String quotedRight = dialect.quoteIdentifier(comp.rightColumn());
+        String opSymbol = switch (comp.operator()) {
+            case EQUALS -> "=";
+            case NOT_EQUALS -> "!=";
+            case GREATER_THAN -> ">";
+            case GREATER_THAN_OR_EQUAL -> ">=";
+            case LESS_THAN -> "<";
+            case LESS_THAN_OR_EQUAL -> "<=";
+            case LIKE -> "LIKE";
+            case ILIKE -> "ILIKE";
+        };
+        sql.append(quotedLeft).append(" ").append(opSymbol).append(" ").append(quotedRight);
     }
 
     private static void renderBinary(

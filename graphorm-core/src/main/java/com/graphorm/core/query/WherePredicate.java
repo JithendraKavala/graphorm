@@ -13,6 +13,7 @@ import java.util.Objects;
  */
 public sealed interface WherePredicate permits
         WherePredicate.BinaryPredicate,
+        WherePredicate.ColumnComparisonPredicate,
         WherePredicate.AndPredicate,
         WherePredicate.OrPredicate,
         WherePredicate.NotPredicate,
@@ -64,6 +65,23 @@ public sealed interface WherePredicate permits
                 throw new IllegalArgumentException("Column must not be blank");
             }
             Objects.requireNonNull(operator, "Operator must not be null");
+        }
+    }
+
+    /**
+     * Comparison predicate between two columns or expressions (e.g. for join conditions: leftCol = rightCol).
+     */
+    record ColumnComparisonPredicate(String leftColumn, ComparisonOperator operator, String rightColumn) implements WherePredicate {
+        public ColumnComparisonPredicate {
+            Objects.requireNonNull(leftColumn, "Left column must not be null");
+            if (leftColumn.isBlank()) {
+                throw new IllegalArgumentException("Left column must not be blank");
+            }
+            Objects.requireNonNull(operator, "Operator must not be null");
+            Objects.requireNonNull(rightColumn, "Right column must not be null");
+            if (rightColumn.isBlank()) {
+                throw new IllegalArgumentException("Right column must not be blank");
+            }
         }
     }
 
@@ -279,6 +297,18 @@ public sealed interface WherePredicate permits
 
     static WherePredicate notBetween(String column, Object lower, Object upper) {
         return not(between(column, lower, upper));
+    }
+
+    static WherePredicate columnEq(String leftColumn, String rightColumn) {
+        return new ColumnComparisonPredicate(leftColumn, ComparisonOperator.EQUALS, rightColumn);
+    }
+
+    static WherePredicate columnNeq(String leftColumn, String rightColumn) {
+        return new ColumnComparisonPredicate(leftColumn, ComparisonOperator.NOT_EQUALS, rightColumn);
+    }
+
+    static WherePredicate columnComparison(String leftColumn, ComparisonOperator operator, String rightColumn) {
+        return new ColumnComparisonPredicate(leftColumn, operator, rightColumn);
     }
 
     static WherePredicate and(WherePredicate... predicates) {

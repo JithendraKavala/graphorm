@@ -54,4 +54,20 @@ public record JoinClause(
     public static JoinClause right(String tableName, String alias, WherePredicate condition) {
         return right(SourceTable.table(tableName), alias, condition);
     }
+
+    public static JoinClause inner(SourceTable table, String alias, String onCondition) {
+        return inner(table, alias, JoinConditionParser.parse(onCondition));
+    }
+
+    public static JoinClause left(SourceTable table, String alias, String onCondition) {
+        return left(table, alias, JoinConditionParser.parse(onCondition));
+    }
+
+    public static JoinClause inner(String tableName, String alias, String onCondition) {
+        return inner(SourceTable.table(tableName), alias, JoinConditionParser.parse(onCondition));
+    }
+
+    public static JoinClause left(String tableName, String alias, String onCondition) {
+        return left(SourceTable.table(tableName), alias, JoinConditionParser.parse(onCondition));
+    }
 }

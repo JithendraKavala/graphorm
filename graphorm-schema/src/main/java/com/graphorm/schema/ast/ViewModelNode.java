@@ -1,5 +1,8 @@
 package com.graphorm.schema.ast;
 
+import com.graphorm.core.query.JoinType;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -72,6 +75,63 @@ public record ViewModelNode(
 
     public Optional<BlockAttributeNode> groupByAttribute() {
         return findAttribute("groupBy");
+    }
+
+    /**
+     * Parses and returns the typed {@link FromAttributeNode} if {@code @@from} is declared.
+     *
+     * @return typed FromAttributeNode or empty if not present or malformed
+     */
+    public Optional<FromAttributeNode> fromClause() {
+        return fromAttribute().flatMap(from -> {
+            Optional<ExpressionNode> modelArg = from.getPositionalArgumentValue(0).or(() -> from.getArgumentValue("model"));
+            Optional<ExpressionNode> asArg = from.getArgumentValue("as").or(() -> from.getPositionalArgumentValue(1));
+            if (modelArg.isEmpty() || asArg.isEmpty()) {
+                return Optional.empty();
+            }
+            String modelName = extractStringOrIdent(modelArg.get());
+            String alias = extractStringOrIdent(asArg.get());
+            if (modelName == null || alias == null) {
+                return Optional.empty();
+            }
+            return Optional.of(new FromAttributeNode(from.position(), modelName, alias));
+        });
+    }
+
+    /**
+     * Parses and returns the typed list of {@link JoinAttributeNode}s declared in this view.
+     *
+     * @return list of typed JoinAttributeNode
+     */
+    public List<JoinAttributeNode> joinClauses() {
+        List<JoinAttributeNode> list = new ArrayList<>();
+        for (BlockAttributeNode joinAttr : joinAttributes()) {
+            JoinType joinType = "innerJoin".equals(joinAttr.name()) ? JoinType.INNER : JoinType.LEFT;
+            Optional<ExpressionNode> modelArg = joinAttr.getPositionalArgumentValue(0).or(() -> joinAttr.getArgumentValue("model"));
+            Optional<ExpressionNode> asArg = joinAttr.getArgumentValue("as").or(() -> joinAttr.getPositionalArgumentValue(1));
+            Optional<ExpressionNode> onArg = joinAttr.getArgumentValue("on").or(() -> joinAttr.getPositionalArgumentValue(2));
+
+            if (modelArg.isPresent() && asArg.isPresent() && onArg.isPresent()) {
+                String modelName = extractStringOrIdent(modelArg.get());
+                String alias = extractStringOrIdent(asArg.get());
+                String on = extractStringOrIdent(onArg.get());
+                if (modelName != null && alias != null && on != null) {
+                    list.add(new JoinAttributeNode(joinAttr.position(), joinType, modelName, alias, on));
+                }
+            }
+        }
+        return List.copyOf(list);
+    }
+
+    private static String extractStringOrIdent(ExpressionNode expr) {
+        if (expr instanceof StringLiteralNode str) {
+            return str.value();
+        } else if (expr instanceof IdentifierNode ident) {
+            return ident.name();
+        } else if (expr instanceof QualifiedIdentifierNode qid) {
+            return qid.asQualifiedString();
+        }
+        return expr != null ? expr.toString() : null;
     }
 
     @Override
