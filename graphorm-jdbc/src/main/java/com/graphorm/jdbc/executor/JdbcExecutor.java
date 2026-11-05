@@ -10,6 +10,7 @@ import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.exception.QueryExecutionException;
 import com.graphorm.jdbc.mapper.DynamicRowMapper;
 import com.graphorm.jdbc.mapper.RowMapper;
+import com.graphorm.jdbc.util.StatementInterceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,10 +28,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Core JDBC query execution engine managing database connections, prepared statement binding,
@@ -42,6 +45,7 @@ public class JdbcExecutor {
 
     private final DataSource dataSource;
     private final SqlDialect dialect;
+    private final List<StatementInterceptor> interceptors = new CopyOnWriteArrayList<>();
 
     public JdbcExecutor(DataSource dataSource, SqlDialect dialect) {
         this.dataSource = Objects.requireNonNull(dataSource, "DataSource must not be null");
@@ -52,6 +56,17 @@ public class JdbcExecutor {
         this(dataSource, new PostgreSqlDialect());
     }
 
+    public JdbcExecutor(DataSource dataSource, SqlDialect dialect, StatementInterceptor... interceptors) {
+        this(dataSource, dialect);
+        if (interceptors != null) {
+            for (StatementInterceptor i : interceptors) {
+                if (i != null) {
+                    this.interceptors.add(i);
+                }
+            }
+        }
+    }
+
     public SqlDialect dialect() {
         return dialect;
     }
@@ -60,8 +75,21 @@ public class JdbcExecutor {
         return dataSource;
     }
 
-    // --- Query Operations ---
+    public final void addInterceptor(StatementInterceptor interceptor) {
+        if (interceptor != null) {
+            this.interceptors.add(interceptor);
+        }
+    }
 
+    public final void removeInterceptor(StatementInterceptor interceptor) {
+        this.interceptors.remove(interceptor);
+    }
+
+    public List<StatementInterceptor> interceptors() {
+        return Collections.unmodifiableList(interceptors);
+    }
+
+    // --- Query Operations ---
     public List<Map<String, Object>> queryForList(BoundSql boundSql) {
         return queryForList(boundSql, DynamicRowMapper.mapToMap());
     }
@@ -87,6 +115,11 @@ public class JdbcExecutor {
         Objects.requireNonNull(rowMapper, "RowMapper must not be null");
 
         log.debug("Executing query: {} with params: {}", boundSql.sql(), boundSql.parameters());
+        long start = System.nanoTime();
+        for (StatementInterceptor interceptor : interceptors) {
+            interceptor.beforeExecute(boundSql.sql(), boundSql.parameters());
+        }
+
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(boundSql.sql())) {
 
@@ -102,6 +135,11 @@ public class JdbcExecutor {
             }
         } catch (SQLException e) {
             throw new QueryExecutionException("Query execution failed: " + e.getMessage(), boundSql.sql(), e);
+        } finally {
+            long duration = System.nanoTime() - start;
+            for (StatementInterceptor interceptor : interceptors) {
+                interceptor.afterExecute(boundSql.sql(), boundSql.parameters(), duration);
+            }
         }
     }
 
@@ -137,10 +175,14 @@ public class JdbcExecutor {
     }
 
     // --- Mutation Operations ---
-
     public int executeUpdate(BoundSql boundSql) {
         Objects.requireNonNull(boundSql, "BoundSql must not be null");
         log.debug("Executing update: {} with params: {}", boundSql.sql(), boundSql.parameters());
+
+        long start = System.nanoTime();
+        for (StatementInterceptor interceptor : interceptors) {
+            interceptor.beforeExecute(boundSql.sql(), boundSql.parameters());
+        }
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(boundSql.sql())) {
@@ -149,6 +191,11 @@ public class JdbcExecutor {
             return ps.executeUpdate();
         } catch (SQLException e) {
             throw new QueryExecutionException("Update execution failed: " + e.getMessage(), boundSql.sql(), e);
+        } finally {
+            long duration = System.nanoTime() - start;
+            for (StatementInterceptor interceptor : interceptors) {
+                interceptor.afterExecute(boundSql.sql(), boundSql.parameters(), duration);
+            }
         }
     }
 
@@ -202,7 +249,6 @@ public class JdbcExecutor {
     }
 
     // --- Parameter Binding ---
-
     private void bindParameters(PreparedStatement ps, List<Object> parameters) throws SQLException {
         if (parameters == null) {
             return;

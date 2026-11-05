@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 21
+- **Completed Tasks**: 25
 - **In Progress**: 0
-- **Not Started**: 44
-- **Current Active Phase**: Phase 6 (Phase 5 100% Completed, Ready for Phase 6)
+- **Not Started**: 40
+- **Current Active Phase**: Phase 7 (Phase 6 100% Completed, Ready for Phase 7 / Milestone 2)
 
 ---
 
@@ -40,10 +40,10 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 5** | Querying | `TASK-5.2` | `WhereClauseBuilder` Parameterized Rendering | Completed | `TASK-5.1` | Parameterized SQL WHERE clause with bound values | `WhereClauseBuilderTest.java`, 100% parameter extraction, acceptance filter verified |
 | **Phase 5** | Querying | `TASK-5.3` | `OrderByClauseBuilder` Multi-Column Sorting | Completed | `TASK-5.2` | Direction (`ASC`, `DESC`) and nulls positioning | `OrderByClauseTest.java`, `OrderByClauseBuilderTest.java`, direction & NULLS FIRST/LAST |
 | **Phase 5** | Querying | `TASK-5.4` | Testcontainers Integration for Filter & Pagination | Completed | `TASK-5.3` | Complex queries execute with pushdown on PostgreSQL | `PostgresFilterPaginationIntegrationTest.java`, Testcontainers pushdown verified on PostgreSQL |
-| **Phase 6** | Relations | `TASK-6.1` | `RelationPlanner` for 1:1, 1:N, N:1 Relations | Not Started | `TASK-5.4` | Relationship plan generated for key lookups | Planning abstraction |
-| **Phase 6** | Relations | `TASK-6.2` | `BatchRelationLoader` via `WHERE IN (?)` | Not Started | `TASK-6.1` | Batched query execution and result association | DataLoader foundation |
-| **Phase 6** | Relations | `TASK-6.3` | SQL Statement Counter Test Utility | Not Started | `TASK-6.2` | Tracks exact JDBC statement execution counts | Assertion harness |
-| **Phase 6** | Relations | `TASK-6.4` | Testcontainers Batch Loading Tests | Not Started | `TASK-6.3` | 100 items loaded with relations in exactly 2 SQL queries | N+1 prevention proven |
+| **Phase 6** | Relations | `TASK-6.1` | `RelationPlanner` for 1:1, 1:N, N:1 Relations | Completed | `TASK-5.4` | Relationship plan generated for key lookups | `RelationPlan`, `RelationPlanner`, `CircularRelationException`, cycle detection, `RelationPlannerTest.java` |
+| **Phase 6** | Relations | `TASK-6.2` | `BatchRelationLoader` via `WHERE IN (?)` | Completed | `TASK-6.1` | Batched query execution and result association | `BatchRelationLoader`, `BatchLoadResult`, in-memory correlation, `BatchRelationLoaderTest.java` |
+| **Phase 6** | Relations | `TASK-6.3` | SQL Statement Counter Test Utility | Completed | `TASK-6.2` | Tracks exact JDBC statement execution counts | `SqlStatementCounter`, `StatementInterceptor`, dynamic proxy wrapping, `SqlStatementCounterTest.java` |
+| **Phase 6** | Relations | `TASK-6.4` | Testcontainers Batch Loading Tests | Completed | `TASK-6.3` | 100 items loaded with relations in exactly 2 SQL queries | `PostgresBatchRelationLoadingIntegrationTest.java`, 0 N+1 query regression proven across 1:1, 1:N, N:1 |
 | **Phase 7** | **Milestone 2** | `TASK-7.1` | Schema Parser Support for `@@view` & `@@map` | Not Started | `TASK-3.5`, `TASK-5.4` | Parse and validate database-backed views | Stage 1 views |
 | **Phase 7** | **Milestone 2** | `TASK-7.2` | `SelectBuilder` Support for `SourceTable.DatabaseView` | Not Started | `TASK-7.1` | SELECT queries target PostgreSQL physical views | Unified planner |
 | **Phase 7** | **Milestone 2** | `TASK-7.3` | Enforce Read-Only Constraint on DB Views | Not Started | `TASK-7.2` | Insert/update/delete builders throw `ReadOnlyViewException` | Read-only invariant |
