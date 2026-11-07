@@ -8,6 +8,9 @@ import com.graphorm.core.query.WherePredicate;
 import com.graphorm.graphql.binding.ArgumentBinder;
 import com.graphorm.graphql.planner.AnalyzedSelectionSet;
 import com.graphorm.graphql.planner.SelectionSetAnalyzer;
+import com.graphorm.graphql.security.FieldAuthorizer;
+import com.graphorm.graphql.security.FieldAuthorizerContext;
+import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
@@ -23,7 +26,7 @@ import java.util.Objects;
 /**
  * Generic GraphQL {@link DataFetcher} for querying a list of regular models (e.g. {@code Query.students}).
  * Handles selective column projection, hidden dependency foreign key injection (TASK-11.2, TASK-11.3),
- * dynamic filtering (where), sorting (orderBy), and pagination (limit, offset).
+ * field-level security verification (TASK-15.2), dynamic filtering (where), sorting (orderBy), and pagination (limit, offset).
  */
 public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object>>> {
 
@@ -54,6 +57,11 @@ public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object
         log.debug("Executing ModelListDataFetcher for model: {}", model.name());
 
         AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, model, registry);
+
+        if (analyzed != null) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            SecurityPlannerInterceptor.verifyFieldAccess(model, analyzed.requestedScalarFields(), authorizer);
+        }
 
         SelectQuery.Builder builder;
         if (analyzed != null && !analyzed.projectedColumns().isEmpty()) {

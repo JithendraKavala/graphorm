@@ -29,6 +29,8 @@ public final class GraphQlSdlGenerator {
         }
 
         StringBuilder sb = new StringBuilder();
+        sb.append("directive @auth(roles: [String!]!) on FIELD_DEFINITION\n\n");
+
         List<String> queryFields = new ArrayList<>();
         List<String> mutationFields = new ArrayList<>();
 
@@ -41,15 +43,22 @@ public final class GraphQlSdlGenerator {
                     continue;
                 }
                 sb.append("  ").append(field.name()).append(": ")
-                        .append(mapScalarType(field)).append("\n");
+                        .append(mapScalarType(field));
+                appendAuthDirective(sb, field);
+                sb.append("\n");
             }
             for (RelationMetadata rel : model.relations()) {
                 String targetType = rel.targetModel();
                 if (rel.relationType().isToMany()) {
-                    sb.append("  ").append(rel.relationName()).append(": [").append(targetType).append("!]!\n");
+                    sb.append("  ").append(rel.relationName()).append(": [").append(targetType).append("!]!");
                 } else {
-                    sb.append("  ").append(rel.relationName()).append(": ").append(targetType).append("\n");
+                    sb.append("  ").append(rel.relationName()).append(": ").append(targetType);
                 }
+                FieldMetadata relField = model.findField(rel.relationName()).orElse(null);
+                if (relField != null) {
+                    appendAuthDirective(sb, relField);
+                }
+                sb.append("\n");
             }
             sb.append("}\n\n");
 
@@ -92,7 +101,9 @@ public final class GraphQlSdlGenerator {
             sb.append("type ").append(viewName).append(" {\n");
             for (FieldMetadata field : view.fields()) {
                 sb.append("  ").append(field.name()).append(": ")
-                        .append(mapScalarType(field)).append("\n");
+                        .append(mapScalarType(field));
+                appendAuthDirective(sb, field);
+                sb.append("\n");
             }
             sb.append("}\n\n");
 
@@ -122,6 +133,20 @@ public final class GraphQlSdlGenerator {
         }
 
         return sb.toString();
+    }
+
+    private static void appendAuthDirective(StringBuilder sb, FieldMetadata field) {
+        if (field != null && field.hasAuthRoles()) {
+            sb.append(" @auth(roles: [");
+            List<String> roles = field.authRoles();
+            for (int i = 0; i < roles.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append("\"").append(roles.get(i)).append("\"");
+            }
+            sb.append("])");
+        }
     }
 
     private static String mapScalarType(FieldMetadata field) {

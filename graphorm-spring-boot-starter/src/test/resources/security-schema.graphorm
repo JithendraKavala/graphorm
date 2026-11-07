@@ -1,0 +1,32 @@
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://localhost:5432/testdb"
+}
+
+model Department {
+  id       Int       @id @default(autoincrement())
+  name     String    @map("dept_name")
+  students Student[]
+  @@map("departments_boot")
+}
+
+model Student {
+  id           Int        @id @default(autoincrement())
+  name         String
+  email        String     @unique
+  secretCode   String?    @map("secret_code") @auth(roles: ["ADMIN"])
+  departmentId Int        @map("department_id")
+  department   Department @relation(fields: [departmentId], references: [id])
+  @@map("students_boot")
+}
+
+view StudentDashboard {
+  studentId      Int     @map("s.id")
+  studentName    String  @map("s.name")
+  departmentName String  @map("d.dept_name")
+  adminNotes     String? @map("s.secret_code") @auth(roles: ["ADMIN"])
+
+  @@from("Student", as: "s")
+  @@leftJoin("Department", as: "d", on: "s.department_id = d.id")
+  @@groupBy(["s.id", "s.name", "d.dept_name", "s.secret_code"])
+}

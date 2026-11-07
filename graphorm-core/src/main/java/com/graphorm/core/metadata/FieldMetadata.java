@@ -1,5 +1,8 @@
 package com.graphorm.core.metadata;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -20,6 +23,7 @@ import java.util.Objects;
  * @param expression        the raw SQL/computed expression if this is an expression field
  * @param isRelation        whether this field is a navigation relation field
  * @param relationName      the associated relation name if isRelation is true
+ * @param authRoles         the required security roles defined via {@code @auth(roles: [...])}
  */
 public record FieldMetadata(
         String name,
@@ -35,7 +39,8 @@ public record FieldMetadata(
         String aggregateFunction,
         String expression,
         boolean isRelation,
-        String relationName
+        String relationName,
+        List<String> authRoles
 ) {
 
     /**
@@ -52,6 +57,45 @@ public record FieldMetadata(
         if (typeName == null || typeName.isBlank()) {
             typeName = javaType != null ? javaType.getSimpleName() : "Object";
         }
+        authRoles = authRoles == null ? List.of() : List.copyOf(authRoles);
+    }
+
+    /**
+     * Constructor without explicit authRoles for backward compatibility.
+     */
+    public FieldMetadata(
+            String name,
+            Class<?> javaType,
+            String typeName,
+            String dbColumnName,
+            boolean isPrimaryKey,
+            boolean isNullable,
+            boolean isUnique,
+            boolean isGenerated,
+            String defaultValue,
+            boolean isAggregate,
+            String aggregateFunction,
+            String expression,
+            boolean isRelation,
+            String relationName
+    ) {
+        this(
+                name,
+                javaType,
+                typeName,
+                dbColumnName,
+                isPrimaryKey,
+                isNullable,
+                isUnique,
+                isGenerated,
+                defaultValue,
+                isAggregate,
+                aggregateFunction,
+                expression,
+                isRelation,
+                relationName,
+                List.of()
+        );
     }
 
     /**
@@ -90,8 +134,52 @@ public record FieldMetadata(
                 null,
                 null,
                 false,
-                null
+                null,
+                List.of()
         );
+    }
+
+    /**
+     * Indicates whether this field has required security roles defined.
+     *
+     * @return true if authorization roles are specified
+     */
+    public boolean hasAuthRoles() {
+        return authRoles != null && !authRoles.isEmpty();
+    }
+
+    /**
+     * Checks whether the specified user roles satisfy this field's required roles.
+     *
+     * @param userRoles the roles held by the caller
+     * @return true if authorized or if no roles are required
+     */
+    public boolean isAuthorized(Collection<String> userRoles) {
+        if (!hasAuthRoles()) {
+            return true;
+        }
+        if (userRoles == null || userRoles.isEmpty()) {
+            return false;
+        }
+        for (String req : authRoles) {
+            String cleanReq = req.toUpperCase();
+            if (cleanReq.startsWith("ROLE_")) {
+                cleanReq = cleanReq.substring(5);
+            }
+            for (String userRole : userRoles) {
+                if (userRole == null) {
+                    continue;
+                }
+                String cleanUser = userRole.toUpperCase();
+                if (cleanUser.startsWith("ROLE_")) {
+                    cleanUser = cleanUser.substring(5);
+                }
+                if (cleanReq.equals(cleanUser)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -133,6 +221,7 @@ public record FieldMetadata(
         private String expression;
         private boolean isRelation;
         private String relationName;
+        private final List<String> authRoles = new ArrayList<>();
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Field name must not be null");
@@ -195,6 +284,33 @@ public record FieldMetadata(
             return this;
         }
 
+        public Builder authRoles(List<String> roles) {
+            this.authRoles.clear();
+            if (roles != null) {
+                this.authRoles.addAll(roles);
+            }
+            return this;
+        }
+
+        public Builder authRoles(String... roles) {
+            this.authRoles.clear();
+            if (roles != null) {
+                for (String r : roles) {
+                    if (r != null && !r.isBlank()) {
+                        this.authRoles.add(r.trim());
+                    }
+                }
+            }
+            return this;
+        }
+
+        public Builder addAuthRole(String role) {
+            if (role != null && !role.isBlank()) {
+                this.authRoles.add(role.trim());
+            }
+            return this;
+        }
+
         public FieldMetadata build() {
             return new FieldMetadata(
                     name,
@@ -210,7 +326,8 @@ public record FieldMetadata(
                     aggregateFunction,
                     expression,
                     isRelation,
-                    relationName
+                    relationName,
+                    List.copyOf(authRoles)
             );
         }
     }

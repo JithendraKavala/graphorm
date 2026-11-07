@@ -1,6 +1,9 @@
 package com.graphorm.spring.boot.autoconfigure;
 
 import com.graphorm.core.metadata.ModelRegistry;
+import com.graphorm.graphql.binding.ArgumentBinder;
+import com.graphorm.graphql.loader.DataLoaderMetricsListener;
+import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.client.GraphOrmClient;
@@ -8,7 +11,11 @@ import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.transaction.TransactionManager;
 import com.graphorm.jdbc.util.StatementInterceptor;
 import com.graphorm.schema.transformer.SchemaToMetadataTransformer;
+import com.graphorm.spring.boot.graphql.GraphOrmExceptionHandler;
 import com.graphorm.spring.boot.graphql.GraphQlAutoConfigurationCustomizer;
+import com.graphorm.spring.boot.metrics.MicrometerDataLoaderMetricsListener;
+import com.graphorm.spring.boot.metrics.MicrometerStatementInterceptor;
+import com.graphorm.spring.boot.security.SpringSecurityFieldAuthorizer;
 import com.graphorm.spring.boot.transaction.SpringConnectionProvider;
 import com.graphorm.spring.boot.transaction.SpringTransactionManagerAdapter;
 import graphql.GraphQL;
@@ -16,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -27,6 +35,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
+import org.springframework.graphql.execution.DataFetcherExceptionResolverAdapter;
 import org.springframework.graphql.execution.GraphQlSource;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -40,7 +49,7 @@ import java.util.List;
 /**
  * Spring Boot 3+ Auto-Configuration for GraphORM.
  * Automatically configures {@link ModelRegistry}, {@link SqlDialect}, {@link JdbcExecutor},
- * {@link TransactionManager}, {@link GraphOrmClient}, and GraphQL customizers.
+ * {@link TransactionManager}, {@link GraphOrmClient}, security, metrics, and GraphQL customizers.
  */
 @AutoConfiguration(after = {DataSourceAutoConfiguration.class, GraphQlAutoConfiguration.class})
 @ConditionalOnClass(DataSource.class)
@@ -118,6 +127,46 @@ public class GraphOrmAutoConfiguration {
         }
     }
 
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(io.micrometer.core.instrument.MeterRegistry.class)
+    @ConditionalOnBean(io.micrometer.core.instrument.MeterRegistry.class)
+    @ConditionalOnProperty(prefix = "graphorm.metrics", name = "enabled", havingValue = "true", matchIfMissing = true)
+    static class MetricsConfiguration {
+
+        @Bean(name = "micrometerStatementInterceptor")
+        @ConditionalOnProperty(prefix = "graphorm.metrics", name = "query-duration-enabled", havingValue = "true", matchIfMissing = true)
+        @ConditionalOnMissingBean(name = "micrometerStatementInterceptor")
+        public StatementInterceptor micrometerStatementInterceptor(io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+            return new MicrometerStatementInterceptor(meterRegistry);
+        }
+
+        @Bean
+        @ConditionalOnProperty(prefix = "graphorm.metrics", name = "dataloader-batch-size-enabled", havingValue = "true", matchIfMissing = true)
+        @ConditionalOnMissingBean(DataLoaderMetricsListener.class)
+        public DataLoaderMetricsListener micrometerDataLoaderMetricsListener(io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+            return new MicrometerDataLoaderMetricsListener(meterRegistry);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(org.springframework.security.core.context.SecurityContextHolder.class)
+    @ConditionalOnProperty(prefix = "graphorm.security", name = "field-authorization-enabled", havingValue = "true", matchIfMissing = true)
+    static class SpringSecurityConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(FieldAuthorizer.class)
+        public FieldAuthorizer springSecurityFieldAuthorizer() {
+            return new SpringSecurityFieldAuthorizer();
+        }
+    }
+
+    @Bean
+    @ConditionalOnClass(DataFetcherExceptionResolverAdapter.class)
+    @ConditionalOnMissingBean
+    public GraphOrmExceptionHandler graphOrmExceptionHandler() {
+        return new GraphOrmExceptionHandler();
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public JdbcExecutor.ConnectionProvider connectionProvider() {
@@ -179,9 +228,19 @@ public class GraphOrmAutoConfiguration {
                 ModelRegistry modelRegistry,
                 JdbcExecutor jdbcExecutor,
                 SqlDialect sqlDialect,
-                GraphOrmProperties properties
+                GraphOrmProperties properties,
+                ObjectProvider<FieldAuthorizer> fieldAuthorizerProvider,
+                ObjectProvider<DataLoaderMetricsListener> metricsListenerProvider
         ) {
-            return new GraphQlAutoConfigurationCustomizer(modelRegistry, jdbcExecutor, sqlDialect, properties);
+            return new GraphQlAutoConfigurationCustomizer(
+                    modelRegistry,
+                    jdbcExecutor,
+                    sqlDialect,
+                    properties,
+                    new ArgumentBinder(),
+                    fieldAuthorizerProvider.getIfAvailable(),
+                    metricsListenerProvider.getIfAvailable()
+            );
         }
     }
 }

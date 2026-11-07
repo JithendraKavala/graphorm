@@ -43,6 +43,16 @@ public class GraphOrmProperties {
      */
     private LoggingProperties logging = new LoggingProperties();
 
+    /**
+     * Security specific configuration properties (TASK-15.1, TASK-15.2).
+     */
+    private SecurityProperties security = new SecurityProperties();
+
+    /**
+     * Metrics specific configuration properties (TASK-15.4).
+     */
+    private MetricsProperties metrics = new MetricsProperties();
+
     public String getSchemaLocation() {
         return schemaLocation;
     }
@@ -110,6 +120,22 @@ public class GraphOrmProperties {
         this.logging = logging;
     }
 
+    public SecurityProperties getSecurity() {
+        return security;
+    }
+
+    public void setSecurity(SecurityProperties security) {
+        this.security = security;
+    }
+
+    public MetricsProperties getMetrics() {
+        return metrics;
+    }
+
+    public void setMetrics(MetricsProperties metrics) {
+        this.metrics = metrics;
+    }
+
     public static class GraphqlProperties {
         private boolean enabled = true;
         private boolean autoFetchers = true;
@@ -158,6 +184,84 @@ public class GraphOrmProperties {
 
         public void setShowSql(boolean showSql) {
             this.showSql = showSql;
+        }
+    }
+
+    public static class SecurityProperties {
+        private boolean depthLimitEnabled = true;
+        private int maxQueryDepth = 15;
+        private boolean complexityLimitEnabled = true;
+        private int maxQueryComplexity = 200;
+        private boolean fieldAuthorizationEnabled = true;
+
+        public boolean isDepthLimitEnabled() {
+            return depthLimitEnabled;
+        }
+
+        public void setDepthLimitEnabled(boolean depthLimitEnabled) {
+            this.depthLimitEnabled = depthLimitEnabled;
+        }
+
+        public int getMaxQueryDepth() {
+            return maxQueryDepth;
+        }
+
+        public void setMaxQueryDepth(int maxQueryDepth) {
+            this.maxQueryDepth = maxQueryDepth;
+        }
+
+        public boolean isComplexityLimitEnabled() {
+            return complexityLimitEnabled;
+        }
+
+        public void setComplexityLimitEnabled(boolean complexityLimitEnabled) {
+            this.complexityLimitEnabled = complexityLimitEnabled;
+        }
+
+        public int getMaxQueryComplexity() {
+            return maxQueryComplexity;
+        }
+
+        public void setMaxQueryComplexity(int maxQueryComplexity) {
+            this.maxQueryComplexity = maxQueryComplexity;
+        }
+
+        public boolean isFieldAuthorizationEnabled() {
+            return fieldAuthorizationEnabled;
+        }
+
+        public void setFieldAuthorizationEnabled(boolean fieldAuthorizationEnabled) {
+            this.fieldAuthorizationEnabled = fieldAuthorizationEnabled;
+        }
+    }
+
+    public static class MetricsProperties {
+        private boolean enabled = true;
+        private boolean queryDurationEnabled = true;
+        private boolean dataloaderBatchSizeEnabled = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isQueryDurationEnabled() {
+            return queryDurationEnabled;
+        }
+
+        public void setQueryDurationEnabled(boolean queryDurationEnabled) {
+            this.queryDurationEnabled = queryDurationEnabled;
+        }
+
+        public boolean isDataloaderBatchSizeEnabled() {
+            return dataloaderBatchSizeEnabled;
+        }
+
+        public void setDataloaderBatchSizeEnabled(boolean dataloaderBatchSizeEnabled) {
+            this.dataloaderBatchSizeEnabled = dataloaderBatchSizeEnabled;
         }
     }
 }

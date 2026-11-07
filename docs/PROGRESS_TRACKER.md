@@ -11,7 +11,7 @@ This document tracks the live implementation status across all phases, milestone
 - **Completed Tasks**: 66
 - **In Progress**: 0
 - **Not Started**: 4
-- **Current Active Phase**: Phase 15 (Phase 14 100% Completed, Ready for Phase 15: Security, Performance & Production Readiness)
+- **Current Active Phase**: Phase 16 (Phase 15 100% Completed, Ready for Phase 16: End-to-End Reference Application & Documentation)
 
 ---
 
@@ -85,11 +85,11 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 14** | Tooling | `TASK-14.4` | `graphorm init` Command | Completed | `TASK-14.3` | Scaffolds starter project with sample schemas | `InitCommand.java`, scaffolds `schema.graphorm` and `graphorm.properties`, verified valid via validator, force overwrite support, `InitCommandTest.java` (4 tests) |
 | **Phase 14** | Tooling | `TASK-14.5` | `graphorm introspect` Command | Completed | `TASK-14.4` | Reverse-engineers PostgreSQL schema into `schema.graphorm` | `PostgresDatabaseIntrospector.java`, `SchemaEmitter.java`, `TableInfo.java`, `ColumnInfo.java`, `ForeignKeyInfo.java`, catalog queries for tables, columns, PKs, FKs, views, `SchemaEmitterTest.java` (3 tests) |
 | **Phase 14** | Tooling | `TASK-14.6` | CLI Integration Tests | Completed | `TASK-14.5` | CLI execution tests verifying stdout and exit codes | `PostgresIntrospectIntegrationTest.java` (4 tests against PostgreSQL, reverse-engineers DB into schema, validates schema, generates Java code, and compiles via `InMemoryCompiler` with 0 warnings) |
-| **Phase 15** | **Milestone 8** | `TASK-15.1` | GraphQL Depth & Complexity Instrumentation | Not Started | `TASK-13.5` | Rejects malicious deeply nested or complex queries | DoS protection |
-| **Phase 15** | **Milestone 8** | `TASK-15.2` | Field-Level Security Interceptor (`@auth`) | Not Started | `TASK-15.1` | Enforces Spring Security roles on protected fields | Access control |
-| **Phase 15** | **Milestone 8** | `TASK-15.3` | Sanitized `GraphOrmExceptionHandler` | Not Started | `TASK-15.2` | Masks internal database errors, outputs safe codes | Info leak protection |
-| **Phase 15** | **Milestone 8** | `TASK-15.4` | Micrometer Metrics & Tracing | Not Started | `TASK-15.3` | Records query execution time, batch sizes, cache hits | Observability |
-| **Phase 15** | **Milestone 8** | `TASK-15.5` | Security & DoS Attack Test Suite | Not Started | `TASK-15.4` | Asserts rejection of depth attacks and auth violations | Milestone 8 verification |
+| **Phase 15** | **Milestone 8** | `TASK-15.1` | GraphQL Depth & Complexity Instrumentation | Completed | `TASK-13.5` | Rejects malicious deeply nested or complex queries | `MaxQueryDepthInstrumentation.java`, `MaxQueryComplexityInstrumentation.java`, `DefaultFieldComplexityCalculator.java`, `GraphOrmDepthExceededException`, `GraphOrmComplexityExceededException`, unit tested |
+| **Phase 15** | **Milestone 8** | `TASK-15.2` | Field-Level Security Interceptor (`@auth`) | Completed | `TASK-15.1` | Enforces Spring Security roles on protected fields | `@auth(roles: [...])` directive parsing, `FieldAuthorizer.java`, `FieldAuthorizerContext.java`, `AuthDirectiveWiring.java`, `SecurityPlannerInterceptor.java`, `SpringSecurityFieldAuthorizer.java` |
+| **Phase 15** | **Milestone 8** | `TASK-15.3` | Sanitized `GraphOrmExceptionHandler` | Completed | `TASK-15.2` | Masks internal database errors, outputs safe codes | `GraphOrmDataFetcherExceptionHandler.java`, `GraphOrmExceptionHandler.java` (Spring DataFetcherExceptionResolverAdapter), sanitizes DB exceptions to `ACCESS_DENIED`, `RECORD_NOT_FOUND`, `READ_ONLY_VIEW`, `QUERY_DEPTH_EXCEEDED`, `INTERNAL_ERROR` |
+| **Phase 15** | **Milestone 8** | `TASK-15.4` | Micrometer Metrics & Tracing | Completed | `TASK-15.3` | Records query execution time, batch sizes, cache hits | `DataLoaderMetricsListener.java`, `MicrometerStatementInterceptor.java` (`graphorm.query.duration`), `MicrometerDataLoaderMetricsListener.java` (`graphorm.dataloader.batch.size`, `graphorm.dataloader.batch.duration`), `GraphOrmMetricsIntegrationTest.java` |
+| **Phase 15** | **Milestone 8** | `TASK-15.5` | Security & DoS Attack Test Suite | Completed | `TASK-15.4` | Asserts rejection of depth attacks and auth violations | Milestone 8 deliverable verified: `Milestone8SecurityIntegrationTest.java` (7 integration tests with PostgreSQL verifying depth limit DoS rejection, complexity rejection, `@auth` role enforcement on models & views, and Micrometer timer recording) |
 | **Phase 16** | Release | `TASK-16.1` | University Reference Application | Not Started | `TASK-14.6`, `TASK-15.5` | Complete runnable Spring Boot + Postgres sample app | Complex domain |
 | **Phase 16** | Release | `TASK-16.2` | End-to-End Reference App Tests | Not Started | `TASK-16.1` | End-to-end integration tests covering all features | Testcontainers verification |
 | **Phase 16** | Release | `TASK-16.3` | Developer Guides & Quickstart Documentation | Not Started | `TASK-16.2` | Full guides, tutorials, and API documentation | Complete docs |

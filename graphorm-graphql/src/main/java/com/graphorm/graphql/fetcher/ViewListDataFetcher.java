@@ -8,6 +8,9 @@ import com.graphorm.core.query.WherePredicate;
 import com.graphorm.graphql.binding.ArgumentBinder;
 import com.graphorm.graphql.planner.AnalyzedSelectionSet;
 import com.graphorm.graphql.planner.SelectionSetAnalyzer;
+import com.graphorm.graphql.security.FieldAuthorizer;
+import com.graphorm.graphql.security.FieldAuthorizerContext;
+import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.view.ViewQueryPlanner;
@@ -23,9 +26,9 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Generic GraphQL {@link DataFetcher} for querying a list of view model entities (e.g. {@code Query.studentDashboards}).
- * Translates filters, sorting, and pagination via {@link ViewQueryPlanner} with selective projection, join pruning,
- * and aggregate handling.
+ * Generic GraphQL {@link DataFetcher} for querying a list of view models (e.g. {@code Query.studentDashboards}).
+ * Strictly read-only; delegates to {@link ViewQueryPlanner} for unified query execution.
+ * Enforces field-level authorization (TASK-15.2).
  */
 public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>>> {
 
@@ -60,6 +63,12 @@ public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>
         log.debug("Executing ViewListDataFetcher for view: {}", view.name());
 
         AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, view, registry);
+
+        if (analyzed != null) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            SecurityPlannerInterceptor.verifyFieldAccess(view, analyzed.requestedScalarFields(), authorizer);
+        }
+
         Set<String> selectedFieldNames = null;
         if (analyzed != null && !analyzed.requestedScalarFields().isEmpty()) {
             selectedFieldNames = new LinkedHashSet<>(analyzed.requestedScalarFields());
@@ -91,7 +100,7 @@ public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>
         SelectQuery query = builder.build();
         List<Map<String, Object>> rows = executor.queryForList(query);
         return rows.stream()
-                .map(r -> EntityRowNormalizer.normalize(r, view))
+                .map(row -> EntityRowNormalizer.normalize(row, view))
                 .toList();
     }
 

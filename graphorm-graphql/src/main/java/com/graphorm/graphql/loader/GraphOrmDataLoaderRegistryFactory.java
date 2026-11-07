@@ -27,6 +27,7 @@ public class GraphOrmDataLoaderRegistryFactory {
     private final JdbcExecutor executor;
     private final SqlDialect dialect;
     private final BatchRelationLoader batchRelationLoader;
+    private DataLoaderMetricsListener metricsListener = DataLoaderMetricsListener.NO_OP;
     private int maxBatchSize = 1000;
 
     public GraphOrmDataLoaderRegistryFactory(
@@ -34,14 +35,29 @@ public class GraphOrmDataLoaderRegistryFactory {
             JdbcExecutor executor,
             SqlDialect dialect
     ) {
+        this(registry, executor, dialect, DataLoaderMetricsListener.NO_OP);
+    }
+
+    public GraphOrmDataLoaderRegistryFactory(
+            ModelRegistry registry,
+            JdbcExecutor executor,
+            SqlDialect dialect,
+            DataLoaderMetricsListener metricsListener
+    ) {
         this.registry = Objects.requireNonNull(registry, "ModelRegistry must not be null");
         this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
         this.dialect = dialect != null ? dialect : executor.dialect();
         this.batchRelationLoader = new BatchRelationLoader(executor, registry);
+        this.metricsListener = metricsListener != null ? metricsListener : DataLoaderMetricsListener.NO_OP;
     }
 
     public GraphOrmDataLoaderRegistryFactory maxBatchSize(int maxBatchSize) {
         this.maxBatchSize = maxBatchSize;
+        return this;
+    }
+
+    public GraphOrmDataLoaderRegistryFactory metricsListener(DataLoaderMetricsListener metricsListener) {
+        this.metricsListener = metricsListener != null ? metricsListener : DataLoaderMetricsListener.NO_OP;
         return this;
     }
 
@@ -88,7 +104,8 @@ public class GraphOrmDataLoaderRegistryFactory {
                             model,
                             relation,
                             registry,
-                            batchRelationLoader
+                            batchRelationLoader,
+                            metricsListener
                     );
                     DataLoader<Object, Object> dataLoader = DataLoaderFactory.newMappedDataLoader(batchLoader, options);
                     targetRegistry.register(key, dataLoader);
@@ -108,5 +125,9 @@ public class GraphOrmDataLoaderRegistryFactory {
 
     public SqlDialect dialect() {
         return dialect;
+    }
+
+    public DataLoaderMetricsListener metricsListener() {
+        return metricsListener;
     }
 }

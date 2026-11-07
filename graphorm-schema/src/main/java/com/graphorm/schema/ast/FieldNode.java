@@ -1,5 +1,6 @@
 package com.graphorm.schema.ast;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -81,6 +82,47 @@ public record FieldNode(
 
     public Optional<FieldAttributeNode> mapAttribute() {
         return findAttribute("map");
+    }
+
+    public Optional<FieldAttributeNode> authAttribute() {
+        return findAttribute("auth");
+    }
+
+    /**
+     * Extracts declared authorization roles from {@code @auth(roles: [...])} or {@code @auth("ADMIN")}.
+     *
+     * @return list of role strings (e.g. ["ADMIN", "FINANCE"]) or empty list if not present
+     */
+    public List<String> authRoles() {
+        Optional<FieldAttributeNode> authOpt = authAttribute();
+        if (authOpt.isEmpty()) {
+            return List.of();
+        }
+        FieldAttributeNode auth = authOpt.get();
+        Optional<ExpressionNode> rolesArg = auth.getArgumentValue("roles")
+                .or(() -> auth.getPositionalArgumentValue(0));
+
+        if (rolesArg.isEmpty()) {
+            return List.of();
+        }
+
+        ExpressionNode expr = rolesArg.get();
+        if (expr instanceof ArrayLiteralNode array) {
+            List<String> roles = new ArrayList<>();
+            for (ExpressionNode elem : array.elements()) {
+                String val = extractString(elem);
+                if (val != null && !val.isBlank()) {
+                    roles.add(val.trim());
+                }
+            }
+            return List.copyOf(roles);
+        } else {
+            String val = extractString(expr);
+            if (val != null && !val.isBlank()) {
+                return List.of(val.trim());
+            }
+        }
+        return List.of();
     }
 
     /**

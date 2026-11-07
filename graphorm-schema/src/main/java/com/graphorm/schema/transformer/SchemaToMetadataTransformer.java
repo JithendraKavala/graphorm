@@ -207,9 +207,6 @@ public final class SchemaToMetadataTransformer {
         Optional<ModelNode> targetModel = document.findModel(targetModelName);
         if (targetModel.isPresent()) {
             for (FieldNode tf : targetModel.get().fields()) {
-                if (tf.type().name().equals(field.type().name()) || tf.type().name().equals(document.findModel(field.type().name()).map(ModelNode::name).orElse(""))) {
-                    // check back relation
-                }
                 if (tf.type().name().equals(document.models().stream().filter(m -> m.fields().contains(field)).map(ModelNode::name).findFirst().orElse(""))) {
                     targetIsList = tf.isList();
                     break;
@@ -380,6 +377,8 @@ public final class SchemaToMetadataTransformer {
                     .orElse(name);
         }
 
+        List<String> authRoles = field.authRoles();
+
         return new FieldMetadata(
                 name,
                 javaType,
@@ -394,7 +393,8 @@ public final class SchemaToMetadataTransformer {
                 aggregateFunc,
                 expression,
                 isRelation,
-                relName
+                relName,
+                authRoles
         );
     }
 

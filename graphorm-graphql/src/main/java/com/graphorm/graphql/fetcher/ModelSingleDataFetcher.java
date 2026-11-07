@@ -7,6 +7,9 @@ import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.graphql.planner.AnalyzedSelectionSet;
 import com.graphorm.graphql.planner.SelectionSetAnalyzer;
+import com.graphorm.graphql.security.FieldAuthorizer;
+import com.graphorm.graphql.security.FieldAuthorizerContext;
+import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
@@ -21,7 +24,7 @@ import java.util.Optional;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a single regular model by unique/primary key (e.g. {@code Query.student(id: ID!)}).
- * Supports selective column projection and hidden dependency foreign key injection.
+ * Supports selective column projection, hidden dependency foreign key injection, and field-level security verification (TASK-15.2).
  */
 public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -67,6 +70,11 @@ public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> 
         idValue = EntityRowNormalizer.coerceToFieldType(idValue, pkFieldMeta);
 
         AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, model, registry);
+
+        if (analyzed != null) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            SecurityPlannerInterceptor.verifyFieldAccess(model, analyzed.requestedScalarFields(), authorizer);
+        }
 
         SelectQuery.Builder builder;
         if (analyzed != null && !analyzed.projectedColumns().isEmpty()) {

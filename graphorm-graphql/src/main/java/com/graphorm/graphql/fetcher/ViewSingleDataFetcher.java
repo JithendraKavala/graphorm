@@ -7,6 +7,9 @@ import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.graphql.planner.AnalyzedSelectionSet;
 import com.graphorm.graphql.planner.SelectionSetAnalyzer;
+import com.graphorm.graphql.security.FieldAuthorizer;
+import com.graphorm.graphql.security.FieldAuthorizerContext;
+import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.view.ViewQueryPlanner;
@@ -23,7 +26,7 @@ import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a single view model by unique key (e.g. {@code Query.studentDashboard(studentId: Int!)}).
- * Translates queries via {@link ViewQueryPlanner} with selective projection and join pruning.
+ * Translates queries via {@link ViewQueryPlanner} with selective projection, join pruning, and field-level authorization (TASK-15.2).
  */
 public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -68,6 +71,12 @@ public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
         idValue = EntityRowNormalizer.coerceToFieldType(idValue, pkFieldMeta);
 
         AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, view, registry);
+
+        if (analyzed != null) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            SecurityPlannerInterceptor.verifyFieldAccess(view, analyzed.requestedScalarFields(), authorizer);
+        }
+
         Set<String> selectedFieldNames = null;
         if (analyzed != null && !analyzed.requestedScalarFields().isEmpty()) {
             selectedFieldNames = new LinkedHashSet<>(analyzed.requestedScalarFields());

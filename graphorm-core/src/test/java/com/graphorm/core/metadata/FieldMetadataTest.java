@@ -3,6 +3,8 @@ package com.graphorm.core.metadata;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -37,6 +39,8 @@ class FieldMetadataTest {
         assertThat(field.expression()).isNull();
         assertThat(field.isRelation()).isFalse();
         assertThat(field.relationName()).isNull();
+        assertThat(field.hasAuthRoles()).isFalse();
+        assertThat(field.authRoles()).isEmpty();
     }
 
     @Test
@@ -88,6 +92,35 @@ class FieldMetadataTest {
 
         assertThat(relField.isRelation()).isTrue();
         assertThat(relField.relationName()).isEqualTo("StudentDepartment");
+    }
+
+    @Test
+    @DisplayName("Should configure and verify auth roles on FieldMetadata")
+    void shouldConfigureAndVerifyAuthRoles() {
+        FieldMetadata securedField = FieldMetadata.builder("ssn")
+                .javaType(String.class)
+                .authRoles("ADMIN", "FINANCE")
+                .build();
+
+        assertThat(securedField.hasAuthRoles()).isTrue();
+        assertThat(securedField.authRoles()).containsExactly("ADMIN", "FINANCE");
+
+        // Verify role authorization
+        assertThat(securedField.isAuthorized(List.of("ADMIN"))).isTrue();
+        assertThat(securedField.isAuthorized(List.of("ROLE_ADMIN"))).isTrue();
+        assertThat(securedField.isAuthorized(List.of("FINANCE"))).isTrue();
+        assertThat(securedField.isAuthorized(List.of("ROLE_FINANCE"))).isTrue();
+        assertThat(securedField.isAuthorized(List.of("USER", "STUDENT"))).isFalse();
+        assertThat(securedField.isAuthorized(List.of())).isFalse();
+        assertThat(securedField.isAuthorized(null)).isFalse();
+
+        // Unsecured field permits all
+        FieldMetadata openField = FieldMetadata.builder("name")
+                .javaType(String.class)
+                .build();
+        assertThat(openField.hasAuthRoles()).isFalse();
+        assertThat(openField.isAuthorized(List.of())).isTrue();
+        assertThat(openField.isAuthorized(null)).isTrue();
     }
 
     @Test

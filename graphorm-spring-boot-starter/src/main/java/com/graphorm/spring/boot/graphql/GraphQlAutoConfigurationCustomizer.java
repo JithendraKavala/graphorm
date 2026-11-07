@@ -4,10 +4,18 @@ import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.graphql.binding.ArgumentBinder;
 import com.graphorm.graphql.engine.GraphOrmDataLoaderInstrumentation;
 import com.graphorm.graphql.engine.GraphOrmGraphQlRegistrar;
+import com.graphorm.graphql.loader.DataLoaderMetricsListener;
 import com.graphorm.graphql.loader.GraphOrmDataLoaderRegistryFactory;
+import com.graphorm.graphql.security.AuthDirectiveWiring;
+import com.graphorm.graphql.security.FieldAuthorizer;
+import com.graphorm.graphql.security.FieldAuthorizerContext;
+import com.graphorm.graphql.security.MaxQueryComplexityInstrumentation;
+import com.graphorm.graphql.security.MaxQueryDepthInstrumentation;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.spring.boot.autoconfigure.GraphOrmProperties;
+import graphql.execution.instrumentation.Instrumentation;
+import graphql.language.DirectiveDefinition;
 import graphql.language.FieldDefinition;
 import graphql.language.ObjectTypeDefinition;
 import graphql.language.TypeDefinition;
@@ -27,7 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Customizer hooking into Spring for GraphQL (Boot 3) auto-configuration to discover and register
- * GraphORM DataFetchers, DataLoaders, and type definitions without manual wiring (TASK-13.4).
+ * GraphORM DataFetchers, DataLoaders, security instrumentation, and type definitions without manual wiring.
  */
 public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderCustomizer {
 
@@ -38,6 +46,26 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
     private final SqlDialect dialect;
     private final GraphOrmProperties properties;
     private final ArgumentBinder argumentBinder;
+    private final FieldAuthorizer fieldAuthorizer;
+    private final DataLoaderMetricsListener metricsListener;
+
+    public GraphQlAutoConfigurationCustomizer(
+            ModelRegistry modelRegistry,
+            JdbcExecutor executor,
+            SqlDialect dialect,
+            GraphOrmProperties properties,
+            ArgumentBinder argumentBinder,
+            FieldAuthorizer fieldAuthorizer,
+            DataLoaderMetricsListener metricsListener
+    ) {
+        this.modelRegistry = Objects.requireNonNull(modelRegistry, "ModelRegistry must not be null");
+        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
+        this.dialect = Objects.requireNonNull(dialect, "SqlDialect must not be null");
+        this.properties = Objects.requireNonNull(properties, "GraphOrmProperties must not be null");
+        this.argumentBinder = argumentBinder != null ? argumentBinder : new ArgumentBinder();
+        this.fieldAuthorizer = fieldAuthorizer;
+        this.metricsListener = metricsListener;
+    }
 
     public GraphQlAutoConfigurationCustomizer(
             ModelRegistry modelRegistry,
@@ -46,11 +74,7 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
             GraphOrmProperties properties,
             ArgumentBinder argumentBinder
     ) {
-        this.modelRegistry = Objects.requireNonNull(modelRegistry, "ModelRegistry must not be null");
-        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
-        this.dialect = Objects.requireNonNull(dialect, "SqlDialect must not be null");
-        this.properties = Objects.requireNonNull(properties, "GraphOrmProperties must not be null");
-        this.argumentBinder = argumentBinder != null ? argumentBinder : new ArgumentBinder();
+        this(modelRegistry, executor, dialect, properties, argumentBinder, null, null);
     }
 
     public GraphQlAutoConfigurationCustomizer(
@@ -59,7 +83,7 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
             SqlDialect dialect,
             GraphOrmProperties properties
     ) {
-        this(modelRegistry, executor, dialect, properties, new ArgumentBinder());
+        this(modelRegistry, executor, dialect, properties, new ArgumentBinder(), null, null);
     }
 
     @Override
@@ -74,7 +98,7 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
             registryRef.set(typeRegistry);
         });
 
-        // 2. Configure Runtime Wiring (auto-registering generic DataFetchers)
+        // 2. Configure Runtime Wiring (auto-registering generic DataFetchers and directive wirings)
         builder.configureRuntimeWiring(wiringBuilder -> {
             TypeDefinitionRegistry typeRegistry = registryRef.get();
             if (typeRegistry != null && properties.getGraphql().isAutoFetchers()) {
@@ -87,11 +111,29 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
                 registrar.failFastOnViewMutation(properties.getGraphql().isFailFastOnViewMutation());
                 registrar.register(wiringBuilder, typeRegistry);
             }
+
+            if (properties.getSecurity().isFieldAuthorizationEnabled() && fieldAuthorizer != null) {
+                wiringBuilder.directive("auth", new AuthDirectiveWiring(fieldAuthorizer));
+                FieldAuthorizerContext.setDefaultAuthorizer(fieldAuthorizer);
+            }
         });
 
-        // 3. Register DataLoader Instrumentation for relationship batching
-        GraphOrmDataLoaderRegistryFactory factory = new GraphOrmDataLoaderRegistryFactory(modelRegistry, executor, dialect);
-        builder.instrumentation(List.of(new GraphOrmDataLoaderInstrumentation(factory)));
+        // 3. Register DataLoaders and Security Instrumentation
+        GraphOrmDataLoaderRegistryFactory factory = metricsListener != null
+                ? new GraphOrmDataLoaderRegistryFactory(modelRegistry, executor, dialect, metricsListener)
+                : new GraphOrmDataLoaderRegistryFactory(modelRegistry, executor, dialect);
+
+        List<Instrumentation> instrumentations = new ArrayList<>();
+        instrumentations.add(new GraphOrmDataLoaderInstrumentation(factory));
+
+        if (properties.getSecurity().isDepthLimitEnabled()) {
+            instrumentations.add(new MaxQueryDepthInstrumentation(properties.getSecurity().getMaxQueryDepth()));
+        }
+        if (properties.getSecurity().isComplexityLimitEnabled()) {
+            instrumentations.add(new MaxQueryComplexityInstrumentation(properties.getSecurity().getMaxQueryComplexity()));
+        }
+
+        builder.instrumentation(instrumentations);
     }
 
     private void mergeGraphOrmTypeDefinitions(TypeDefinitionRegistry target) {
@@ -103,14 +145,18 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
         try {
             TypeDefinitionRegistry generatedRegistry = new SchemaParser().parse(new StringReader(generatedSdl));
 
+            for (DirectiveDefinition dir : generatedRegistry.getDirectiveDefinitions().values()) {
+                if (target.getDirectiveDefinition(dir.getName()).isEmpty()) {
+                    target.add(dir);
+                }
+            }
+
             for (TypeDefinition<?> def : generatedRegistry.types().values()) {
                 if (!target.hasType(new TypeName(def.getName()))) {
                     target.add(def);
                 } else if (def instanceof ObjectTypeDefinition genObj && target.getType(def.getName()).orElse(null) instanceof ObjectTypeDefinition targetObj) {
-                    // Merge fields for Query and Mutation if present
-                    if ("Query".equals(def.getName()) || "Mutation".equals(def.getName())) {
-                        mergeFields(target, targetObj, genObj);
-                    }
+                    // Merge fields and directives for ObjectTypes
+                    mergeFields(target, targetObj, genObj);
                 }
             }
         } catch (Exception e) {
@@ -123,11 +169,23 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
         boolean modified = false;
 
         for (FieldDefinition genField : genObj.getFieldDefinitions()) {
-            boolean alreadyPresent = targetFields.stream()
-                    .anyMatch(f -> f.getName().equals(genField.getName()));
-            if (!alreadyPresent) {
+            int existingIdx = -1;
+            for (int i = 0; i < targetFields.size(); i++) {
+                if (targetFields.get(i).getName().equals(genField.getName())) {
+                    existingIdx = i;
+                    break;
+                }
+            }
+
+            if (existingIdx == -1) {
                 targetFields.add(genField);
                 modified = true;
+            } else if (!genField.getDirectives().isEmpty()) {
+                FieldDefinition existing = targetFields.get(existingIdx);
+                if (existing.getDirectives().isEmpty()) {
+                    targetFields.set(existingIdx, genField);
+                    modified = true;
+                }
             }
         }
 

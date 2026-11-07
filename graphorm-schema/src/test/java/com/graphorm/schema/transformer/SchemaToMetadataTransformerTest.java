@@ -231,4 +231,37 @@ class SchemaToMetadataTransformerTest {
         assertThatThrownBy(() -> QueryGuards.createInsert(vm, Map.of("name", "Test")))
                 .isInstanceOf(ReadOnlyViewException.class);
     }
+
+    @Test
+    @DisplayName("Should transform @auth directive on fields with multiple or single roles")
+    void shouldTransformAuthDirectiveOnFields() {
+        String schema = """
+                model Employee {
+                    id         Int    @id @default(autoincrement())
+                    name       String
+                    ssn        String @auth(roles: ["ADMIN"])
+                    salary     Float  @auth(roles: ["ADMIN", "HR"])
+                    notes      String @auth("MANAGER")
+                }
+                """;
+
+        ModelRegistry registry = SchemaToMetadataTransformer.transform(schema);
+        ModelMetadata employee = registry.getModel("Employee");
+
+        FieldMetadata name = employee.getField("name");
+        assertThat(name.hasAuthRoles()).isFalse();
+        assertThat(name.authRoles()).isEmpty();
+
+        FieldMetadata ssn = employee.getField("ssn");
+        assertThat(ssn.hasAuthRoles()).isTrue();
+        assertThat(ssn.authRoles()).containsExactly("ADMIN");
+
+        FieldMetadata salary = employee.getField("salary");
+        assertThat(salary.hasAuthRoles()).isTrue();
+        assertThat(salary.authRoles()).containsExactly("ADMIN", "HR");
+
+        FieldMetadata notes = employee.getField("notes");
+        assertThat(notes.hasAuthRoles()).isTrue();
+        assertThat(notes.authRoles()).containsExactly("MANAGER");
+    }
 }
