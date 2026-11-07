@@ -42,6 +42,43 @@ describe('UniversityDataService (api.ts)', () => {
     });
   });
 
+  describe('Role-Based Access Control & Switching', () => {
+    it('should default to ADMIN role with admin:admin123 credentials', () => {
+      expect(service.getRole()).toBe('ADMIN');
+      expect(service.getAuthHeader()).toBe('Basic ' + btoa('admin:admin123'));
+    });
+
+    it('should switch roles and synchronize Basic auth headers accurately', () => {
+      service.setRole('INSTRUCTOR');
+      expect(service.getRole()).toBe('INSTRUCTOR');
+      expect(service.getAuthHeader()).toBe('Basic ' + btoa('instructor:prof123'));
+
+      service.setRole('STUDENT');
+      expect(service.getRole()).toBe('STUDENT');
+      expect(service.getAuthHeader()).toBe('Basic ' + btoa('student:student123'));
+
+      service.setRole('GUEST');
+      expect(service.getRole()).toBe('GUEST');
+      expect(service.getAuthHeader()).toBe('');
+    });
+
+    it('should reject unauthorized field queries with GraphORM @auth error when role lacks permission', async () => {
+      service.setRole('STUDENT');
+      const testResult = await service.executeAuthViolationTest();
+      expect(testResult.role).toBe('STUDENT');
+      expect(testResult.response.errors).toBeDefined();
+      expect(testResult.response.errors?.length).toBeGreaterThan(0);
+      expect(testResult.response.errors?.[0].message).toContain('Access denied for field "salary"');
+    });
+
+    it('should allow authorized field queries when executing as ADMIN', async () => {
+      service.setRole('ADMIN');
+      const testResult = await service.executeAuthViolationTest();
+      expect(testResult.role).toBe('ADMIN');
+      expect(testResult.response.errors).toBeUndefined();
+    });
+  });
+
   describe('Offline Fallback Data Services', () => {
     it('should provide default departments in offline fallback mode', async () => {
       const departments = await service.getDepartments();

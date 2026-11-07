@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   ActiveTab,
   DataSourceMode,
+  AcademicRole,
   Student,
   Department,
   Course,
@@ -63,6 +64,7 @@ export function App() {
     return 'landing';
   });
   const [dataSourceMode, setDataSourceMode] = useState<DataSourceMode>('graphql');
+  const [currentRole, setCurrentRole] = useState<AcademicRole>(() => api.getRole());
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
@@ -92,80 +94,111 @@ export function App() {
     { id: 'shortcuts', title: 'Direct Pipeline Dispatch', visible: true, order: 5 },
   ]);
 
-  // Load All Entities from GraphORM API
-  const loadAllData = useCallback(async () => {
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash.replace("#", "");
+      if (["landing", "dashboard", "students", "departments", "courses", "enrollments", "analytics", "schema-explorer", "graphql-playground"].includes(hash)) {
+        setActiveTab(hash as ActiveTab);
+      }
+    };
+    window.addEventListener("hashchange", handleHash);
+    return () => window.removeEventListener("hashchange", handleHash);
+  }, []);
+
+  const handleTabChange = (tab: ActiveTab) => {
+    setActiveTab(tab);
+    window.location.hash = tab;
+  };
+
+  // Load data on-demand for the current active page/tab only
+  const loadDataForTab = useCallback(async (tab: ActiveTab) => {
+    // Only 'dashboard' aggregates telemetry across all entities in a single unified query.
+    // List pages (students, departments, courses, enrollments) and analytics manage
+    // their own self-contained server-side single query with pagination and relations!
+    if (tab !== 'dashboard') {
+      setIsConnected(api.isConnected());
+      return;
+    }
+
     setIsRefreshing(true);
     try {
-      const [
-        depts,
-        insts,
-        studs,
-        crss,
-        enrs,
-        deptSts,
-        studDash,
-        acts,
-      ] = await Promise.all([
-        api.getDepartments(),
-        api.getInstructors(),
-        api.getStudents(),
-        api.getCourses(),
-        api.getEnrollments(),
-        api.getDepartmentStats(),
-        api.getStudentDashboards(),
-        api.getActivities(),
-      ]);
-
-      setDepartments(depts);
-      setInstructors(insts);
-      setStudents(studs);
-      setCourses(crss);
-      setEnrollments(enrs);
-      setDepartmentStats(deptSts);
-      setStudentDashboards(studDash);
-      setActivities(acts);
+      const overview = await api.getDashboardOverview();
+      setDepartments(overview.departments);
+      setInstructors(overview.instructors);
+      setStudents(overview.students);
+      setCourses(overview.courses);
+      setEnrollments(overview.enrollments);
+      setDepartmentStats(overview.departmentStats);
+      setActivities(overview.activities);
       setIsConnected(api.isConnected());
+    } catch (err) {
+      console.error("Failed to load dashboard overview:", err);
     } finally {
       setIsRefreshing(false);
     }
   }, []);
 
+  // Fetch data only for the current active page
   useEffect(() => {
-    loadAllData();
+    loadDataForTab(activeTab);
+  }, [activeTab, loadDataForTab]);
+
+  // Subscribe to changes (e.g. after mutations in mock or live backend)
+  useEffect(() => {
     const unsubscribe = api.subscribe(() => {
-      loadAllData();
+      loadDataForTab(activeTab);
     });
     return () => unsubscribe();
-  }, [loadAllData]);
+  }, [activeTab, loadDataForTab]);
 
   const handleDataSourceModeChange = (mode: DataSourceMode) => {
     setDataSourceMode(mode);
     api.setMode(mode);
-    loadAllData();
+    loadDataForTab(activeTab);
   };
 
-  const handleQuickAction = (action: string) => {
+  const handleRoleChange = (newRole: AcademicRole) => {
+    api.setRole(newRole);
+    setCurrentRole(newRole);
+    loadDataForTab(activeTab);
+  };
+
+  const handleQuickAction = async (action: string) => {
     switch (action) {
       case 'landing':
-        setActiveTab('landing');
+        handleTabChange('landing');
         break;
       case 'student':
+        if (departments.length === 0) {
+          const depts = await api.getDepartments();
+          setDepartments(depts);
+        }
         setQuickStudentOpen(true);
         break;
       case 'course':
+        if (departments.length === 0 || instructors.length === 0) {
+          const [depts, insts] = await Promise.all([api.getDepartments(), api.getInstructors()]);
+          setDepartments(depts);
+          setInstructors(insts);
+        }
         setQuickCourseOpen(true);
         break;
       case 'enrollment':
+        if (students.length === 0 || courses.length === 0) {
+          const [studs, crss] = await Promise.all([api.getStudents(), api.getCourses()]);
+          setStudents(studs);
+          setCourses(crss);
+        }
         setQuickEnrollmentOpen(true);
         break;
       case 'department':
-        setActiveTab('departments');
+        handleTabChange('departments');
         break;
       case 'schema':
-        setActiveTab('schema-explorer');
+        handleTabChange('schema-explorer');
         break;
       case 'graphql':
-        setActiveTab('graphql-playground');
+        handleTabChange('graphql-playground');
         break;
       default:
         break;
@@ -174,7 +207,7 @@ export function App() {
 
   // If viewing official product showcase landing page
   if (activeTab === 'landing') {
-    return <ProductShowcase onOpenPortal={() => setActiveTab('dashboard')} />;
+    return <ProductShowcase onOpenPortal={() => handleTabChange('dashboard')} />;
   }
 
   return (
@@ -182,7 +215,7 @@ export function App() {
       {/* Sidebar with Desktop Sticky & Mobile Drawer */}
       <Sidebar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         dataSourceMode={dataSourceMode}
         setDataSourceMode={handleDataSourceModeChange}
         isConnected={isConnected}
@@ -196,7 +229,9 @@ export function App() {
         <Header
           activeTab={activeTab}
           dataSourceMode={dataSourceMode}
-          onRefresh={loadAllData}
+          currentRole={currentRole}
+          onRoleChange={handleRoleChange}
+          onRefresh={() => loadDataForTab(activeTab)}
           isRefreshing={isRefreshing}
           onQuickAction={handleQuickAction}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
@@ -248,6 +283,7 @@ export function App() {
             <StudentList
               students={students}
               departments={departments}
+              currentRole={currentRole}
               onCreateStudent={(input) => api.createStudent(input)}
               onUpdateStudent={(id, input) => api.updateStudent(id, input)}
               onDeleteStudent={(id) => api.deleteStudent(id)}
@@ -258,6 +294,7 @@ export function App() {
           {activeTab === 'departments' && (
             <DepartmentList
               departments={departments}
+              currentRole={currentRole}
               onCreateDepartment={(input) => api.createDepartment(input)}
               onUpdateDepartment={(id, input) => api.updateDepartment(id, input)}
               onDeleteDepartment={(id) => api.deleteDepartment(id)}
@@ -271,6 +308,7 @@ export function App() {
               courses={courses}
               departments={departments}
               instructors={instructors}
+              currentRole={currentRole}
               onCreateCourse={(input) => api.createCourse(input)}
               onUpdateCourse={(id, input) => api.updateCourse(id, input)}
               onDeleteCourse={(id) => api.deleteCourse(id)}
@@ -283,6 +321,7 @@ export function App() {
               enrollments={enrollments}
               students={students}
               courses={courses}
+              currentRole={currentRole}
               onCreateEnrollment={(input) => api.createEnrollment(input)}
               onUpdateEnrollment={(id, input) => api.updateEnrollment(id, input)}
               onDeleteEnrollment={(id) => api.deleteEnrollment(id)}

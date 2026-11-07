@@ -21,13 +21,14 @@ import com.graphorm.example.dashboard.web.dto.UpdateStudentRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.graphql.data.method.annotation.QueryMapping;
 
 import java.util.List;
 import java.util.Map;
 
 /**
  * REST controller demonstrating client API access to models, database-backed views,
- * and virtual aggregated views for the GraphORM React Dashboard.
+ * and virtual aggregated views with server-side pagination, search, and filtering for GraphORM.
  */
 @RestController
 @RequestMapping("/api/university")
@@ -56,8 +57,23 @@ public class UniversityDashboardController {
     // ==========================================
 
     @GetMapping("/departments")
-    public List<Department> getDepartments() {
-        return service.getAllDepartments();
+    public ResponseEntity<?> getDepartments(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder
+    ) {
+        if (page == null && pageSize == null && search == null && sortBy == null) {
+            return ResponseEntity.ok(service.getAllDepartments());
+        }
+        return ResponseEntity.ok(service.getDepartments(
+                page != null ? page : 1,
+                pageSize != null ? pageSize : 6,
+                search,
+                sortBy,
+                sortOrder
+        ));
     }
 
     @GetMapping("/departments/{id}")
@@ -90,8 +106,27 @@ public class UniversityDashboardController {
     // ==========================================
 
     @GetMapping("/students")
-    public List<Student> getStudents() {
-        return service.getAllStudents();
+    public ResponseEntity<?> getStudents(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Integer departmentId,
+            @RequestParam(required = false) Double minGpa,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder
+    ) {
+        if (page == null && pageSize == null && search == null && departmentId == null && minGpa == null && sortBy == null) {
+            return ResponseEntity.ok(service.getAllStudents());
+        }
+        return ResponseEntity.ok(service.getStudents(
+                page != null ? page : 1,
+                pageSize != null ? pageSize : 10,
+                search,
+                departmentId,
+                minGpa,
+                sortBy,
+                sortOrder
+        ));
     }
 
     @GetMapping("/students/{id}")
@@ -124,8 +159,29 @@ public class UniversityDashboardController {
     // ==========================================
 
     @GetMapping("/courses")
-    public List<Course> getCourses() {
-        return service.getAllCourses();
+    public ResponseEntity<?> getCourses(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Integer departmentId,
+            @RequestParam(required = false) Integer instructorId,
+            @RequestParam(required = false) Integer credits,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder
+    ) {
+        if (page == null && pageSize == null && search == null && departmentId == null && instructorId == null && credits == null && sortBy == null) {
+            return ResponseEntity.ok(service.getAllCourses());
+        }
+        return ResponseEntity.ok(service.getCourses(
+                page != null ? page : 1,
+                pageSize != null ? pageSize : 6,
+                search,
+                departmentId,
+                instructorId,
+                credits,
+                sortBy,
+                sortOrder
+        ));
     }
 
     @GetMapping("/courses/{id}")
@@ -192,8 +248,27 @@ public class UniversityDashboardController {
     // ==========================================
 
     @GetMapping("/enrollments")
-    public List<Enrollment> getEnrollments() {
-        return service.getAllEnrollments();
+    public ResponseEntity<?> getEnrollments(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) Integer studentId,
+            @RequestParam(required = false) Integer courseId,
+            @RequestParam(required = false) String grade,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder
+    ) {
+        if (page == null && pageSize == null && studentId == null && courseId == null && grade == null && sortBy == null) {
+            return ResponseEntity.ok(service.getAllEnrollments());
+        }
+        return ResponseEntity.ok(service.getEnrollments(
+                page != null ? page : 1,
+                pageSize != null ? pageSize : 8,
+                studentId,
+                courseId,
+                grade,
+                sortBy,
+                sortOrder
+        ));
     }
 
     @GetMapping("/enrollments/{id}")
@@ -231,8 +306,25 @@ public class UniversityDashboardController {
     }
 
     @GetMapping("/dashboards")
-    public List<StudentDashboard> getStudentDashboards() {
-        return service.getStudentDashboards();
+    public ResponseEntity<?> getStudentDashboards(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Integer minCourses,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder
+    ) {
+        if (page == null && pageSize == null && search == null && minCourses == null && sortBy == null) {
+            return ResponseEntity.ok(service.getStudentDashboards());
+        }
+        return ResponseEntity.ok(service.getStudentDashboards(
+                page != null ? page : 1,
+                pageSize != null ? pageSize : 5,
+                search,
+                minCourses,
+                sortBy,
+                sortOrder
+        ));
     }
 
     @GetMapping("/dashboards/{studentId}")
@@ -240,5 +332,39 @@ public class UniversityDashboardController {
         return service.getStudentDashboard(studentId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    // ==========================================
+    // GRAPHQL QUERY RESOLVERS (PAGINATION COUNTS)
+    // ==========================================
+
+    @QueryMapping
+    public int studentsCount() {
+        return (int) service.getStudentCount();
+    }
+
+    @QueryMapping
+    public int departmentsCount() {
+        return (int) service.getDepartmentCount();
+    }
+
+    @QueryMapping
+    public int coursesCount() {
+        return (int) service.getCourseCount();
+    }
+
+    @QueryMapping
+    public int instructorsCount() {
+        return (int) service.getInstructorCount();
+    }
+
+    @QueryMapping
+    public int enrollmentsCount() {
+        return (int) service.getEnrollmentCount();
+    }
+
+    @QueryMapping
+    public int studentDashboardsCount() {
+        return (int) service.getStudentDashboardCount();
     }
 }

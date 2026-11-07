@@ -4,8 +4,8 @@ type Department {
   id: ID!
   name: String!
   code: String!
-  students: [Student!]!
-  courses: [Course!]!
+  students(limit: Int, offset: Int): [Student!]!
+  courses(limit: Int, offset: Int): [Course!]!
   instructors: [Instructor!]!
 }
 
@@ -16,7 +16,7 @@ type Instructor {
   salary: Float @auth(roles: ["ADMIN"])
   departmentId: Int!
   department: Department
-  courses: [Course!]!
+  courses(limit: Int, offset: Int): [Course!]!
 }
 
 type Student {
@@ -26,7 +26,7 @@ type Student {
   gpa: Float @auth(roles: ["ADMIN", "INSTRUCTOR"])
   departmentId: Int
   department: Department
-  enrollments: [Enrollment!]!
+  enrollments(limit: Int, offset: Int): [Enrollment!]!
 }
 
 type Course {
@@ -38,7 +38,7 @@ type Course {
   department: Department
   instructorId: Int
   instructor: Instructor
-  enrollments: [Enrollment!]!
+  enrollments(limit: Int, offset: Int): [Enrollment!]!
 }
 
 type Enrollment {
@@ -88,18 +88,24 @@ input DepartmentInput {
 }
 
 type Query {
-  students: [Student!]!
+  students(limit: Int, offset: Int): [Student!]!
+  studentsCount: Int!
   student(id: ID!): Student
-  departments: [Department!]!
+  departments(limit: Int, offset: Int): [Department!]!
+  departmentsCount: Int!
   department(id: ID!): Department
-  courses: [Course!]!
+  courses(limit: Int, offset: Int): [Course!]!
+  coursesCount: Int!
   course(id: ID!): Course
   instructors: [Instructor!]!
+  instructorsCount: Int!
   instructor(id: ID!): Instructor
-  enrollments: [Enrollment!]!
+  enrollments(limit: Int, offset: Int): [Enrollment!]!
+  enrollmentsCount: Int!
   enrollment(id: ID!): Enrollment
   departmentStats: [DepartmentStats!]!
-  studentDashboards: [StudentDashboard!]!
+  studentDashboards(limit: Int, offset: Int): [StudentDashboard!]!
+  studentDashboardsCount: Int!
   studentDashboard(id: ID!): StudentDashboard
 }
 

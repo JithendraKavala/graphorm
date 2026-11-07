@@ -1,12 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Student,
   Department,
   CreateStudentInput,
   UpdateStudentInput,
+  AcademicRole,
+  ROLE_PROFILES,
 } from '../../types/graphorm';
+import { api } from '../../services/api';
 import { SearchInput } from '../common/SearchInput';
 import { Badge } from '../common/Badge';
+import { DataPagination } from '../common/DataPagination';
+import { ProtectedField } from '../common/ProtectedField';
 import {
   UserPlus,
   ArrowUpDown,
@@ -16,31 +21,35 @@ import {
   Filter,
   GraduationCap,
   Building2,
-  ChevronLeft,
-  ChevronRight,
   LayoutGrid,
   List,
   Mail,
   Award,
+  Lock,
+  Loader2,
 } from 'lucide-react';
 import { StudentDetailModal } from './StudentDetailModal';
 import { StudentFormModal } from './StudentFormModal';
 
 interface StudentListProps {
-  students: Student[];
+  students?: Student[];
   departments: Department[];
+  currentRole?: AcademicRole;
   onCreateStudent: (input: CreateStudentInput) => Promise<Student>;
   onUpdateStudent: (id: number, input: UpdateStudentInput) => Promise<Student>;
   onDeleteStudent: (id: number) => Promise<boolean>;
 }
 
 export const StudentList: React.FC<StudentListProps> = ({
-  students,
-  departments,
+  students: initialStudents = [],
+  departments: propDepartments = [],
+  currentRole = 'ADMIN',
   onCreateStudent,
   onUpdateStudent,
   onDeleteStudent,
 }) => {
+  const [students, setStudents] = useState<Student[]>(initialStudents);
+  const [departments, setDepartments] = useState<Department[]>(propDepartments);
   const [search, setSearch] = useState('');
   const [selectedDeptId, setSelectedDeptId] = useState<string>('all');
   const [minGpa, setMinGpa] = useState<number>(0);
@@ -48,7 +57,11 @@ export const StudentList: React.FC<StudentListProps> = ({
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 8;
+  const [pageSize, setPageSize] = useState(8);
+  const [totalItems, setTotalItems] = useState(initialStudents.length);
+  const [totalPages, setTotalPages] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [presetFilter, setPresetFilter] = useState<'all' | 'high_honors' | 'honors' | 'independent'>('all');
 
   // Modals state
   const [detailStudent, setDetailStudent] = useState<Student | null>(null);
@@ -56,43 +69,49 @@ export const StudentList: React.FC<StudentListProps> = ({
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
-  // Filter & sort
-  const filteredStudents = useMemo(() => {
-    return students
-      .filter((s) => {
-        const matchesSearch =
-          s.name.toLowerCase().includes(search.toLowerCase()) ||
-          s.email.toLowerCase().includes(search.toLowerCase());
-        const matchesDept =
-          selectedDeptId === 'all'
-            ? true
-            : selectedDeptId === 'none'
-            ? s.departmentId == null
-            : s.departmentId === Number(selectedDeptId);
-        const matchesGpa = (s.gpa ?? 0) >= minGpa;
-        return matchesSearch && matchesDept && matchesGpa;
-      })
-      .sort((a, b) => {
-        let valA = a[sortField];
-        let valB = b[sortField];
-        if (valA == null) return 1;
-        if (valB == null) return -1;
-        if (typeof valA === 'string' && typeof valB === 'string') {
-          return sortOrder === 'asc'
-            ? valA.localeCompare(valB)
-            : valB.localeCompare(valA);
-        }
-        return sortOrder === 'asc'
-          ? (valA as number) - (valB as number)
-          : (valB as number) - (valA as number);
-      });
-  }, [students, search, selectedDeptId, minGpa, sortField, sortOrder]);
+  const canMutate = ROLE_PROFILES[currentRole]?.permissions.canMutate ?? false;
 
-  const totalPages = Math.ceil(filteredStudents.length / pageSize) || 1;
-  const paginatedStudents = filteredStudents.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
+  // Server-side query execution with pushdown SQL (WHERE, ORDER BY, LIMIT ? OFFSET ?)
+  const fetchStudents = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      let effectiveMinGpa: number | undefined = minGpa > 0 ? minGpa : undefined;
+      let effectiveDeptId: string | undefined = selectedDeptId !== 'all' ? selectedDeptId : undefined;
+
+      if (presetFilter === 'high_honors') {
+        effectiveMinGpa = Math.max(effectiveMinGpa ?? 0, 3.9);
+      } else if (presetFilter === 'honors') {
+        effectiveMinGpa = Math.max(effectiveMinGpa ?? 0, 3.5);
+      } else if (presetFilter === 'independent') {
+        effectiveDeptId = 'none';
+      }
+
+      const res = await api.getStudentsPaginated({
+        page: currentPage,
+        pageSize,
+        search: search.trim() || undefined,
+        departmentId: effectiveDeptId,
+        minGpa: effectiveMinGpa,
+        sortBy: sortField,
+        sortOrder,
+      });
+
+      setStudents(res.items);
+      setTotalItems(res.pagination.totalItems);
+      setTotalPages(res.pagination.totalPages);
+      if (res.departments && res.departments.length > 0) {
+        setDepartments(res.departments);
+      }
+    } catch (err) {
+      console.error('Failed to fetch students:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentPage, pageSize, search, selectedDeptId, minGpa, presetFilter, sortField, sortOrder, currentRole]);
+
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
 
   const toggleSort = (field: 'name' | 'gpa' | 'id') => {
     if (sortField === field) {
@@ -101,6 +120,7 @@ export const StudentList: React.FC<StudentListProps> = ({
       setSortField(field);
       setSortOrder('asc');
     }
+    setCurrentPage(1);
   };
 
   const handleFormSubmit = async (
@@ -112,11 +132,13 @@ export const StudentList: React.FC<StudentListProps> = ({
     } else {
       await onCreateStudent(input as CreateStudentInput);
     }
+    await fetchStudents();
   };
 
   const confirmDelete = async (id: number) => {
     await onDeleteStudent(id);
     setDeleteId(null);
+    await fetchStudents();
   };
 
   return (
@@ -126,7 +148,10 @@ export const StudentList: React.FC<StudentListProps> = ({
         <div className="flex-1 flex flex-wrap items-center gap-2.5">
           <SearchInput
             value={search}
-            onChange={setSearch}
+            onChange={(val) => {
+              setSearch(val);
+              setCurrentPage(1);
+            }}
             placeholder="Search scholars by name or university email..."
             className="w-full sm:w-72"
           />
@@ -140,68 +165,178 @@ export const StudentList: React.FC<StudentListProps> = ({
                 setSelectedDeptId(e.target.value);
                 setCurrentPage(1);
               }}
-              className="bg-transparent text-slate-200 focus:outline-none cursor-pointer text-xs"
+              className="bg-transparent text-slate-200 font-medium focus:outline-none cursor-pointer"
+              aria-label="Filter by department"
             >
               <option value="all">All Academic Faculties</option>
-              <option value="none">Undeclared / Independent</option>
               {departments.map((d) => (
-                <option key={d.id} value={d.id}>
+                <option key={d.id} value={d.id} className="bg-ink-900 text-slate-200">
                   {d.name} ({d.code})
                 </option>
               ))}
+              <option value="none" className="bg-ink-900 text-slate-200">
+                Independent / Undecided
+              </option>
             </select>
           </div>
 
-          {/* GPA Slider */}
-          <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-ink-900/80 border border-ink-700/70 text-xs">
+          {/* Min GPA Filter */}
+          <div className="flex items-center gap-2 bg-ink-900/80 border border-ink-700/70 rounded-xl px-3 py-1.5 text-xs">
             <span className="text-slate-400 font-mono text-[11px]">Min GPA:</span>
             <input
               type="range"
               min="0"
-              max="3.9"
+              max="4.0"
               step="0.1"
               value={minGpa}
               onChange={(e) => {
                 setMinGpa(parseFloat(e.target.value));
                 setCurrentPage(1);
               }}
-              className="w-20 accent-gold-500 cursor-pointer"
+              className="w-20 accent-sky-500 cursor-pointer"
+              aria-label="Filter by minimum GPA"
             />
-            <span className="font-mono text-gold-300 font-bold">{minGpa.toFixed(1)}</span>
+            <span className="font-mono text-white text-[11px] font-semibold w-7">
+              {minGpa.toFixed(1)}
+            </span>
           </div>
 
-          {/* View Toggle */}
-          <div className="flex items-center bg-ink-900/80 border border-ink-700/70 p-0.5 rounded-xl text-xs">
+          {/* Sort Dropdown */}
+          <div className="flex items-center gap-1.5 bg-ink-900/80 border border-ink-700/70 rounded-xl px-2.5 py-1.5 text-xs">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={`${sortField}-${sortOrder}`}
+              onChange={(e) => {
+                const [f, o] = e.target.value.split('-');
+                setSortField(f as 'name' | 'gpa' | 'id');
+                setSortOrder(o as 'asc' | 'desc');
+                setCurrentPage(1);
+              }}
+              className="bg-transparent text-slate-200 focus:outline-none cursor-pointer text-xs"
+              aria-label="Sort scholars"
+            >
+              <option value="name-asc" className="bg-ink-900 text-slate-200">Name (A-Z)</option>
+              <option value="name-desc" className="bg-ink-900 text-slate-200">Name (Z-A)</option>
+              <option value="gpa-desc" className="bg-ink-900 text-slate-200">GPA (High-Low)</option>
+              <option value="gpa-asc" className="bg-ink-900 text-slate-200">GPA (Low-High)</option>
+              <option value="id-asc" className="bg-ink-900 text-slate-200">ID (Low-High)</option>
+            </select>
+          </div>
+
+          {isLoading && (
+            <div className="flex items-center gap-1 text-[11px] font-mono text-sky-400 animate-pulse ml-1">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Querying...</span>
+            </div>
+          )}
+        </div>
+
+        {/* View Mode & Actions */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-ink-900/80 border border-ink-700/70 rounded-xl p-0.5">
             <button
               onClick={() => setViewMode('table')}
               className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                viewMode === 'table' ? 'bg-ink-750 text-white' : 'text-slate-400 hover:text-slate-200'
+                viewMode === 'table'
+                  ? 'bg-ink-750 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
               }`}
-              title="Table View"
+              title="Table Grid"
+              aria-label="Table View"
             >
-              <List className="w-3.5 h-3.5" />
+              <List className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('cards')}
               className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                viewMode === 'cards' ? 'bg-ink-750 text-white' : 'text-slate-400 hover:text-slate-200'
+                viewMode === 'cards'
+                  ? 'bg-ink-750 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
               }`}
-              title="Dossier Cards View"
+              title="Card Dossier"
+              aria-label="Card View"
             >
-              <LayoutGrid className="w-3.5 h-3.5" />
+              <LayoutGrid className="w-4 h-4" />
             </button>
           </div>
-        </div>
 
+          <button
+            onClick={() => {
+              setFormStudent(null);
+              setIsFormOpen(true);
+            }}
+            disabled={!canMutate}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold shadow-sm transition-all ${
+              canMutate
+                ? 'bg-sky-500 hover:bg-sky-400 text-[#0D1117] cursor-pointer'
+                : 'bg-ink-800 text-slate-500 border border-ink-700 opacity-60 cursor-not-allowed'
+            }`}
+            title={
+              canMutate
+                ? 'Matriculate New Scholar'
+                : 'Scholar creation requires ADMIN or INSTRUCTOR privilege (@auth)'
+            }
+          >
+            {canMutate ? <UserPlus className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5" />}
+            <span>Matriculate Scholar</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Preset Quick Chips */}
+      <div className="flex items-center gap-2 text-xs flex-wrap px-1">
+        <span className="text-slate-500 font-mono text-[11px]">Filter Presets:</span>
         <button
           onClick={() => {
-            setFormStudent(null);
-            setIsFormOpen(true);
+            setPresetFilter('all');
+            setCurrentPage(1);
           }}
-          className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-gold-500 to-gold-600 hover:from-gold-600 hover:to-gold-700 text-ink-950 font-bold text-xs shadow-[0_0_15px_-3px_rgba(212,175,55,0.3)] transition-all cursor-pointer whitespace-nowrap"
+          className={`px-2.5 py-1 rounded-lg font-mono text-[11px] transition-colors cursor-pointer ${
+            presetFilter === 'all'
+              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+              : 'bg-ink-900 text-slate-400 border border-ink-750 hover:text-slate-200'
+          }`}
         >
-          <UserPlus className="w-4 h-4 stroke-[2.5]" />
-          <span>Matriculate Scholar</span>
+          All Scholars ({totalItems})
+        </button>
+        <button
+          onClick={() => {
+            setPresetFilter('high_honors');
+            setCurrentPage(1);
+          }}
+          className={`px-2.5 py-1 rounded-lg font-mono text-[11px] transition-colors cursor-pointer ${
+            presetFilter === 'high_honors'
+              ? 'bg-laurel-500/20 text-laurel-300 border border-laurel-500/40'
+              : 'bg-ink-900 text-slate-400 border border-ink-750 hover:text-slate-200'
+          }`}
+        >
+          High Honors (GPA ≥ 3.9)
+        </button>
+        <button
+          onClick={() => {
+            setPresetFilter('honors');
+            setCurrentPage(1);
+          }}
+          className={`px-2.5 py-1 rounded-lg font-mono text-[11px] transition-colors cursor-pointer ${
+            presetFilter === 'honors'
+              ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40'
+              : 'bg-ink-900 text-slate-400 border border-ink-750 hover:text-slate-200'
+          }`}
+        >
+          Honors (GPA ≥ 3.5)
+        </button>
+        <button
+          onClick={() => {
+            setPresetFilter('independent');
+            setCurrentPage(1);
+          }}
+          className={`px-2.5 py-1 rounded-lg font-mono text-[11px] transition-colors cursor-pointer ${
+            presetFilter === 'independent'
+              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+              : 'bg-ink-900 text-slate-400 border border-ink-750 hover:text-slate-200'
+          }`}
+        >
+          Independent / Unassigned
         </button>
       </div>
 
@@ -209,50 +344,50 @@ export const StudentList: React.FC<StudentListProps> = ({
       {viewMode === 'table' ? (
         <div className="rounded-2xl bg-ink-850/90 border border-ink-700/70 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-ink-900/90 border-b border-ink-750/80 text-[10px] uppercase tracking-wider text-slate-400 font-mono select-none">
-                <tr>
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-ink-900/80 border-b border-ink-750/70 text-slate-400 font-medium">
                   <th
+                    className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
                     onClick={() => toggleSort('id')}
-                    className="py-3 px-5 cursor-pointer hover:text-slate-200 transition-colors"
                   >
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 font-mono text-[11px]">
                       <span>ID</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
                   <th
+                    className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
                     onClick={() => toggleSort('name')}
-                    className="py-3 px-5 cursor-pointer hover:text-slate-200 transition-colors"
                   >
                     <div className="flex items-center gap-1.5">
-                      <span>Scholar Identity</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      <span>Scholar Dossier</span>
+                      <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
-                  <th className="py-3 px-5">Faculty Department</th>
+                  <th className="py-3 px-5">Faculty & Department</th>
                   <th
+                    className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
                     onClick={() => toggleSort('gpa')}
-                    className="py-3 px-5 cursor-pointer hover:text-slate-200 transition-colors"
                   >
                     <div className="flex items-center gap-1.5">
                       <span>Cumulative GPA</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
-                  <th className="py-3 px-5">Registered Courses</th>
+                  <th className="py-3 px-5">Enrollment Load</th>
                   <th className="py-3 px-5 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-ink-750/50">
-                {paginatedStudents.length === 0 ? (
+              <tbody className="divide-y divide-ink-750/50 text-slate-300">
+                {students.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
-                      No scholar records found matching current query criteria.
+                      {isLoading ? 'Loading records...' : 'No scholar records found matching current query criteria.'}
                     </td>
                   </tr>
                 ) : (
-                  paginatedStudents.map((student) => {
+                  students.map((student) => {
                     const gpa = student.gpa ?? 3.5;
                     const enrollmentsCount = student.enrollments ? student.enrollments.length : 0;
                     return (
@@ -292,13 +427,23 @@ export const StudentList: React.FC<StudentListProps> = ({
                           )}
                         </td>
                         <td className="py-3.5 px-5">
-                          <Badge
-                            variant={gpa >= 3.8 ? 'laurel' : gpa >= 3.5 ? 'brand' : 'warning'}
-                            size="sm"
-                          >
-                            {gpa >= 3.8 && <Award className="w-3 h-3 text-laurel-400" />}
-                            <span className="font-mono tabular-nums font-semibold">{gpa.toFixed(2)}</span>
-                          </Badge>
+                          {/* Protected GPA Field: Masks when STUDENT or GUEST */}
+                          <ProtectedField
+                            currentRole={currentRole}
+                            requiredRoles={['ADMIN', 'INSTRUCTOR']}
+                            fallbackText="Restricted"
+                            value={
+                              <Badge
+                                variant={gpa >= 3.8 ? 'laurel' : gpa >= 3.5 ? 'brand' : 'warning'}
+                                size="sm"
+                              >
+                                {gpa >= 3.8 && <Award className="w-3 h-3 text-laurel-400" />}
+                                <span className="font-mono tabular-nums font-semibold">
+                                  {gpa.toFixed(2)}
+                                </span>
+                              </Badge>
+                            }
+                          />
                         </td>
                         <td className="py-3.5 px-5 font-mono text-xs text-slate-400">
                           <div className="flex items-center gap-1.5">
@@ -317,18 +462,40 @@ export const StudentList: React.FC<StudentListProps> = ({
                             </button>
                             <button
                               onClick={() => {
+                                if (!canMutate) return;
                                 setFormStudent(student);
                                 setIsFormOpen(true);
                               }}
-                              className="p-1.5 text-slate-400 hover:text-cobalt-300 hover:bg-ink-750 rounded-lg transition-colors cursor-pointer"
-                              title="Modify Scholar Details"
+                              disabled={!canMutate}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                canMutate
+                                  ? 'text-slate-400 hover:text-cobalt-300 hover:bg-ink-750 cursor-pointer'
+                                  : 'text-slate-600 opacity-40 cursor-not-allowed'
+                              }`}
+                              title={
+                                canMutate
+                                  ? 'Modify Scholar Details'
+                                  : 'Editing requires ADMIN or INSTRUCTOR privilege (@auth)'
+                              }
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => setDeleteId(student.id)}
-                              className="p-1.5 text-slate-400 hover:text-garnet-400 hover:bg-ink-750 rounded-lg transition-colors cursor-pointer"
-                              title="Expel / Remove Scholar"
+                              onClick={() => {
+                                if (!canMutate) return;
+                                setDeleteId(student.id);
+                              }}
+                              disabled={!canMutate}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                canMutate
+                                  ? 'text-slate-400 hover:text-garnet-400 hover:bg-ink-750 cursor-pointer'
+                                  : 'text-slate-600 opacity-40 cursor-not-allowed'
+                              }`}
+                              title={
+                                canMutate
+                                  ? 'Expel / Remove Scholar'
+                                  : 'Deletion requires ADMIN or INSTRUCTOR privilege (@auth)'
+                              }
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -342,121 +509,157 @@ export const StudentList: React.FC<StudentListProps> = ({
             </table>
           </div>
 
-          {/* Pagination */}
-          <div className="px-5 py-3 bg-ink-900/70 border-t border-ink-750/70 flex items-center justify-between text-xs text-slate-400">
-            <div>
-              Showing{' '}
-              <span className="text-white font-semibold tabular-nums">
-                {filteredStudents.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
-              </span>{' '}
-              to{' '}
-              <span className="text-white font-semibold tabular-nums">
-                {Math.min(currentPage * pageSize, filteredStudents.length)}
-              </span>{' '}
-              of <span className="text-white font-semibold tabular-nums">{filteredStudents.length}</span> matriculated scholars
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                disabled={currentPage === 1}
-                className="p-1.5 rounded-lg border border-ink-750 text-slate-400 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-colors cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="px-2.5 py-0.5 font-mono text-slate-300 text-xs">
-                {currentPage} / {totalPages}
-              </span>
-              <button
-                onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="p-1.5 rounded-lg border border-ink-750 text-slate-400 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-colors cursor-pointer"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+          {/* Standardized Reusable Server-Side Pagination */}
+          <DataPagination
+            pagination={{
+              currentPage,
+              pageSize,
+              totalItems,
+              totalPages,
+            }}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setCurrentPage(1);
+            }}
+            pageSizeOptions={[5, 8, 10, 25, 50]}
+            itemLabel="scholars"
+            className="rounded-t-none border-t border-b-0 border-x-0"
+          />
         </div>
       ) : (
         /* Cards Dossier Grid */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {paginatedStudents.map((student) => {
-            const gpa = student.gpa ?? 3.5;
-            const enrollmentsCount = student.enrollments ? student.enrollments.length : 0;
-            return (
-              <div
-                key={student.id}
-                className="p-5 rounded-2xl bg-ink-850/90 border border-ink-700/70 hover:border-gold-500/40 transition-all group flex flex-col justify-between shadow-sm"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="w-11 h-11 rounded-2xl bg-ink-800 border border-gold-500/30 text-gold-300 flex items-center justify-center font-display font-bold text-base shadow-sm">
-                      {student.name.charAt(0)}
-                    </div>
-                    <Badge
-                      variant={gpa >= 3.8 ? 'laurel' : gpa >= 3.5 ? 'brand' : 'warning'}
-                      size="sm"
-                    >
-                      GPA {gpa.toFixed(2)}
-                    </Badge>
-                  </div>
-
-                  <h4 className="font-semibold text-white mt-3 text-sm group-hover:text-gold-300 transition-colors">
-                    {student.name}
-                  </h4>
-                  <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5 font-mono">
-                    <Mail className="w-3 h-3 text-slate-400 shrink-0" />
-                    <span className="truncate">{student.email}</span>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-ink-750/70 space-y-2 text-xs">
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Faculty:</span>
-                      <span className="font-medium text-slate-200">
-                        {student.department?.code || 'Independent'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span>Enrolled Units:</span>
-                      <span className="font-mono text-cobalt-300 font-semibold">
-                        {enrollmentsCount} Courses
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-ink-750/70 flex items-center justify-between">
-                  <span className="font-mono text-[10px] text-slate-400">ID #{student.id}</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setDetailStudent(student)}
-                      className="p-1.5 text-slate-400 hover:text-gold-300 hover:bg-ink-750 rounded-lg transition-colors cursor-pointer"
-                      title="Inspect Profile"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setFormStudent(student);
-                        setIsFormOpen(true);
-                      }}
-                      className="p-1.5 text-slate-400 hover:text-cobalt-300 hover:bg-ink-750 rounded-lg transition-colors cursor-pointer"
-                      title="Modify Scholar"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteId(student.id)}
-                      className="p-1.5 text-slate-400 hover:text-garnet-400 hover:bg-ink-750 rounded-lg transition-colors cursor-pointer"
-                      title="Expel Scholar"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {students.length === 0 ? (
+              <div className="col-span-full py-12 text-center text-slate-400 text-xs bg-ink-850/90 border border-ink-700/70 rounded-2xl">
+                {isLoading ? 'Loading records...' : 'No scholar records found matching query criteria.'}
               </div>
-            );
-          })}
+            ) : (
+              students.map((student) => {
+                const gpa = student.gpa ?? 3.5;
+                const enrollmentsCount = student.enrollments ? student.enrollments.length : 0;
+                return (
+                  <div
+                    key={student.id}
+                    className="p-5 rounded-2xl bg-ink-850/90 border border-ink-700/70 hover:border-gold-500/40 transition-all group flex flex-col justify-between shadow-sm"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="w-11 h-11 rounded-2xl bg-ink-800 border border-gold-500/30 text-gold-300 flex items-center justify-center font-display font-bold text-base shadow-sm">
+                          {student.name.charAt(0)}
+                        </div>
+                        <ProtectedField
+                          currentRole={currentRole}
+                          requiredRoles={['ADMIN', 'INSTRUCTOR']}
+                          fallbackText="Restricted"
+                          value={
+                            <Badge
+                              variant={gpa >= 3.8 ? 'laurel' : gpa >= 3.5 ? 'brand' : 'warning'}
+                              size="sm"
+                            >
+                              GPA {gpa.toFixed(2)}
+                            </Badge>
+                          }
+                        />
+                      </div>
+
+                      <h4 className="font-semibold text-white mt-3 text-sm group-hover:text-gold-300 transition-colors">
+                        {student.name}
+                      </h4>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5 font-mono">
+                        <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span className="truncate">{student.email}</span>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-ink-750/70 space-y-2 text-xs">
+                        <div className="flex items-center justify-between text-slate-400">
+                          <span>Faculty:</span>
+                          <span className="font-medium text-slate-200">
+                            {student.department?.code || 'Independent'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-400">
+                          <span>Enrolled Units:</span>
+                          <span className="font-mono text-cobalt-300 font-semibold">
+                            {enrollmentsCount} Courses
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-ink-750/70 flex items-center justify-between">
+                      <span className="font-mono text-[10px] text-slate-400">ID #{student.id}</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setDetailStudent(student)}
+                          className="p-1.5 text-slate-400 hover:text-gold-300 hover:bg-ink-750 rounded-lg transition-colors cursor-pointer"
+                          title="Inspect Profile"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!canMutate) return;
+                            setFormStudent(student);
+                            setIsFormOpen(true);
+                          }}
+                          disabled={!canMutate}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            canMutate
+                              ? 'text-slate-400 hover:text-cobalt-300 hover:bg-ink-750 cursor-pointer'
+                              : 'text-slate-600 opacity-40 cursor-not-allowed'
+                          }`}
+                          title={
+                            canMutate
+                              ? 'Modify Scholar'
+                              : 'Editing requires ADMIN or INSTRUCTOR privilege (@auth)'
+                          }
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!canMutate) return;
+                            setDeleteId(student.id);
+                          }}
+                          disabled={!canMutate}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            canMutate
+                              ? 'text-slate-400 hover:text-garnet-400 hover:bg-ink-750 cursor-pointer'
+                              : 'text-slate-600 opacity-40 cursor-not-allowed'
+                          }`}
+                          title={
+                            canMutate
+                              ? 'Expel Scholar'
+                              : 'Deletion requires ADMIN or INSTRUCTOR privilege (@auth)'
+                          }
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <DataPagination
+            pagination={{
+              currentPage,
+              pageSize,
+              totalItems,
+              totalPages,
+            }}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setCurrentPage(1);
+            }}
+            pageSizeOptions={[5, 8, 10, 25, 50]}
+            itemLabel="scholars"
+          />
         </div>
       )}
 

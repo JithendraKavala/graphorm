@@ -1,13 +1,18 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Enrollment,
   Student,
   Course,
   CreateEnrollmentInput,
   UpdateEnrollmentInput,
+  AcademicRole,
+  ROLE_PROFILES,
 } from '../../types/graphorm';
+import { api } from '../../services/api';
 import { SearchInput } from '../common/SearchInput';
 import { Badge } from '../common/Badge';
+import { DataPagination } from '../common/DataPagination';
+import { ProtectedField } from '../common/ProtectedField';
 import {
   GraduationCap,
   Plus,
@@ -15,51 +20,92 @@ import {
   Trash2,
   Filter,
   Calendar,
-  User,
-  BookOpen,
+  Lock,
+  ArrowUpDown,
+  Loader2,
 } from 'lucide-react';
 import { EnrollmentFormModal } from './EnrollmentFormModal';
 
 interface EnrollmentListProps {
-  enrollments: Enrollment[];
+  enrollments?: Enrollment[];
   students: Student[];
   courses: Course[];
+  currentRole?: AcademicRole;
   onCreateEnrollment: (input: CreateEnrollmentInput) => Promise<Enrollment>;
   onUpdateEnrollment: (id: number, input: UpdateEnrollmentInput) => Promise<Enrollment>;
   onDeleteEnrollment: (id: number) => Promise<boolean>;
 }
 
 export const EnrollmentList: React.FC<EnrollmentListProps> = ({
-  enrollments,
-  students,
-  courses,
+  enrollments: initialEnrollments = [],
+  students: propStudents = [],
+  courses: propCourses = [],
+  currentRole = 'ADMIN',
   onCreateEnrollment,
   onUpdateEnrollment,
   onDeleteEnrollment,
 }) => {
+  const [enrollments, setEnrollments] = useState<Enrollment[]>(initialEnrollments);
+  const [courses, setCourses] = useState<Course[]>(propCourses);
+  const [students, setStudents] = useState<Student[]>(propStudents);
   const [search, setSearch] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
+  const [selectedGrade, setSelectedGrade] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'id' | 'student' | 'course' | 'grade' | 'date'>('id');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
+  const [totalItems, setTotalItems] = useState(initialEnrollments.length);
+  const [totalPages, setTotalPages] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+
   const [formEnrollment, setFormEnrollment] = useState<Enrollment | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
-  const filtered = useMemo(() => {
-    return enrollments.filter((e) => {
-      const studentName = e.student?.name || students.find((s) => s.id === e.studentId)?.name || '';
-      const courseTitle = e.course?.title || courses.find((c) => c.id === e.courseId)?.title || '';
-      const courseCode = e.course?.code || courses.find((c) => c.id === e.courseId)?.code || '';
+  const canMutate = ROLE_PROFILES[currentRole]?.permissions.canMutate ?? false;
 
-      const matchesSearch =
-        studentName.toLowerCase().includes(search.toLowerCase()) ||
-        courseTitle.toLowerCase().includes(search.toLowerCase()) ||
-        courseCode.toLowerCase().includes(search.toLowerCase());
+  const toggleSort = (field: 'id' | 'student' | 'course' | 'grade' | 'date') => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+    setCurrentPage(1);
+  };
 
-      const matchesCourse =
-        selectedCourseId === 'all' ? true : e.courseId === Number(selectedCourseId);
+  const fetchEnrollments = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await api.getEnrollmentsPaginated({
+        page: currentPage,
+        pageSize,
+        search: search.trim() || undefined,
+        courseId: selectedCourseId !== 'all' ? selectedCourseId : undefined,
+        grade: selectedGrade !== 'all' ? selectedGrade : undefined,
+        sortBy,
+        sortOrder,
+      });
+      setEnrollments(res.items);
+      setTotalItems(res.pagination.totalItems);
+      setTotalPages(res.pagination.totalPages);
+      if (res.courses && res.courses.length > 0) {
+        setCourses(res.courses);
+      }
+      if (res.students && res.students.length > 0) {
+        setStudents(res.students);
+      }
+    } catch (err) {
+      console.error('Failed to fetch enrollments:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentPage, pageSize, search, selectedCourseId, selectedGrade, sortBy, sortOrder, currentRole]);
 
-      return matchesSearch && matchesCourse;
-    });
-  }, [enrollments, students, courses, search, selectedCourseId]);
+  useEffect(() => {
+    fetchEnrollments();
+  }, [fetchEnrollments]);
 
   const handleFormSubmit = async (
     input: CreateEnrollmentInput | UpdateEnrollmentInput,
@@ -70,72 +116,182 @@ export const EnrollmentList: React.FC<EnrollmentListProps> = ({
     } else {
       await onCreateEnrollment(input as CreateEnrollmentInput);
     }
+    await fetchEnrollments();
   };
 
   return (
     <div className="space-y-4">
-      {/* Search & Actions */}
+      {/* Search & Multi-Facet Filter Bar */}
       <div className="p-4 rounded-2xl bg-ink-850/90 border border-ink-700/70 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex-1 flex flex-wrap items-center gap-2.5">
           <SearchInput
             value={search}
-            onChange={setSearch}
-            placeholder="Search registrar records by scholar or course..."
+            onChange={(val) => {
+              setSearch(val);
+              setCurrentPage(1);
+            }}
+            placeholder="Search enrollment ledger by scholar name or course..."
             className="w-full sm:w-72"
           />
 
+          {/* Course Filter */}
           <div className="flex items-center gap-1.5 bg-ink-900/80 border border-ink-700/70 rounded-xl px-2.5 py-1.5 text-xs">
             <Filter className="w-3.5 h-3.5 text-slate-400" />
             <select
               value={selectedCourseId}
-              onChange={(e) => setSelectedCourseId(e.target.value)}
+              onChange={(e) => {
+                setSelectedCourseId(e.target.value);
+                setCurrentPage(1);
+              }}
               className="bg-transparent text-slate-200 focus:outline-none cursor-pointer text-xs"
+              aria-label="Filter by course"
             >
-              <option value="all">All Curriculum Courses</option>
+              <option value="all" className="bg-ink-900 text-slate-200">All Course Offerings</option>
               {courses.map((c) => (
-                <option key={c.id} value={c.id}>
+                <option key={c.id} value={c.id} className="bg-ink-900 text-slate-200">
                   {c.code} - {c.title}
                 </option>
               ))}
             </select>
           </div>
+
+          {/* Grade Filter */}
+          <div className="flex items-center gap-1.5 bg-ink-900/80 border border-ink-700/70 rounded-xl px-2.5 py-1.5 text-xs">
+            <span className="text-slate-400 font-mono text-[11px]">Grade:</span>
+            <select
+              value={selectedGrade}
+              onChange={(e) => {
+                setSelectedGrade(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="bg-transparent text-slate-200 focus:outline-none cursor-pointer text-xs"
+              aria-label="Filter by letter grade"
+            >
+              <option value="all" className="bg-ink-900 text-slate-200">All Letter Grades</option>
+              <option value="A" className="bg-ink-900 text-slate-200">Grade Tier A (A, A-)</option>
+              <option value="B" className="bg-ink-900 text-slate-200">Grade Tier B (B+, B)</option>
+              <option value="C" className="bg-ink-900 text-slate-200">Grade Tier C (C+, C)</option>
+            </select>
+          </div>
+
+          {/* Sort Dropdown */}
+          <div className="flex items-center gap-1.5 bg-ink-900/80 border border-ink-700/70 rounded-xl px-2.5 py-1.5 text-xs">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={`${sortBy}-${sortOrder}`}
+              onChange={(e) => {
+                const [f, o] = e.target.value.split('-');
+                setSortBy(f as 'id' | 'student' | 'course' | 'grade' | 'date');
+                setSortOrder(o as 'asc' | 'desc');
+                setCurrentPage(1);
+              }}
+              className="bg-transparent text-slate-200 focus:outline-none cursor-pointer text-xs"
+              aria-label="Sort enrollments"
+            >
+              <option value="id-desc" className="bg-ink-900 text-slate-200">Recent First (ID Desc)</option>
+              <option value="id-asc" className="bg-ink-900 text-slate-200">Oldest First (ID Asc)</option>
+              <option value="student-asc" className="bg-ink-900 text-slate-200">Scholar Name (A-Z)</option>
+              <option value="student-desc" className="bg-ink-900 text-slate-200">Scholar Name (Z-A)</option>
+              <option value="course-asc" className="bg-ink-900 text-slate-200">Course Code (A-Z)</option>
+              <option value="grade-asc" className="bg-ink-900 text-slate-200">Grade (A-Z)</option>
+              <option value="date-desc" className="bg-ink-900 text-slate-200">Matriculation (Newest)</option>
+            </select>
+          </div>
+
+          {isLoading && (
+            <div className="flex items-center gap-1 text-[11px] font-mono text-cobalt-400 animate-pulse ml-1">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Querying...</span>
+            </div>
+          )}
         </div>
 
         <button
           onClick={() => {
+            if (!canMutate) return;
             setFormEnrollment(null);
             setIsFormOpen(true);
           }}
-          className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-laurel-600 to-laurel-500 hover:from-laurel-500 hover:to-laurel-400 text-ink-950 font-bold text-xs shadow-[0_0_15px_-3px_rgba(16,185,129,0.3)] transition-all cursor-pointer whitespace-nowrap"
+          disabled={!canMutate}
+          className={`flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+            canMutate
+              ? 'bg-gradient-to-r from-cobalt-600 to-cobalt-500 hover:from-cobalt-500 hover:to-cobalt-400 text-white shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)] cursor-pointer'
+              : 'bg-ink-800 text-slate-500 border border-ink-700 opacity-60 cursor-not-allowed'
+          }`}
+          title={
+            canMutate
+              ? 'Enroll Scholar in Course'
+              : 'Enrollment mutations require ADMIN or INSTRUCTOR privilege (@auth)'
+          }
         >
-          <Plus className="w-4 h-4 stroke-[2.5]" />
-          <span>Register Course Enrollment</span>
+          {canMutate ? <Plus className="w-4 h-4 stroke-[2.5]" /> : <Lock className="w-3.5 h-3.5" />}
+          <span>Enroll Scholar</span>
         </button>
       </div>
 
-      {/* Enrollments Ledger Table */}
+      {/* Enrollments Table */}
       <div className="rounded-2xl bg-ink-850/90 border border-ink-700/70 overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-ink-900/90 border-b border-ink-750/80 text-[10px] uppercase tracking-wider text-slate-400 font-mono select-none">
-              <tr>
-                <th className="py-3 px-5">Reg ID</th>
-                <th className="py-3 px-5">Scholar</th>
-                <th className="py-3 px-5">Curriculum Course</th>
-                <th className="py-3 px-5">Grade / Merit Points</th>
-                <th className="py-3 px-5">Registration Date</th>
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="bg-ink-900/80 border-b border-ink-750/70 text-slate-400 font-medium">
+                <th
+                  className="py-3 px-5 font-mono text-[11px] cursor-pointer hover:text-white transition-colors"
+                  onClick={() => toggleSort('id')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Reg #</span>
+                    <ArrowUpDown className="w-3 h-3" />
+                  </div>
+                </th>
+                <th
+                  className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
+                  onClick={() => toggleSort('student')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Enrolled Scholar</span>
+                    <ArrowUpDown className="w-3 h-3" />
+                  </div>
+                </th>
+                <th
+                  className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
+                  onClick={() => toggleSort('course')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Curriculum Course</span>
+                    <ArrowUpDown className="w-3 h-3" />
+                  </div>
+                </th>
+                <th
+                  className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
+                  onClick={() => toggleSort('grade')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Gradebook Record (@auth)</span>
+                    <ArrowUpDown className="w-3 h-3" />
+                  </div>
+                </th>
+                <th
+                  className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
+                  onClick={() => toggleSort('date')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Matriculation Date</span>
+                    <ArrowUpDown className="w-3 h-3" />
+                  </div>
+                </th>
                 <th className="py-3 px-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-750/50">
-              {filtered.length === 0 ? (
+              {enrollments.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
-                    No academic enrollment records found.
+                    {isLoading ? 'Loading records...' : 'No academic enrollment records found matching query criteria.'}
                   </td>
                 </tr>
               ) : (
-                filtered.map((enr) => {
+                enrollments.map((enr) => {
                   const student =
                     enr.student || students.find((s) => s.id === enr.studentId);
                   const course =
@@ -173,25 +329,33 @@ export const EnrollmentList: React.FC<EnrollmentListProps> = ({
                         </div>
                       </td>
                       <td className="py-3.5 px-5">
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant={
-                              enr.grade?.startsWith('A')
-                                ? 'laurel'
-                                : enr.grade?.startsWith('B')
-                                ? 'brand'
-                                : 'warning'
-                            }
-                            size="sm"
-                          >
-                            {enr.grade || 'In Progress'}
-                          </Badge>
-                          {enr.gradePoints != null && (
-                            <span className="font-mono text-xs text-slate-400 tabular-nums">
-                              ({enr.gradePoints.toFixed(1)} pts)
-                            </span>
-                          )}
-                        </div>
+                        {/* Protected Grade Field: Masks for STUDENT and GUEST */}
+                        <ProtectedField
+                          currentRole={currentRole}
+                          requiredRoles={['ADMIN', 'INSTRUCTOR']}
+                          fallbackText="Restricted Grade"
+                          value={
+                            <div className="flex items-center gap-2">
+                              <Badge
+                                variant={
+                                  enr.grade?.startsWith('A')
+                                    ? 'laurel'
+                                    : enr.grade?.startsWith('B')
+                                    ? 'brand'
+                                    : 'warning'
+                                }
+                                size="sm"
+                              >
+                                {enr.grade || 'In Progress'}
+                              </Badge>
+                              {enr.gradePoints != null && (
+                                <span className="font-mono text-xs text-slate-400 tabular-nums">
+                                  ({enr.gradePoints.toFixed(1)} pts)
+                                </span>
+                              )}
+                            </div>
+                          }
+                        />
                       </td>
                       <td className="py-3.5 px-5 font-mono text-xs text-slate-400">
                         <div className="flex items-center gap-1.5">
@@ -203,18 +367,40 @@ export const EnrollmentList: React.FC<EnrollmentListProps> = ({
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => {
+                              if (!canMutate) return;
                               setFormEnrollment(enr);
                               setIsFormOpen(true);
                             }}
-                            className="p-1.5 text-slate-400 hover:text-cobalt-300 hover:bg-ink-750 rounded-lg transition-colors cursor-pointer"
-                            title="Edit Grade & Registration"
+                            disabled={!canMutate}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              canMutate
+                                ? 'text-slate-400 hover:text-cobalt-300 hover:bg-ink-750 cursor-pointer'
+                                : 'text-slate-600 opacity-40 cursor-not-allowed'
+                            }`}
+                            title={
+                              canMutate
+                                ? 'Edit Grade & Registration'
+                                : 'Modifying grades requires ADMIN or INSTRUCTOR privilege (@auth)'
+                            }
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => setDeleteId(enr.id)}
-                            className="p-1.5 text-slate-400 hover:text-garnet-400 hover:bg-ink-750 rounded-lg transition-colors cursor-pointer"
-                            title="Drop Enrollment"
+                            onClick={() => {
+                              if (!canMutate) return;
+                              setDeleteId(enr.id);
+                            }}
+                            disabled={!canMutate}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              canMutate
+                                ? 'text-slate-400 hover:text-garnet-400 hover:bg-ink-750 cursor-pointer'
+                                : 'text-slate-600 opacity-40 cursor-not-allowed'
+                            }`}
+                            title={
+                              canMutate
+                                ? 'Drop Enrollment'
+                                : 'Dropping enrollments requires ADMIN or INSTRUCTOR privilege (@auth)'
+                            }
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -229,38 +415,47 @@ export const EnrollmentList: React.FC<EnrollmentListProps> = ({
         </div>
       </div>
 
-      {/* Modal */}
-      <EnrollmentFormModal
-        isOpen={isFormOpen}
-        onClose={() => {
-          setIsFormOpen(false);
-          setFormEnrollment(null);
+      {/* Pagination Footer */}
+      <DataPagination
+        pagination={{
+          currentPage,
+          pageSize,
+          totalItems,
+          totalPages,
         }}
-        enrollment={formEnrollment}
-        students={students}
-        courses={courses}
-        onSubmit={handleFormSubmit}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={(newSize) => {
+          setPageSize(newSize);
+          setCurrentPage(1);
+        }}
+        pageSizeOptions={[5, 8, 15, 25, 50]}
+        itemLabel="enrollments"
       />
 
+      {/* Enrollment Edit/Create Form Modal */}
+      {isFormOpen && (
+        <EnrollmentFormModal
+          isOpen={isFormOpen}
+          enrollment={formEnrollment}
+          students={students}
+          courses={courses}
+          onClose={() => setIsFormOpen(false)}
+          onSubmit={handleFormSubmit}
+        />
+      )}
+
       {/* Delete Confirmation Modal */}
-      {deleteId != null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-ink-950/80 backdrop-blur-sm"
-            onClick={() => setDeleteId(null)}
-          />
-          <div className="relative w-full max-w-sm bg-ink-850 border border-ink-700/80 p-6 rounded-2xl shadow-elevated z-10 text-center">
-            <div className="w-12 h-12 rounded-full bg-garnet-500/10 text-garnet-400 border border-garnet-500/20 flex items-center justify-center mx-auto mb-4">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <h4 className="font-display font-bold text-base text-white">Drop Course Enrollment</h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              Are you sure you wish to withdraw enrollment #{deleteId}? The scholar will be deregistered from this course ledger.
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-ink-850 border border-ink-700 rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl">
+            <h3 className="text-sm font-bold text-white">Drop Academic Enrollment?</h3>
+            <p className="text-xs text-slate-300">
+              Are you sure you want to drop enrollment record #{deleteId}? This will remove the scholar from the course gradebook.
             </p>
-            <div className="mt-5 flex items-center justify-center gap-3">
+            <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setDeleteId(null)}
-                className="px-4 py-2 rounded-xl bg-ink-800 hover:bg-ink-750 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                className="px-3 py-1.5 text-xs text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -268,10 +463,11 @@ export const EnrollmentList: React.FC<EnrollmentListProps> = ({
                 onClick={async () => {
                   await onDeleteEnrollment(deleteId);
                   setDeleteId(null);
+                  await fetchEnrollments();
                 }}
-                className="px-4 py-2 rounded-xl bg-garnet-600 hover:bg-garnet-500 text-white text-xs font-bold transition-colors cursor-pointer"
+                className="px-3.5 py-1.5 text-xs font-semibold bg-garnet-500 hover:bg-garnet-600 text-white rounded-lg shadow-sm transition-colors cursor-pointer"
               >
-                Withdraw Enrollment
+                Confirm Drop
               </button>
             </div>
           </div>

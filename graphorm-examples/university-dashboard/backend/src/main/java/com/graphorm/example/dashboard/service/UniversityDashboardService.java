@@ -1,6 +1,12 @@
 package com.graphorm.example.dashboard.service;
 
+import com.graphorm.core.query.WherePredicate;
 import com.graphorm.example.dashboard.generated.client.GraphOrmClient;
+import com.graphorm.example.dashboard.generated.filter.CourseFilter;
+import com.graphorm.example.dashboard.generated.filter.DepartmentFilter;
+import com.graphorm.example.dashboard.generated.filter.EnrollmentFilter;
+import com.graphorm.example.dashboard.generated.filter.StudentDashboardFilter;
+import com.graphorm.example.dashboard.generated.filter.StudentFilter;
 import com.graphorm.example.dashboard.generated.input.CourseCreateInput;
 import com.graphorm.example.dashboard.generated.input.CourseUpdateInput;
 import com.graphorm.example.dashboard.generated.input.DepartmentCreateInput;
@@ -23,20 +29,23 @@ import com.graphorm.example.dashboard.web.dto.CreateDepartmentRequest;
 import com.graphorm.example.dashboard.web.dto.CreateEnrollmentRequest;
 import com.graphorm.example.dashboard.web.dto.CreateInstructorRequest;
 import com.graphorm.example.dashboard.web.dto.CreateStudentRequest;
+import com.graphorm.example.dashboard.web.dto.PaginatedResponse;
 import com.graphorm.example.dashboard.web.dto.UpdateCourseRequest;
 import com.graphorm.example.dashboard.web.dto.UpdateDepartmentRequest;
 import com.graphorm.example.dashboard.web.dto.UpdateEnrollmentRequest;
 import com.graphorm.example.dashboard.web.dto.UpdateInstructorRequest;
 import com.graphorm.example.dashboard.web.dto.UpdateStudentRequest;
+import com.graphorm.generator.client.QuerySpec;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Service demonstrating GraphORM type-safe client APIs for models and view models
- * supporting the University React Dashboard.
+ * supporting the University React Dashboard with server-side pagination, sorting, and filtering.
  */
 @Service
 public class UniversityDashboardService {
@@ -54,6 +63,46 @@ public class UniversityDashboardService {
     @Transactional(readOnly = true)
     public List<Department> getAllDepartments() {
         return db.department().findMany(q -> q.orderBy(f -> f.name().asc()));
+    }
+
+    @Transactional(readOnly = true)
+    public PaginatedResponse<Department> getDepartments(
+            int page,
+            int pageSize,
+            String search,
+            String sortBy,
+            String sortOrder
+    ) {
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, 100));
+        int offset = (safePage - 1) * safePageSize;
+
+        Consumer<QuerySpec<DepartmentFilter>> filterConsumer = q -> {
+            if (search != null && !search.isBlank()) {
+                String term = search.trim();
+                q.where(WherePredicate.or(
+                        WherePredicate.iContains("name", term),
+                        WherePredicate.iContains("code", term)
+                ));
+            }
+        };
+
+        List<Department> items = db.department().findMany(q -> {
+            filterConsumer.accept(q);
+            boolean isDesc = "desc".equalsIgnoreCase(sortOrder);
+            if ("code".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.code().desc() : f -> f.code().asc());
+            } else if ("id".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.id().desc() : f -> f.id().asc());
+            } else {
+                q.orderBy(isDesc ? f -> f.name().desc() : f -> f.name().asc());
+            }
+            q.limit(safePageSize);
+            q.offset(offset);
+        });
+
+        long total = db.department().count(filterConsumer);
+        return new PaginatedResponse<>(items, total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
@@ -91,6 +140,54 @@ public class UniversityDashboardService {
     @Transactional(readOnly = true)
     public List<Student> getAllStudents() {
         return db.student().findMany(q -> q.orderBy(f -> f.name().asc()));
+    }
+
+    @Transactional(readOnly = true)
+    public PaginatedResponse<Student> getStudents(
+            int page,
+            int pageSize,
+            String search,
+            Integer departmentId,
+            Double minGpa,
+            String sortBy,
+            String sortOrder
+    ) {
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, 100));
+        int offset = (safePage - 1) * safePageSize;
+
+        Consumer<QuerySpec<StudentFilter>> filterConsumer = q -> {
+            if (search != null && !search.isBlank()) {
+                String term = search.trim();
+                q.where(WherePredicate.or(
+                        WherePredicate.iContains("name", term),
+                        WherePredicate.iContains("email", term)
+                ));
+            }
+            if (departmentId != null) {
+                q.where(WherePredicate.eq("department_id", departmentId));
+            }
+            if (minGpa != null && minGpa > 0.0) {
+                q.where(WherePredicate.gte("gpa", minGpa));
+            }
+        };
+
+        List<Student> items = db.student().findMany(q -> {
+            filterConsumer.accept(q);
+            boolean isDesc = "desc".equalsIgnoreCase(sortOrder);
+            if ("gpa".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.gpa().desc() : f -> f.gpa().asc());
+            } else if ("id".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.id().desc() : f -> f.id().asc());
+            } else {
+                q.orderBy(isDesc ? f -> f.name().desc() : f -> f.name().asc());
+            }
+            q.limit(safePageSize);
+            q.offset(offset);
+        });
+
+        long total = db.student().count(filterConsumer);
+        return new PaginatedResponse<>(items, total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
@@ -132,6 +229,60 @@ public class UniversityDashboardService {
     @Transactional(readOnly = true)
     public List<Course> getAllCourses() {
         return db.course().findMany(q -> q.orderBy(f -> f.title().asc()));
+    }
+
+    @Transactional(readOnly = true)
+    public PaginatedResponse<Course> getCourses(
+            int page,
+            int pageSize,
+            String search,
+            Integer departmentId,
+            Integer instructorId,
+            Integer credits,
+            String sortBy,
+            String sortOrder
+    ) {
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, 100));
+        int offset = (safePage - 1) * safePageSize;
+
+        Consumer<QuerySpec<CourseFilter>> filterConsumer = q -> {
+            if (search != null && !search.isBlank()) {
+                String term = search.trim();
+                q.where(WherePredicate.or(
+                        WherePredicate.iContains("title", term),
+                        WherePredicate.iContains("code", term)
+                ));
+            }
+            if (departmentId != null) {
+                q.where(WherePredicate.eq("department_id", departmentId));
+            }
+            if (instructorId != null) {
+                q.where(WherePredicate.eq("instructor_id", instructorId));
+            }
+            if (credits != null && credits > 0) {
+                q.where(WherePredicate.eq("credits", credits));
+            }
+        };
+
+        List<Course> items = db.course().findMany(q -> {
+            filterConsumer.accept(q);
+            boolean isDesc = "desc".equalsIgnoreCase(sortOrder);
+            if ("title".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.title().desc() : f -> f.title().asc());
+            } else if ("credits".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.credits().desc() : f -> f.credits().asc());
+            } else if ("id".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.id().desc() : f -> f.id().asc());
+            } else {
+                q.orderBy(isDesc ? f -> f.code().desc() : f -> f.code().asc());
+            }
+            q.limit(safePageSize);
+            q.offset(offset);
+        });
+
+        long total = db.course().count(filterConsumer);
+        return new PaginatedResponse<>(items, total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
@@ -219,6 +370,50 @@ public class UniversityDashboardService {
     }
 
     @Transactional(readOnly = true)
+    public PaginatedResponse<Enrollment> getEnrollments(
+            int page,
+            int pageSize,
+            Integer studentId,
+            Integer courseId,
+            String grade,
+            String sortBy,
+            String sortOrder
+    ) {
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, 100));
+        int offset = (safePage - 1) * safePageSize;
+
+        Consumer<QuerySpec<EnrollmentFilter>> filterConsumer = q -> {
+            if (studentId != null) {
+                q.where(WherePredicate.eq("student_id", studentId));
+            }
+            if (courseId != null) {
+                q.where(WherePredicate.eq("course_id", courseId));
+            }
+            if (grade != null && !grade.isBlank() && !"all".equalsIgnoreCase(grade)) {
+                q.where(WherePredicate.startsWith("grade", grade.trim()));
+            }
+        };
+
+        List<Enrollment> items = db.enrollment().findMany(q -> {
+            filterConsumer.accept(q);
+            boolean isDesc = "desc".equalsIgnoreCase(sortOrder);
+            if ("grade".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.grade().desc() : f -> f.grade().asc());
+            } else if ("date".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.enrollmentDate().desc() : f -> f.enrollmentDate().asc());
+            } else {
+                q.orderBy(isDesc ? f -> f.id().desc() : f -> f.id().asc());
+            }
+            q.limit(safePageSize);
+            q.offset(offset);
+        });
+
+        long total = db.enrollment().count(filterConsumer);
+        return new PaginatedResponse<>(items, total, safePage, safePageSize);
+    }
+
+    @Transactional(readOnly = true)
     public Optional<Enrollment> getEnrollmentById(int id) {
         return db.enrollment().findById(id);
     }
@@ -273,7 +468,83 @@ public class UniversityDashboardService {
     }
 
     @Transactional(readOnly = true)
+    public PaginatedResponse<StudentDashboard> getStudentDashboards(
+            int page,
+            int pageSize,
+            String search,
+            Integer minCourses,
+            String sortBy,
+            String sortOrder
+    ) {
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, 100));
+        int offset = (safePage - 1) * safePageSize;
+
+        Consumer<QuerySpec<StudentDashboardFilter>> filterConsumer = q -> {
+            if (search != null && !search.isBlank()) {
+                String term = search.trim();
+                q.where(WherePredicate.or(
+                        WherePredicate.iContains("studentName", term),
+                        WherePredicate.iContains("departmentName", term)
+                ));
+            }
+            if (minCourses != null && minCourses > 0) {
+                q.where(WherePredicate.gte("enrolledCourses", minCourses));
+            }
+        };
+
+        List<StudentDashboard> items = db.studentDashboard().findMany(q -> {
+            filterConsumer.accept(q);
+            boolean isDesc = "desc".equalsIgnoreCase(sortOrder);
+            if ("studentName".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.studentName().desc() : f -> f.studentName().asc());
+            } else if ("departmentName".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.departmentName().desc() : f -> f.departmentName().asc());
+            } else if ("enrolledCourses".equalsIgnoreCase(sortBy)) {
+                q.orderBy(isDesc ? f -> f.enrolledCourses().desc() : f -> f.enrolledCourses().asc());
+            } else {
+                q.orderBy(isDesc ? f -> f.avgGradePoints().desc() : f -> f.avgGradePoints().asc());
+            }
+            q.limit(safePageSize);
+            q.offset(offset);
+        });
+
+        long total = db.studentDashboard().count(filterConsumer);
+        return new PaginatedResponse<>(items, total, safePage, safePageSize);
+    }
+
+    @Transactional(readOnly = true)
     public Optional<StudentDashboard> getStudentDashboard(int studentId) {
         return db.studentDashboard().findFirst(q -> q.where(f -> f.studentId().eq(studentId)));
+    }
+
+    @Transactional(readOnly = true)
+    public long getDepartmentCount() {
+        return db.department().count();
+    }
+
+    @Transactional(readOnly = true)
+    public long getStudentCount() {
+        return db.student().count();
+    }
+
+    @Transactional(readOnly = true)
+    public long getCourseCount() {
+        return db.course().count();
+    }
+
+    @Transactional(readOnly = true)
+    public long getInstructorCount() {
+        return db.instructor().count();
+    }
+
+    @Transactional(readOnly = true)
+    public long getEnrollmentCount() {
+        return db.enrollment().count();
+    }
+
+    @Transactional(readOnly = true)
+    public long getStudentDashboardCount() {
+        return db.studentDashboard().count();
     }
 }

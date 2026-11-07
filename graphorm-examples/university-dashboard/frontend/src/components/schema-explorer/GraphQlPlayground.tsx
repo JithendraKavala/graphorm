@@ -1,19 +1,18 @@
 import React, { useState } from 'react';
 import { api } from '../../services/api';
-import { Play, Copy, Check, Clock, Database, Sparkles, Terminal } from 'lucide-react';
+import { Play, Copy, Check, Clock, Database, Sparkles, Terminal, ShieldAlert, Cpu } from 'lucide-react';
 import { Badge } from '../common/Badge';
 
 export const GraphQlPlayground: React.FC = () => {
   const sampleQueries = [
     {
-      name: 'Nested Relations (No N+1)',
-      desc: 'Resolves students -> departments -> enrollments via DataLoader batching',
+      name: 'Nested Relations (DataLoader No N+1)',
+      desc: 'Resolves students -> departments -> enrollments via DataLoader batching (2 SQL queries)',
       query: `query GetStudentsWithRelations {
   students {
     id
     name
     email
-    gpa
     department {
       id
       name
@@ -33,8 +32,20 @@ export const GraphQlPlayground: React.FC = () => {
 }`,
     },
     {
+      name: '@auth Field Check: Instructor Salary',
+      desc: 'Queries salary field: permitted for ADMIN, rejected for INSTRUCTOR, STUDENT, GUEST',
+      query: `query GetInstructorsSalaryCheck {
+  instructors {
+    id
+    name
+    email
+    salary
+  }
+}`,
+    },
+    {
       name: 'Physical View: DepartmentStats',
-      desc: 'Queries Stage 1 database-backed view v_department_stats',
+      desc: 'Queries Stage 1 database-backed view v_department_stats with SQL aggregations',
       query: `query GetDepartmentStatsView {
   departmentStats {
     id
@@ -46,7 +57,7 @@ export const GraphQlPlayground: React.FC = () => {
     },
     {
       name: 'Virtual View: StudentDashboard',
-      desc: 'Queries Stage 2 GraphORM aggregated view compiled into single SQL query',
+      desc: 'Queries Stage 2 GraphORM joined view joining Student, Department, and Enrollment',
       query: `query GetStudentDashboards {
   studentDashboards {
     studentId
@@ -58,20 +69,31 @@ export const GraphQlPlayground: React.FC = () => {
 }`,
     },
     {
-      name: '@auth Directive Security Check',
-      desc: 'Queries instructors salary field (protected by @auth(roles: ["ADMIN"]))',
-      query: `query GetInstructorsSalaryCheck {
-  instructors {
+      name: 'DoS Defense: Query Depth Limit (> 5)',
+      desc: 'Triggers MaxQueryDepthInstrumentation blocking cyclic nested relationship queries',
+      query: `query TriggerDepthLimitViolation {
+  students {
     id
     name
-    email
-    salary
+    department {
+      students {
+        enrollments {
+          course {
+            department {
+              students {
+                name
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }`,
     },
     {
       name: 'Model Mutation: Create Student',
-      desc: 'Inserts student record via GraphORM mutation resolver',
+      desc: 'Inserts student record via GraphORM mutation resolver (requires ADMIN or INSTRUCTOR)',
       query: `mutation CreateNewStudent {
   createStudent(input: {
     name: "John McCarthy"
@@ -101,7 +123,7 @@ export const GraphQlPlayground: React.FC = () => {
       const res = await api.executeGraphQl(queryText);
       setDuration(res.durationMs);
       if (res.errors && res.errors.length > 0) {
-        setResponseJson(JSON.stringify({ errors: res.errors }, null, 2));
+        setResponseJson(JSON.stringify({ errors: res.errors, data: res.data }, null, 2));
       } else {
         setResponseJson(JSON.stringify({ data: res.data }, null, 2));
       }
@@ -133,7 +155,7 @@ export const GraphQlPlayground: React.FC = () => {
             </h3>
           </div>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-            Execute real-time GraphQL documents against GraphORM's Spring for GraphQL engine, evaluating selection-set pruning and DataLoader batching.
+            Execute real-time GraphQL documents against GraphORM's Spring for GraphQL engine, evaluating selection-set pruning, @auth authorization directives, and DataLoader batching.
           </p>
         </div>
 

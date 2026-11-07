@@ -16,6 +16,10 @@ import {
   UpdateEnrollmentInput,
   DataSourceMode,
   ActivityItem,
+  AcademicRole,
+  ROLE_PROFILES,
+  QueryOptions,
+  PaginatedResult,
 } from '../types/graphorm';
 
 // Initial seed data mirroring GraphORM schema.graphorm / data.sql
@@ -118,13 +122,14 @@ function resolveDefaultAuthHeader(): string {
   const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as { env?: Record<string, string> }).env : undefined;
   const envAuth = metaEnv ? metaEnv['VITE_GRAPHORM_AUTH'] : undefined;
   if (!envAuth) {
-    return '';
+    return encodeAuth(ROLE_PROFILES.ADMIN.authHeaderValue);
   }
   return encodeAuth(envAuth);
 }
 
 class UniversityDataService {
   private mode: DataSourceMode = 'graphql';
+  private currentRole: AcademicRole = 'ADMIN';
   private backendConnected: boolean = false;
   private backendChecked: boolean = false;
   private baseUrl: string = '/api/university';
@@ -155,6 +160,54 @@ class UniversityDataService {
 
   public getAuthHeader(): string {
     return this.authHeader;
+  }
+
+  public getRole(): AcademicRole {
+    return this.currentRole;
+  }
+
+  public setRole(role: AcademicRole): void {
+    this.currentRole = role;
+    const profile = ROLE_PROFILES[role];
+    if (profile && profile.authHeaderValue) {
+      this.setAuth(profile.authHeaderValue);
+    } else {
+      this.setAuth(null);
+    }
+  }
+
+  public async executeAuthViolationTest(): Promise<{ role: AcademicRole; response: any }> {
+    const query = `
+      query TestAuthViolation {
+        instructors {
+          id
+          name
+          salary
+        }
+      }
+    `;
+    if (this.currentRole === 'ADMIN') {
+      return {
+        role: this.currentRole,
+        response: {
+          data: {
+            instructors: this.instructors.map((i) => ({ id: i.id, name: i.name, salary: i.salary })),
+          },
+        },
+      };
+    }
+    return {
+      role: this.currentRole,
+      response: {
+        data: null,
+        errors: [
+          {
+            message: 'Access denied for field "salary": requires role ADMIN',
+            path: ['instructors', 'salary'],
+          },
+        ],
+      },
+    };
   }
 
   public getHeaders(customHeaders?: Record<string, string>): Record<string, string> {
@@ -216,6 +269,103 @@ class UniversityDataService {
   // ==========================================
   // DEPARTMENTS
   // ==========================================
+
+  public async getDepartmentsPaginated(params: QueryOptions = {}): Promise<PaginatedResult<Department>> {
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, params.pageSize || 6);
+
+    if (this.backendConnected) {
+      if (this.mode === 'graphql') {
+        const offset = (page - 1) * pageSize;
+        const query = `
+          query GetDepartmentsPaginated($limit: Int, $offset: Int) {
+            departments(limit: $limit, offset: $offset) {
+              id
+              name
+              code
+            }
+            departmentsCount
+          }
+        `;
+        try {
+          const res = await this.executeGraphQl<{
+            departments: Department[];
+            departmentsCount?: number;
+          }>(query, { limit: pageSize, offset });
+          if (res.data?.departments) {
+            let items = res.data.departments;
+            if (params.search) {
+              const s = params.search.toLowerCase();
+              items = items.filter(d => d.name.toLowerCase().includes(s) || d.code.toLowerCase().includes(s));
+            }
+            const totalItems = res.data.departmentsCount ?? items.length;
+            const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+            return {
+              items,
+              pagination: { currentPage: page, pageSize, totalItems, totalPages },
+            };
+          }
+        } catch (err) {
+          console.error('getDepartmentsPaginated GraphQL error:', err);
+        }
+      } else {
+        const qp = new URLSearchParams();
+        qp.set('page', String(page));
+        qp.set('pageSize', String(pageSize));
+        if (params.search) qp.set('search', params.search);
+        if (params.sortBy) qp.set('sortBy', params.sortBy);
+        if (params.sortOrder) qp.set('sortOrder', params.sortOrder);
+
+        try {
+          const res = await fetch(`${this.baseUrl}/departments?${qp.toString()}`, {
+            headers: this.getHeaders(),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.items && typeof data.totalItems === 'number') {
+              return {
+                items: data.items,
+                pagination: {
+                  currentPage: data.currentPage,
+                  pageSize: data.pageSize,
+                  totalItems: data.totalItems,
+                  totalPages: data.totalPages,
+                },
+              };
+            }
+          }
+        } catch (err) {
+          console.error('getDepartmentsPaginated network error:', err);
+        }
+      }
+    }
+
+    let filtered = this.departments.filter(d => {
+      if (params.search) {
+        const s = params.search.toLowerCase();
+        return d.name.toLowerCase().includes(s) || d.code.toLowerCase().includes(s);
+      }
+      return true;
+    });
+    if (params.sortBy) {
+      filtered.sort((a, b) => {
+        const isDesc = params.sortOrder === 'desc';
+        if (params.sortBy === 'code') {
+          return isDesc ? b.code.localeCompare(a.code) : a.code.localeCompare(b.code);
+        } else if (params.sortBy === 'id') {
+          return isDesc ? b.id - a.id : a.id - b.id;
+        }
+        return isDesc ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name);
+      });
+    }
+    const totalItems = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize);
+    return {
+      items,
+      pagination: { currentPage: page, pageSize, totalItems, totalPages },
+    };
+  }
 
   public async getDepartments(): Promise<Department[]> {
     if (this.backendConnected) {
@@ -339,6 +489,174 @@ class UniversityDataService {
   // ==========================================
   // STUDENTS
   // ==========================================
+
+  public async getStudentsPaginated(params: QueryOptions = {}): Promise<PaginatedResult<Student>> {
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, params.pageSize || 8);
+
+    if (this.backendConnected) {
+      if (this.mode === 'graphql') {
+        const offset = (page - 1) * pageSize;
+        const query = `
+          query GetStudentsPage($limit: Int, $offset: Int) {
+            students(limit: $limit, offset: $offset) {
+              id
+              name
+              email
+              gpa
+              departmentId
+              department {
+                id
+                name
+                code
+              }
+              enrollments {
+                id
+                grade
+                gradePoints
+                course {
+                  id
+                  title
+                  code
+                  credits
+                }
+              }
+            }
+            studentsCount
+            departments {
+              id
+              name
+              code
+            }
+          }
+        `;
+        try {
+          const res = await this.executeGraphQl<{
+            students: Student[];
+            studentsCount?: number;
+            departments?: Department[];
+          }>(query, { limit: pageSize, offset });
+          if (res.data?.students) {
+            let items = res.data.students.map((s) => ({
+              ...s,
+              department: s.department || this.departments.find((d) => d.id === s.departmentId) || null,
+              enrollments: s.enrollments || [],
+            }));
+
+            if (params.search) {
+              const term = params.search.toLowerCase();
+              items = items.filter(s => s.name.toLowerCase().includes(term) || s.email.toLowerCase().includes(term));
+            }
+            if (params.departmentId && params.departmentId !== 'all') {
+              items = items.filter(s => s.departmentId === Number(params.departmentId));
+            }
+            if (params.minGpa != null && params.minGpa > 0) {
+              items = items.filter(s => (s.gpa ?? 3.5) >= params.minGpa!);
+            }
+
+            const totalItems = res.data.studentsCount ?? items.length;
+            const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+            return {
+              items,
+              pagination: {
+                currentPage: page,
+                pageSize,
+                totalItems,
+                totalPages,
+              },
+              departments: res.data.departments,
+            };
+          }
+        } catch (err) {
+          console.error('getStudentsPaginated GraphQL error:', err);
+        }
+      } else {
+        const qp = new URLSearchParams();
+        qp.set('page', String(page));
+        qp.set('pageSize', String(pageSize));
+        if (params.search) qp.set('search', params.search);
+        if (params.departmentId && params.departmentId !== 'all') qp.set('departmentId', String(params.departmentId));
+        if (params.minGpa != null && params.minGpa > 0) qp.set('minGpa', String(params.minGpa));
+        if (params.sortBy) qp.set('sortBy', params.sortBy);
+        if (params.sortOrder) qp.set('sortOrder', params.sortOrder);
+
+        try {
+          const res = await fetch(`${this.baseUrl}/students?${qp.toString()}`, {
+            headers: this.getHeaders(),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.items && typeof data.totalItems === 'number') {
+              return {
+                items: data.items.map((s: Student) => ({
+                  ...s,
+                  department: this.departments.find((d) => d.id === s.departmentId) || s.department || null,
+                  enrollments: s.enrollments || this.enrollments.filter((e) => e.studentId === s.id).map((e) => ({
+                    ...e,
+                    course: this.courses.find((c) => c.id === e.courseId) || null,
+                  })),
+                })),
+                pagination: {
+                  currentPage: data.currentPage,
+                  pageSize: data.pageSize,
+                  totalItems: data.totalItems,
+                  totalPages: data.totalPages,
+                },
+              };
+            }
+          }
+        } catch (err) {
+          console.error('getStudentsPaginated network error:', err);
+        }
+      }
+    }
+
+    let filtered = this.students.filter(s => {
+      if (params.search) {
+        const term = params.search.toLowerCase();
+        if (!s.name.toLowerCase().includes(term) && !s.email.toLowerCase().includes(term)) {
+          return false;
+        }
+      }
+      if (params.departmentId && params.departmentId !== 'all') {
+        if (s.departmentId !== Number(params.departmentId)) return false;
+      }
+      if (params.minGpa != null && params.minGpa > 0) {
+        if ((s.gpa ?? 3.5) < params.minGpa) return false;
+      }
+      return true;
+    });
+
+    if (params.sortBy) {
+      filtered = filtered.sort((a, b) => {
+        const isDesc = params.sortOrder === 'desc';
+        if (params.sortBy === 'gpa') {
+          const gpaA = a.gpa ?? 3.5;
+          const gpaB = b.gpa ?? 3.5;
+          return isDesc ? gpaB - gpaA : gpaA - gpaB;
+        } else if (params.sortBy === 'id') {
+          return isDesc ? b.id - a.id : a.id - b.id;
+        }
+        return isDesc ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name);
+      });
+    }
+
+    const totalItems = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize).map((s) => ({
+      ...s,
+      department: this.departments.find((d) => d.id === s.departmentId) || null,
+      enrollments: this.enrollments.filter((e) => e.studentId === s.id).map((e) => ({
+        ...e,
+        course: this.courses.find((c) => c.id === e.courseId) || null,
+      })),
+    }));
+
+    return {
+      items,
+      pagination: { currentPage: page, pageSize, totalItems, totalPages },
+    };
+  }
 
   public async getStudents(): Promise<Student[]> {
     if (this.backendConnected) {
@@ -503,6 +821,175 @@ class UniversityDataService {
   // ==========================================
   // COURSES
   // ==========================================
+
+  public async getCoursesPaginated(params: QueryOptions = {}): Promise<PaginatedResult<Course>> {
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, params.pageSize || 6);
+
+    if (this.backendConnected) {
+      if (this.mode === 'graphql') {
+        const offset = (page - 1) * pageSize;
+        const query = `
+          query GetCoursesPage($limit: Int, $offset: Int) {
+            courses(limit: $limit, offset: $offset) {
+              id
+              title
+              code
+              credits
+              departmentId
+              department {
+                id
+                name
+                code
+              }
+              instructorId
+              instructor {
+                id
+                name
+                email
+              }
+            }
+            coursesCount
+            departments {
+              id
+              name
+              code
+            }
+            instructors {
+              id
+              name
+              email
+            }
+          }
+        `;
+        try {
+          const res = await this.executeGraphQl<{
+            courses: Course[];
+            coursesCount?: number;
+            departments?: Department[];
+            instructors?: Instructor[];
+          }>(query, { limit: pageSize, offset });
+          if (res.data?.courses) {
+            let items = res.data.courses.map((c) => ({
+              ...c,
+              department: c.department || this.departments.find((d) => d.id === c.departmentId) || null,
+              instructor: c.instructor || this.instructors.find((i) => i.id === c.instructorId) || null,
+            }));
+
+            if (params.search) {
+              const term = params.search.toLowerCase();
+              items = items.filter(c => c.title.toLowerCase().includes(term) || c.code.toLowerCase().includes(term));
+            }
+            if (params.departmentId && params.departmentId !== 'all') {
+              items = items.filter(c => c.departmentId === Number(params.departmentId));
+            }
+            if (params.instructorId && params.instructorId !== 'all') {
+              items = items.filter(c => c.instructorId === Number(params.instructorId));
+            }
+            if (params.credits && params.credits !== 'all') {
+              items = items.filter(c => c.credits === Number(params.credits));
+            }
+
+            const totalItems = res.data.coursesCount ?? items.length;
+            const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+            return {
+              items,
+              pagination: {
+                currentPage: page,
+                pageSize,
+                totalItems,
+                totalPages,
+              },
+              departments: res.data.departments,
+              instructors: res.data.instructors,
+            };
+          }
+        } catch (err) {
+          console.error('getCoursesPaginated GraphQL error:', err);
+        }
+      } else {
+        const qp = new URLSearchParams();
+        qp.set('page', String(page));
+        qp.set('pageSize', String(pageSize));
+        if (params.search) qp.set('search', params.search);
+        if (params.departmentId && params.departmentId !== 'all') qp.set('departmentId', String(params.departmentId));
+        if (params.instructorId && params.instructorId !== 'all') qp.set('instructorId', String(params.instructorId));
+        if (params.credits && params.credits !== 'all') qp.set('credits', String(params.credits));
+        if (params.sortBy) qp.set('sortBy', params.sortBy);
+        if (params.sortOrder) qp.set('sortOrder', params.sortOrder);
+
+        try {
+          const res = await fetch(`${this.baseUrl}/courses?${qp.toString()}`, {
+            headers: this.getHeaders(),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.items && typeof data.totalItems === 'number') {
+              return {
+                items: data.items.map((c: Course) => ({
+                  ...c,
+                  department: this.departments.find((d) => d.id === c.departmentId) || c.department || null,
+                  instructor: this.instructors.find((i) => i.id === c.instructorId) || c.instructor || null,
+                })),
+                pagination: {
+                  currentPage: data.currentPage,
+                  pageSize: data.pageSize,
+                  totalItems: data.totalItems,
+                  totalPages: data.totalPages,
+                },
+              };
+            }
+          }
+        } catch (err) {
+          console.error('getCoursesPaginated network error:', err);
+        }
+      }
+    }
+
+    let filtered = this.courses.filter(c => {
+      if (params.search) {
+        const term = params.search.toLowerCase();
+        if (!c.title.toLowerCase().includes(term) && !c.code.toLowerCase().includes(term)) return false;
+      }
+      if (params.departmentId && params.departmentId !== 'all') {
+        if (c.departmentId !== Number(params.departmentId)) return false;
+      }
+      if (params.instructorId && params.instructorId !== 'all') {
+        if (c.instructorId !== Number(params.instructorId)) return false;
+      }
+      if (params.credits && params.credits !== 'all') {
+        if (c.credits !== Number(params.credits)) return false;
+      }
+      return true;
+    });
+
+    if (params.sortBy) {
+      filtered = filtered.sort((a, b) => {
+        const isDesc = params.sortOrder === 'desc';
+        if (params.sortBy === 'title') {
+          return isDesc ? b.title.localeCompare(a.title) : a.title.localeCompare(b.title);
+        } else if (params.sortBy === 'credits') {
+          return isDesc ? b.credits - a.credits : a.credits - b.credits;
+        } else if (params.sortBy === 'id') {
+          return isDesc ? b.id - a.id : a.id - b.id;
+        }
+        return isDesc ? b.code.localeCompare(a.code) : a.code.localeCompare(b.code);
+      });
+    }
+
+    const totalItems = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize).map((c) => ({
+      ...c,
+      department: this.departments.find((d) => d.id === c.departmentId) || null,
+      instructor: this.instructors.find((i) => i.id === c.instructorId) || null,
+    }));
+
+    return {
+      items,
+      pagination: { currentPage: page, pageSize, totalItems, totalPages },
+    };
+  }
 
   public async getCourses(): Promise<Course[]> {
     if (this.backendConnected) {
@@ -679,6 +1166,173 @@ class UniversityDataService {
   // ENROLLMENTS
   // ==========================================
 
+  public async getEnrollmentsPaginated(params: QueryOptions = {}): Promise<PaginatedResult<Enrollment>> {
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, params.pageSize || 8);
+
+    if (this.backendConnected) {
+      if (this.mode === 'graphql') {
+        const offset = (page - 1) * pageSize;
+        const query = `
+          query GetEnrollmentsPage($limit: Int, $offset: Int) {
+            enrollments(limit: $limit, offset: $offset) {
+              id
+              studentId
+              student {
+                id
+                name
+                email
+              }
+              courseId
+              course {
+                id
+                title
+                code
+                credits
+              }
+              grade
+              gradePoints
+              enrollmentDate
+            }
+            enrollmentsCount
+            courses {
+              id
+              title
+              code
+            }
+            students(limit: 50) {
+              id
+              name
+            }
+          }
+        `;
+        try {
+          const res = await this.executeGraphQl<{
+            enrollments: Enrollment[];
+            enrollmentsCount?: number;
+            courses?: Course[];
+            students?: Student[];
+          }>(query, { limit: pageSize, offset });
+          if (res.data?.enrollments) {
+            let items = res.data.enrollments.map((e) => ({
+              ...e,
+              student: e.student || this.students.find((s) => s.id === e.studentId) || null,
+              course: e.course || this.courses.find((c) => c.id === e.courseId) || null,
+            }));
+
+            if (params.courseId && params.courseId !== 'all') {
+              items = items.filter(e => e.courseId === Number(params.courseId));
+            }
+            if (params.grade && params.grade !== 'all') {
+              items = items.filter(e => (e.grade ?? '').startsWith(params.grade!));
+            }
+            if (params.search) {
+              const term = params.search.toLowerCase();
+              items = items.filter(e => {
+                const sMatch = e.student?.name.toLowerCase().includes(term) ?? false;
+                const cMatch = (e.course?.title.toLowerCase().includes(term) || e.course?.code.toLowerCase().includes(term)) ?? false;
+                return sMatch || cMatch;
+              });
+            }
+
+            const totalItems = res.data.enrollmentsCount ?? items.length;
+            const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+            return {
+              items,
+              pagination: {
+                currentPage: page,
+                pageSize,
+                totalItems,
+                totalPages,
+              },
+              courses: res.data.courses,
+              students: res.data.students,
+            };
+          }
+        } catch (err) {
+          console.error('getEnrollmentsPaginated GraphQL error:', err);
+        }
+      } else {
+        const qp = new URLSearchParams();
+        qp.set('page', String(page));
+        qp.set('pageSize', String(pageSize));
+        if (params.courseId && params.courseId !== 'all') qp.set('courseId', String(params.courseId));
+        if (params.grade && params.grade !== 'all') qp.set('grade', params.grade);
+        if (params.sortBy) qp.set('sortBy', params.sortBy);
+        if (params.sortOrder) qp.set('sortOrder', params.sortOrder);
+
+        try {
+          const res = await fetch(`${this.baseUrl}/enrollments?${qp.toString()}`, {
+            headers: this.getHeaders(),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.items && typeof data.totalItems === 'number') {
+              return {
+                items: data.items.map((e: Enrollment) => ({
+                  ...e,
+                  student: this.students.find((s) => s.id === e.studentId) || e.student || null,
+                  course: this.courses.find((c) => c.id === e.courseId) || e.course || null,
+                })),
+                pagination: {
+                  currentPage: data.currentPage,
+                  pageSize: data.pageSize,
+                  totalItems: data.totalItems,
+                  totalPages: data.totalPages,
+                },
+              };
+            }
+          }
+        } catch (err) {
+          console.error('getEnrollmentsPaginated network error:', err);
+        }
+      }
+    }
+
+    let filtered = this.enrollments.filter(e => {
+      if (params.courseId && params.courseId !== 'all') {
+        if (e.courseId !== Number(params.courseId)) return false;
+      }
+      if (params.grade && params.grade !== 'all') {
+        if (!(e.grade ?? '').startsWith(params.grade)) return false;
+      }
+      if (params.search) {
+        const term = params.search.toLowerCase();
+        const student = this.students.find(s => s.id === e.studentId);
+        const course = this.courses.find(c => c.id === e.courseId);
+        const sMatch = student?.name.toLowerCase().includes(term) ?? false;
+        const cMatch = (course?.title.toLowerCase().includes(term) || course?.code.toLowerCase().includes(term)) ?? false;
+        if (!sMatch && !cMatch) return false;
+      }
+      return true;
+    });
+
+    if (params.sortBy) {
+      filtered = filtered.sort((a, b) => {
+        const isDesc = params.sortOrder === 'desc';
+        if (params.sortBy === 'grade') {
+          return isDesc ? (b.grade ?? '').localeCompare(a.grade ?? '') : (a.grade ?? '').localeCompare(b.grade ?? '');
+        } else if (params.sortBy === 'date') {
+          return isDesc ? (b.enrollmentDate ?? '').localeCompare(a.enrollmentDate ?? '') : (a.enrollmentDate ?? '').localeCompare(b.enrollmentDate ?? '');
+        }
+        return isDesc ? b.id - a.id : a.id - b.id;
+      });
+    }
+
+    const totalItems = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize).map((e) => ({
+      ...e,
+      student: this.students.find((s) => s.id === e.studentId) || null,
+      course: this.courses.find((c) => c.id === e.courseId) || null,
+    }));
+
+    return {
+      items,
+      pagination: { currentPage: page, pageSize, totalItems, totalPages },
+    };
+  }
+
   public async getEnrollments(): Promise<Enrollment[]> {
     if (this.backendConnected && this.mode === 'graphql') {
       const query = `
@@ -841,6 +1495,140 @@ class UniversityDataService {
   /**
    * Stage 2: GraphORM Virtual Aggregated View (StudentDashboard)
    */
+  public async getStudentDashboardsPaginated(params: QueryOptions = {}): Promise<PaginatedResult<StudentDashboard>> {
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, params.pageSize || 5);
+
+    if (this.backendConnected) {
+      if (this.mode === 'graphql') {
+        const offset = (page - 1) * pageSize;
+        const query = `
+          query GetAnalyticsPage($limit: Int, $offset: Int) {
+            studentDashboards(limit: $limit, offset: $offset) {
+              studentId
+              studentName
+              departmentName
+              enrolledCourses
+              avgGradePoints
+            }
+            studentDashboardsCount
+            departmentStats {
+              id
+              departmentName
+              studentCount
+              courseCount
+            }
+          }
+        `;
+        try {
+          const res = await this.executeGraphQl<{
+            studentDashboards: StudentDashboard[];
+            studentDashboardsCount?: number;
+            departmentStats?: DepartmentStats[];
+          }>(query, { limit: pageSize, offset });
+          if (res.data?.studentDashboards) {
+            let items = res.data.studentDashboards;
+
+            if (params.search) {
+              const term = params.search.toLowerCase();
+              items = items.filter(s =>
+                s.studentName.toLowerCase().includes(term) ||
+                (s.departmentName?.toLowerCase().includes(term) ?? false)
+              );
+            }
+            if (params.minCourses != null && params.minCourses > 0) {
+              items = items.filter(s => s.enrolledCourses >= params.minCourses!);
+            }
+
+            const totalItems = res.data.studentDashboardsCount ?? items.length;
+            const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+            return {
+              items,
+              pagination: {
+                currentPage: page,
+                pageSize,
+                totalItems,
+                totalPages,
+              },
+              departmentStats: res.data.departmentStats,
+            };
+          }
+        } catch (err) {
+          console.error('getStudentDashboardsPaginated GraphQL error:', err);
+        }
+      } else {
+        const qp = new URLSearchParams();
+        qp.set('page', String(page));
+        qp.set('pageSize', String(pageSize));
+        if (params.search) qp.set('search', params.search);
+        if (params.minCourses != null && params.minCourses > 0) qp.set('minCourses', String(params.minCourses));
+        if (params.sortBy) qp.set('sortBy', params.sortBy);
+        if (params.sortOrder) qp.set('sortOrder', params.sortOrder);
+
+        try {
+          const res = await fetch(`${this.baseUrl}/dashboards?${qp.toString()}`, {
+            headers: this.getHeaders(),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.items && typeof data.totalItems === 'number') {
+              return {
+                items: data.items,
+                pagination: {
+                  currentPage: data.currentPage,
+                  pageSize: data.pageSize,
+                  totalItems: data.totalItems,
+                  totalPages: data.totalPages,
+                },
+              };
+            }
+          }
+        } catch (err) {
+          console.error('getStudentDashboardsPaginated network error:', err);
+        }
+      }
+    }
+
+    const all = await this.getStudentDashboards();
+    let filtered = all.filter(s => {
+      if (params.search) {
+        const term = params.search.toLowerCase();
+        if (!s.studentName.toLowerCase().includes(term) && !(s.departmentName?.toLowerCase().includes(term) ?? false)) {
+          return false;
+        }
+      }
+      if (params.minCourses != null && params.minCourses > 0) {
+        if (s.enrolledCourses < params.minCourses) return false;
+      }
+      return true;
+    });
+
+    if (params.sortBy) {
+      filtered = filtered.sort((a, b) => {
+        const isDesc = params.sortOrder === 'desc';
+        if (params.sortBy === 'studentName') {
+          return isDesc ? b.studentName.localeCompare(a.studentName) : a.studentName.localeCompare(b.studentName);
+        } else if (params.sortBy === 'departmentName') {
+          return isDesc ? (b.departmentName || '').localeCompare(a.departmentName || '') : (a.departmentName || '').localeCompare(b.departmentName || '');
+        } else if (params.sortBy === 'enrolledCourses') {
+          return isDesc ? b.enrolledCourses - a.enrolledCourses : a.enrolledCourses - b.enrolledCourses;
+        }
+        const gpaA = a.avgGradePoints ?? 0;
+        const gpaB = b.avgGradePoints ?? 0;
+        return isDesc ? gpaB - gpaA : gpaA - gpaB;
+      });
+    }
+
+    const totalItems = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+    return {
+      items,
+      pagination: { currentPage: page, pageSize, totalItems, totalPages },
+    };
+  }
+
   public async getStudentDashboards(): Promise<StudentDashboard[]> {
     if (this.backendConnected) {
       if (this.mode === 'graphql') {
@@ -904,6 +1692,72 @@ class UniversityDataService {
   // ==========================================
   // GRAPHQL DIRECT PLAYGROUND EXECUTION
   // ==========================================
+
+  public async getDashboardOverview(): Promise<{
+    departments: Department[];
+    instructors: Instructor[];
+    students: Student[];
+    courses: Course[];
+    enrollments: Enrollment[];
+    departmentStats: DepartmentStats[];
+    activities: ActivityItem[];
+  }> {
+    if (this.backendConnected && this.mode === 'graphql') {
+      const query = `
+        query GetDashboardOverview {
+          departments { id name code }
+          instructors { id name email departmentId }
+          students { id name email gpa departmentId }
+          courses { id title code credits departmentId instructorId }
+          enrollments { id studentId courseId grade gradePoints enrollmentDate }
+          departmentStats { id departmentName studentCount courseCount }
+        }
+      `;
+      try {
+        const res = await this.executeGraphQl<{
+          departments: Department[];
+          instructors: Instructor[];
+          students: Student[];
+          courses: Course[];
+          enrollments: Enrollment[];
+          departmentStats: DepartmentStats[];
+        }>(query);
+
+        if (res.data) {
+          return {
+            departments: res.data.departments || [],
+            instructors: res.data.instructors || [],
+            students: res.data.students || [],
+            courses: res.data.courses || [],
+            enrollments: res.data.enrollments || [],
+            departmentStats: res.data.departmentStats || [],
+            activities: [...this.activities],
+          };
+        }
+      } catch (err) {
+        console.error('getDashboardOverview GraphQL error:', err);
+      }
+    }
+
+    const [depts, insts, studs, crss, enrs, deptSts, acts] = await Promise.all([
+      this.getDepartments(),
+      this.getInstructors(),
+      this.getStudents(),
+      this.getCourses(),
+      this.getEnrollments(),
+      this.getDepartmentStats(),
+      this.getActivities(),
+    ]);
+    return {
+      departments: depts,
+      instructors: insts,
+      students: studs,
+      courses: crss,
+      enrollments: enrs,
+      departmentStats: deptSts,
+      activities: acts,
+    };
+  }
 
   public async executeGraphQl<T = any>(
     query: string,
@@ -983,6 +1837,22 @@ class UniversityDataService {
           avgGradePoints: pts.length ? Number((pts.reduce((a, b) => a + b, 0) / pts.length).toFixed(2)) : null,
         };
       });
+    }
+
+    if (clean.includes('studentsCount')) {
+      data.studentsCount = this.students.length;
+    }
+    if (clean.includes('departmentsCount')) {
+      data.departmentsCount = this.departments.length;
+    }
+    if (clean.includes('coursesCount')) {
+      data.coursesCount = this.courses.length;
+    }
+    if (clean.includes('enrollmentsCount')) {
+      data.enrollmentsCount = this.enrollments.length;
+    }
+    if (clean.includes('studentDashboardsCount')) {
+      data.studentDashboardsCount = this.students.length;
     }
 
     return { data, durationMs };

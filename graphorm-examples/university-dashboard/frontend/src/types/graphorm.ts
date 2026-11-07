@@ -156,3 +156,162 @@ export interface ActivityItem {
   description: string;
   badge: string;
 }
+
+// ==========================================
+// AUTHENTICATION & ROLE-BASED ACCESS CONTROL
+// ==========================================
+
+export type AcademicRole = 'ADMIN' | 'INSTRUCTOR' | 'STUDENT' | 'GUEST';
+
+export interface UserRoleProfile {
+  id: AcademicRole;
+  label: string;
+  badgeColor: string;
+  username: string;
+  authHeaderValue: string;
+  description: string;
+  badgeText: string;
+  permissions: {
+    canViewSalary: boolean;
+    canViewGpa: boolean;
+    canViewGrades: boolean;
+    canMutate: boolean;
+  };
+}
+
+export const ROLE_PROFILES: Record<AcademicRole, UserRoleProfile> = {
+  ADMIN: {
+    id: 'ADMIN',
+    label: 'Dean / Admin',
+    badgeColor: 'border-emerald-500/40 text-emerald-400 bg-emerald-950/30',
+    username: 'admin',
+    authHeaderValue: 'admin:admin123',
+    badgeText: 'ADMIN',
+    description: 'Full administrative access: all models, mutations, and @auth protected fields (Salary, GPA, Grades)',
+    permissions: {
+      canViewSalary: true,
+      canViewGpa: true,
+      canViewGrades: true,
+      canMutate: true,
+    },
+  },
+  INSTRUCTOR: {
+    id: 'INSTRUCTOR',
+    label: 'Faculty / Instructor',
+    badgeColor: 'border-sky-500/40 text-sky-400 bg-sky-950/30',
+    username: 'instructor',
+    authHeaderValue: 'instructor:prof123',
+    badgeText: 'FACULTY',
+    description: 'Faculty access: GPA & Grade visibility, course/grade mutations. Restricted from Instructor Salary',
+    permissions: {
+      canViewSalary: false,
+      canViewGpa: true,
+      canViewGrades: true,
+      canMutate: true,
+    },
+  },
+  STUDENT: {
+    id: 'STUDENT',
+    label: 'Scholar / Student',
+    badgeColor: 'border-purple-500/40 text-purple-400 bg-purple-950/30',
+    username: 'student',
+    authHeaderValue: 'student:student123',
+    badgeText: 'SCHOLAR',
+    description: 'Student access: public catalog only. Restricted from peer GPA, letter grades, faculty salary, and mutations',
+    permissions: {
+      canViewSalary: false,
+      canViewGpa: false,
+      canViewGrades: false,
+      canMutate: false,
+    },
+  },
+  GUEST: {
+    id: 'GUEST',
+    label: 'Guest / Public',
+    badgeColor: 'border-slate-500/40 text-slate-400 bg-slate-900/40',
+    username: 'anonymous',
+    authHeaderValue: '',
+    badgeText: 'PUBLIC',
+    description: 'Unauthenticated public visitor: read-only public catalog. All @auth fields and mutations are blocked',
+    permissions: {
+      canViewSalary: false,
+      canViewGpa: false,
+      canViewGrades: false,
+      canMutate: false,
+    },
+  },
+};
+
+// ==========================================
+// PAGINATION & SORTING GENERIC TYPES
+// ==========================================
+
+export interface PaginationParams {
+  page: number;
+  pageSize: number;
+}
+
+export interface PaginationState {
+  currentPage: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  pagination: PaginationState;
+  departments?: Department[];
+  instructors?: Instructor[];
+  courses?: Course[];
+  students?: Student[];
+  departmentStats?: DepartmentStats[];
+}
+
+export interface QueryOptions {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  departmentId?: string | number;
+  instructorId?: string | number;
+  credits?: string | number;
+  courseId?: string | number;
+  grade?: string;
+  minGpa?: number;
+  minCourses?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export type SortDirection = 'asc' | 'desc';
+
+export interface SortState<T> {
+  field: keyof T;
+  order: SortDirection;
+}
+
+// ==========================================
+// GRAPHQL EXECUTION & TELEMETRY
+// ==========================================
+
+export interface GraphQLErrorLocation {
+  line: number;
+  column: number;
+}
+
+export interface GraphQLErrorItem {
+  message: string;
+  locations?: GraphQLErrorLocation[];
+  path?: (string | number)[];
+  extensions?: {
+    classification?: string;
+    code?: string;
+    exception?: string;
+    [key: string]: unknown;
+  };
+}
+
+export interface GraphQLResponse<T = unknown> {
+  data?: T;
+  errors?: GraphQLErrorItem[];
+}
