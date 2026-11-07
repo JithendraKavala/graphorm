@@ -1,0 +1,10 @@
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://localhost:5432/testdb"
+}
+
+model CustomEntity {
+  id   Int    @id @default(autoincrement())
+  code String
+  @@map("custom_entities")
+}

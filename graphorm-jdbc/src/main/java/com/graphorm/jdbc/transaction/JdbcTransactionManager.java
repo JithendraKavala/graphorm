@@ -11,7 +11,7 @@ import java.util.Objects;
  * Basic programmatic JDBC transaction manager providing safe transaction boundaries,
  * automatic rollback upon failures, and zero resource leaks without external framework dependencies.
  */
-public class JdbcTransactionManager {
+public class JdbcTransactionManager implements TransactionManager {
 
     private final DataSource dataSource;
 
@@ -27,6 +27,7 @@ public class JdbcTransactionManager {
      * @return the computation result
      * @throws QueryExecutionException if a database error occurs during the transaction
      */
+    @Override
     public <T> T executeInTransaction(TransactionCallback<T> callback) {
         Objects.requireNonNull(callback, "TransactionCallback must not be null");
         try (Connection conn = dataSource.getConnection()) {

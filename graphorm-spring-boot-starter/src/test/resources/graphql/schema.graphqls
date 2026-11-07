@@ -1,0 +1,38 @@
+type Department {
+  id: ID!
+  name: String!
+  students: [Student!]!
+}
+
+type Student {
+  id: ID!
+  name: String!
+  email: String!
+  departmentId: Int
+  department: Department
+}
+
+type StudentDashboard {
+  studentId: Int!
+  studentName: String!
+  departmentName: String!
+}
+
+input StudentInput {
+  name: String!
+  email: String!
+  departmentId: Int
+}
+
+type Query {
+  students: [Student!]!
+  student(id: ID!): Student
+  departments: [Department!]!
+  department(id: ID!): Department
+  studentDashboards: [StudentDashboard!]!
+  studentDashboard(id: ID!): StudentDashboard
+}
+
+type Mutation {
+  createStudent(input: StudentInput!): Student!
+}

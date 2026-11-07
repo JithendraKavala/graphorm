@@ -43,21 +43,45 @@ public class JdbcExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(JdbcExecutor.class);
 
+    /**
+     * Strategy interface for acquiring and releasing database connections.
+     */
+    @FunctionalInterface
+    public interface ConnectionProvider {
+        /**
+         * Acquires a database connection for query execution.
+         *
+         * @param dataSource the underlying data source
+         * @return an open Connection
+         * @throws SQLException if connection acquisition fails
+         */
+        Connection getConnection(DataSource dataSource) throws SQLException;
+
+        /**
+         * Releases or closes the acquired connection.
+         *
+         * @param connection the connection to release
+         * @param dataSource the underlying data source
+         * @throws SQLException if releasing the connection fails
+         */
+        default void releaseConnection(Connection connection, DataSource dataSource) throws SQLException {
+            if (connection != null) {
+                connection.close();
+            }
+        }
+    }
+
+    private static final ConnectionProvider DEFAULT_CONNECTION_PROVIDER = DataSource::getConnection;
+
     private final DataSource dataSource;
     private final SqlDialect dialect;
+    private final ConnectionProvider connectionProvider;
     private final List<StatementInterceptor> interceptors = new CopyOnWriteArrayList<>();
 
-    public JdbcExecutor(DataSource dataSource, SqlDialect dialect) {
+    public JdbcExecutor(DataSource dataSource, SqlDialect dialect, ConnectionProvider connectionProvider, StatementInterceptor... interceptors) {
         this.dataSource = Objects.requireNonNull(dataSource, "DataSource must not be null");
         this.dialect = Objects.requireNonNull(dialect, "SqlDialect must not be null");
-    }
-
-    public JdbcExecutor(DataSource dataSource) {
-        this(dataSource, new PostgreSqlDialect());
-    }
-
-    public JdbcExecutor(DataSource dataSource, SqlDialect dialect, StatementInterceptor... interceptors) {
-        this(dataSource, dialect);
+        this.connectionProvider = connectionProvider != null ? connectionProvider : DEFAULT_CONNECTION_PROVIDER;
         if (interceptors != null) {
             for (StatementInterceptor i : interceptors) {
                 if (i != null) {
@@ -67,12 +91,28 @@ public class JdbcExecutor {
         }
     }
 
+    public JdbcExecutor(DataSource dataSource, SqlDialect dialect, StatementInterceptor... interceptors) {
+        this(dataSource, dialect, DEFAULT_CONNECTION_PROVIDER, interceptors);
+    }
+
+    public JdbcExecutor(DataSource dataSource, SqlDialect dialect) {
+        this(dataSource, dialect, DEFAULT_CONNECTION_PROVIDER);
+    }
+
+    public JdbcExecutor(DataSource dataSource) {
+        this(dataSource, new PostgreSqlDialect(), DEFAULT_CONNECTION_PROVIDER);
+    }
+
     public SqlDialect dialect() {
         return dialect;
     }
 
     public DataSource dataSource() {
         return dataSource;
+    }
+
+    public ConnectionProvider connectionProvider() {
+        return connectionProvider;
     }
 
     public final void addInterceptor(StatementInterceptor interceptor) {
@@ -120,18 +160,20 @@ public class JdbcExecutor {
             interceptor.beforeExecute(boundSql.sql(), boundSql.parameters());
         }
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(boundSql.sql())) {
+        Connection conn = null;
+        try {
+            conn = connectionProvider.getConnection(dataSource);
+            try (PreparedStatement ps = conn.prepareStatement(boundSql.sql())) {
+                bindParameters(ps, boundSql.parameters());
 
-            bindParameters(ps, boundSql.parameters());
-
-            try (ResultSet rs = ps.executeQuery()) {
-                List<T> results = new ArrayList<>();
-                int rowNum = 0;
-                while (rs.next()) {
-                    results.add(rowMapper.mapRow(rs, rowNum++));
+                try (ResultSet rs = ps.executeQuery()) {
+                    List<T> results = new ArrayList<>();
+                    int rowNum = 0;
+                    while (rs.next()) {
+                        results.add(rowMapper.mapRow(rs, rowNum++));
+                    }
+                    return results;
                 }
-                return results;
             }
         } catch (SQLException e) {
             throw new QueryExecutionException("Query execution failed: " + e.getMessage(), boundSql.sql(), e);
@@ -139,6 +181,13 @@ public class JdbcExecutor {
             long duration = System.nanoTime() - start;
             for (StatementInterceptor interceptor : interceptors) {
                 interceptor.afterExecute(boundSql.sql(), boundSql.parameters(), duration);
+            }
+            if (conn != null) {
+                try {
+                    connectionProvider.releaseConnection(conn, dataSource);
+                } catch (SQLException e) {
+                    log.warn("Failed to release connection: {}", e.getMessage(), e);
+                }
             }
         }
     }
@@ -184,17 +233,26 @@ public class JdbcExecutor {
             interceptor.beforeExecute(boundSql.sql(), boundSql.parameters());
         }
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(boundSql.sql())) {
-
-            bindParameters(ps, boundSql.parameters());
-            return ps.executeUpdate();
+        Connection conn = null;
+        try {
+            conn = connectionProvider.getConnection(dataSource);
+            try (PreparedStatement ps = conn.prepareStatement(boundSql.sql())) {
+                bindParameters(ps, boundSql.parameters());
+                return ps.executeUpdate();
+            }
         } catch (SQLException e) {
             throw new QueryExecutionException("Update execution failed: " + e.getMessage(), boundSql.sql(), e);
         } finally {
             long duration = System.nanoTime() - start;
             for (StatementInterceptor interceptor : interceptors) {
                 interceptor.afterExecute(boundSql.sql(), boundSql.parameters(), duration);
+            }
+            if (conn != null) {
+                try {
+                    connectionProvider.releaseConnection(conn, dataSource);
+                } catch (SQLException e) {
+                    log.warn("Failed to release connection: {}", e.getMessage(), e);
+                }
             }
         }
     }

@@ -7,11 +7,11 @@ This document tracks the live implementation status across all phases, milestone
 ## Progress Dashboard
 
 - **Total Phases**: 16
-- **Total Tasks**: 65
-- **Completed Tasks**: 55
+- **Total Tasks**: 70
+- **Completed Tasks**: 60
 - **In Progress**: 0
 - **Not Started**: 10
-- **Current Active Phase**: Phase 13 (Phase 12 & Milestone 6 100% Completed, Ready for Phase 13: Spring Boot Integration Starter & Milestone 7)
+- **Current Active Phase**: Phase 14 (Phase 13 & Milestone 7 100% Completed, Ready for Phase 14: Developer Tooling & CLI)
 
 ---
 
@@ -74,11 +74,11 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 12** | **Milestone 6** | `TASK-12.4` | `FilterCriteriaGenerator` | Completed | `TASK-12.3` | Generates fluent type-safe criteria builders | Type-safe filters, composable FieldFilters, CriteriaBuilders, WherePredicate generation |
 | **Phase 12** | **Milestone 6** | `TASK-12.5` | `ClientApiGenerator` for `GraphOrmClient` | Completed | `TASK-12.4` | Prisma-style client (`db.student()`, `db.dashboard()`) | `ModelAccessor` CRUD vs `ReadOnlyModelAccessor` strict read-only segregation, unit tested |
 | **Phase 12** | **Milestone 6** | `TASK-12.6` | In-Memory `JavaCompiler` Test Harness | Completed | `TASK-12.5` | Compiles generated code in memory with 0 warnings | Milestone 6 deliverable verified: `InMemoryCompiler` (JSR-199) with 0 errors & 0 warnings, `PostgresClientExecutionIntegrationTest` passing against PostgreSQL |
-| **Phase 13** | **Milestone 7** | `TASK-13.1` | `GraphOrmProperties` Configuration | Not Started | `TASK-11.5`, `TASK-12.6` | Config properties for schema, batch size, logging | Spring Boot config |
-| **Phase 13** | **Milestone 7** | `TASK-13.2` | `SpringTransactionManagerAdapter` | Not Started | `TASK-13.1` | Adapts to Spring's `DataSourceUtils` and `@Transactional` | Transaction sync |
-| **Phase 13** | **Milestone 7** | `TASK-13.3` | `GraphOrmAutoConfiguration` | Not Started | `TASK-13.2` | Auto-configures beans via `AutoConfiguration.imports` | Spring Boot 3+ |
-| **Phase 13** | **Milestone 7** | `TASK-13.4` | `GraphQlAutoConfigurationCustomizer` | Not Started | `TASK-13.3` | Hooks into Spring for GraphQL startup | Auto DataFetchers |
-| **Phase 13** | **Milestone 7** | `TASK-13.5` | `ApplicationContextRunner` Starter Tests | Not Started | `TASK-13.4` | Tests context startup, beans, rollback behavior | Milestone 7 verification |
+| **Phase 13** | **Milestone 7** | `TASK-13.1` | `GraphOrmProperties` Configuration | Completed | `TASK-11.5`, `TASK-12.6` | Config properties for schema, batch size, logging | `GraphOrmProperties.java` (`@ConfigurationProperties(prefix = "graphorm")`), dialect, schemaPath, sqlLogging, batchSize, nested graphql, logging properties |
+| **Phase 13** | **Milestone 7** | `TASK-13.2` | `SpringTransactionManagerAdapter` | Completed | `TASK-13.1` | Adapts to Spring's `DataSourceUtils` and `@Transactional` | `SpringTransactionManagerAdapter.java` implementing `TransactionManager` SPI, `SpringConnectionProvider.java` integrating with `DataSourceUtils` for declarative `@Transactional` boundaries |
+| **Phase 13** | **Milestone 7** | `TASK-13.3` | `GraphOrmAutoConfiguration` | Completed | `TASK-13.2` | Auto-configures beans via `AutoConfiguration.imports` | Registered in `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`, conditional beans (`@ConditionalOnClass`, `@ConditionalOnMissingBean`) for `SqlDialect`, `ModelRegistry`, `JdbcExecutor`, `TransactionManager`, `GraphOrmClient`, SQL logging interceptors |
+| **Phase 13** | **Milestone 7** | `TASK-13.4` | `GraphQlAutoConfigurationCustomizer` | Completed | `TASK-13.3` | Hooks into Spring for GraphQL startup | Auto SDL generator (`GraphQlSdlGenerator.java`), `GraphQlSourceBuilderCustomizer` registering DataFetchers, DataLoaders (`GraphOrmDataLoaderInstrumentation`), queries and mutations for models and read-only views without manual wiring |
+| **Phase 13** | **Milestone 7** | `TASK-13.5` | `ApplicationContextRunner` Starter Tests | Completed | `TASK-13.4` | Tests context startup, beans, rollback behavior | Milestone 7 deliverable verified: `GraphOrmAutoConfigurationTest` (6 tests), `GraphOrmTransactionIntegrationTest` (4 tests with real PostgreSQL commit/rollback), `GraphOrmGraphQlAutoConfigurationIntegrationTest` (4 tests with real PostgreSQL GraphQL execution) |
 | **Phase 14** | Tooling | `TASK-14.1` | Picocli Command Runner Setup | Not Started | `TASK-12.6` | Standalone CLI entrypoint with `--help` and banners | Developer CLI |
 | **Phase 14** | Tooling | `TASK-14.2` | `graphorm validate` Command | Not Started | `TASK-14.1` | Validates schema file and outputs formatted errors | Non-zero exit code |
 | **Phase 14** | Tooling | `TASK-14.3` | `graphorm generate` Command | Not Started | `TASK-14.2` | Generates Java code to target directory | CLI generation |
