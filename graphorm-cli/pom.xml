@@ -20,6 +20,10 @@
     <dependencies>
         <dependency>
             <groupId>com.graphorm</groupId>
+            <artifactId>graphorm-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.graphorm</groupId>
             <artifactId>graphorm-schema</artifactId>
         </dependency>
         <dependency>
@@ -27,8 +31,16 @@
             <artifactId>graphorm-generator</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.graphorm</groupId>
+            <artifactId>graphorm-jdbc</artifactId>
+        </dependency>
+        <dependency>
             <groupId>info.picocli</groupId>
             <artifactId>picocli</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -47,9 +59,36 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.graphorm.cli.GraphOrmCli</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

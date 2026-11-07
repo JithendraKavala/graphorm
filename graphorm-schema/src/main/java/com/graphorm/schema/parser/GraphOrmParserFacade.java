@@ -104,8 +104,16 @@ public final class GraphOrmParserFacade {
         parser.addErrorListener(listener);
 
         GraphOrmParser.SchemaDocumentContext docCtx = parser.schemaDocument();
-        GraphOrmAstVisitor visitor = new GraphOrmAstVisitor();
-        SchemaDocument document = (SchemaDocument) visitor.visit(docCtx);
+        SchemaDocument document = null;
+
+        if (!listener.hasErrors()) {
+            try {
+                GraphOrmAstVisitor visitor = new GraphOrmAstVisitor();
+                document = (SchemaDocument) visitor.visit(docCtx);
+            } catch (Exception e) {
+                listener.getDiagnostics().add(Diagnostic.error("AST translation error: " + e.getMessage(), sourceFile, 1, 1));
+            }
+        }
 
         return new ParseResult(document, listener.getDiagnostics(), source);
     }

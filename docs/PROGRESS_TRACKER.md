@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 70
-- **Completed Tasks**: 60
+- **Completed Tasks**: 66
 - **In Progress**: 0
-- **Not Started**: 10
-- **Current Active Phase**: Phase 14 (Phase 13 & Milestone 7 100% Completed, Ready for Phase 14: Developer Tooling & CLI)
+- **Not Started**: 4
+- **Current Active Phase**: Phase 15 (Phase 14 100% Completed, Ready for Phase 15: Security, Performance & Production Readiness)
 
 ---
 
@@ -79,12 +79,12 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 13** | **Milestone 7** | `TASK-13.3` | `GraphOrmAutoConfiguration` | Completed | `TASK-13.2` | Auto-configures beans via `AutoConfiguration.imports` | Registered in `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`, conditional beans (`@ConditionalOnClass`, `@ConditionalOnMissingBean`) for `SqlDialect`, `ModelRegistry`, `JdbcExecutor`, `TransactionManager`, `GraphOrmClient`, SQL logging interceptors |
 | **Phase 13** | **Milestone 7** | `TASK-13.4` | `GraphQlAutoConfigurationCustomizer` | Completed | `TASK-13.3` | Hooks into Spring for GraphQL startup | Auto SDL generator (`GraphQlSdlGenerator.java`), `GraphQlSourceBuilderCustomizer` registering DataFetchers, DataLoaders (`GraphOrmDataLoaderInstrumentation`), queries and mutations for models and read-only views without manual wiring |
 | **Phase 13** | **Milestone 7** | `TASK-13.5` | `ApplicationContextRunner` Starter Tests | Completed | `TASK-13.4` | Tests context startup, beans, rollback behavior | Milestone 7 deliverable verified: `GraphOrmAutoConfigurationTest` (6 tests), `GraphOrmTransactionIntegrationTest` (4 tests with real PostgreSQL commit/rollback), `GraphOrmGraphQlAutoConfigurationIntegrationTest` (4 tests with real PostgreSQL GraphQL execution) |
-| **Phase 14** | Tooling | `TASK-14.1` | Picocli Command Runner Setup | Not Started | `TASK-12.6` | Standalone CLI entrypoint with `--help` and banners | Developer CLI |
-| **Phase 14** | Tooling | `TASK-14.2` | `graphorm validate` Command | Not Started | `TASK-14.1` | Validates schema file and outputs formatted errors | Non-zero exit code |
-| **Phase 14** | Tooling | `TASK-14.3` | `graphorm generate` Command | Not Started | `TASK-14.2` | Generates Java code to target directory | CLI generation |
-| **Phase 14** | Tooling | `TASK-14.4` | `graphorm init` Command | Not Started | `TASK-14.3` | Scaffolds starter project with sample schemas | Developer onboarding |
-| **Phase 14** | Tooling | `TASK-14.5` | `graphorm introspect` Command | Not Started | `TASK-14.4` | Reverse-engineers PostgreSQL schema into `schema.graphorm` | DB introspection |
-| **Phase 14** | Tooling | `TASK-14.6` | CLI Integration Tests | Not Started | `TASK-14.5` | CLI execution tests verifying stdout and exit codes | Verified CLI |
+| **Phase 14** | Tooling | `TASK-14.1` | Picocli Command Runner Setup | Completed | `TASK-12.6` | Standalone CLI entrypoint with `--help` and banners | `GraphOrmCli.java`, `GraphOrmVersionProvider.java`, ASCII banner, help & version flags, exit codes, `GraphOrmCliTest.java` (5 tests) |
+| **Phase 14** | Tooling | `TASK-14.2` | `graphorm validate` Command | Completed | `TASK-14.1` | Validates schema file and outputs formatted errors | `ValidateCommand.java`, file check, syntax & semantic diagnostics with caret pointer, exit codes (0/1), `ValidateCommandTest.java` (6 tests) |
+| **Phase 14** | Tooling | `TASK-14.3` | `graphorm generate` Command | Completed | `TASK-14.2` | Generates Java code to target directory | `GenerateCommand.java`, clean flag, package resolution, JavaPoet generation, `InMemoryCompiler` test verification with 0 errors/warnings, `GenerateCommandTest.java` (5 tests) |
+| **Phase 14** | Tooling | `TASK-14.4` | `graphorm init` Command | Completed | `TASK-14.3` | Scaffolds starter project with sample schemas | `InitCommand.java`, scaffolds `schema.graphorm` and `graphorm.properties`, verified valid via validator, force overwrite support, `InitCommandTest.java` (4 tests) |
+| **Phase 14** | Tooling | `TASK-14.5` | `graphorm introspect` Command | Completed | `TASK-14.4` | Reverse-engineers PostgreSQL schema into `schema.graphorm` | `PostgresDatabaseIntrospector.java`, `SchemaEmitter.java`, `TableInfo.java`, `ColumnInfo.java`, `ForeignKeyInfo.java`, catalog queries for tables, columns, PKs, FKs, views, `SchemaEmitterTest.java` (3 tests) |
+| **Phase 14** | Tooling | `TASK-14.6` | CLI Integration Tests | Completed | `TASK-14.5` | CLI execution tests verifying stdout and exit codes | `PostgresIntrospectIntegrationTest.java` (4 tests against PostgreSQL, reverse-engineers DB into schema, validates schema, generates Java code, and compiles via `InMemoryCompiler` with 0 warnings) |
 | **Phase 15** | **Milestone 8** | `TASK-15.1` | GraphQL Depth & Complexity Instrumentation | Not Started | `TASK-13.5` | Rejects malicious deeply nested or complex queries | DoS protection |
 | **Phase 15** | **Milestone 8** | `TASK-15.2` | Field-Level Security Interceptor (`@auth`) | Not Started | `TASK-15.1` | Enforces Spring Security roles on protected fields | Access control |
 | **Phase 15** | **Milestone 8** | `TASK-15.3` | Sanitized `GraphOrmExceptionHandler` | Not Started | `TASK-15.2` | Masks internal database errors, outputs safe codes | Info leak protection |
