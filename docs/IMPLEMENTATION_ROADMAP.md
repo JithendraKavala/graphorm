@@ -1,29 +1,25 @@
-# GraphORM: Implementation Roadmap
+# GraphORM Implementation Roadmap
 
-This document outlines the master implementation roadmap for GraphORM. It establishes the dependency-driven progression of the framework from core foundational abstractions to a fully functional, production-ready ORM and automatic GraphQL integration platform.
-
-Development must proceed sequentially through these phases. In accordance with Rule 18 in `AGENTS.md`, engineering agents must never jump ahead to implement future phases prematurely, nor declare planned features as implemented.
+This document outlines the phased, architecture-first execution strategy for building **GraphORM**. Every phase is strictly ordered by functional dependency: lower-level foundations are completed, tested, and validated before higher-level abstractions are introduced.
 
 ---
 
-## 1. Architectural Prioritization & Release Tiers
+## 1. High-Level Architectural Flow
 
-Functionality is divided into four strategic delivery tiers to prevent scope creep and ensure early vertical slices:
-
-```text
+```
 +--------------------------------------------------------------------------+
-| 1. MVP Tier (Phases 1-6)                                                 |
-|    Foundational build, Core AST & Metadata, Schema Parser & Validator,   |
-|    PostgreSQL JDBC Engine, CRUD, Filtering/Sorting/Pagination, Relations  |
+| 1. Foundation Tier (Phases 1-3)                                          |
+|    Multi-Module Maven Build, Shared Core Exceptions & Records,           |
+|    ANTLR4 Grammar, Diagnostic Schema Parser & Semantic Validator         |
 +--------------------------------------------------------------------------+
                                     |
                                     v
 +--------------------------------------------------------------------------+
-| 2. Core Tier (Phases 7-13)                                               |
-|    Database-Backed Views, GraphORM-Defined Virtual Views & Joins,        |
-|    Aggregations & GROUP BY, Automatic GraphQL Integration,               |
-|    Selection-Aware Query Planner & N+1 Elimination, Client Generator,    |
-|    Spring Boot Starter Auto-Configuration                                |
+| 2. Core Engine Tier (Phases 4-13)                                        |
+|    Unified Query AST, PostgreSQL Dialect, CRUD Builders, Testcontainers, |
+|    Relationship Engine, Batched IN Loading, View Models (Physical &     |
+|    Virtual Aggregations), GraphQL Java Engine, SelectionSet Planner,     |
+|    JavaPoet Generator, Spring Boot Starter Auto-Configuration            |
 +--------------------------------------------------------------------------+
                                     |
                                     v
@@ -35,9 +31,9 @@ Functionality is divided into four strategic delivery tiers to prevent scope cre
                                     |
                                     v
 +--------------------------------------------------------------------------+
-| 4. Future Tier (Phase 16 & Post-v1.0)                                    |
-|    Multi-Dialect Support (MySQL, H2), Schema Migration Engine,          |
-|    Database Introspection, Recursive CTE Views, Materialized View Cron   |
+| 4. Reference App, Docs & Release (Phase 16 - v1.0.0 RELEASE READY)       |
+|    University Reference Application, E2E Integration Suite,              |
+|    Developer Guides & Quickstarts, Full Definition of Done Verification   |
 +--------------------------------------------------------------------------+
 ```
 
@@ -48,12 +44,11 @@ Functionality is divided into four strategic delivery tiers to prevent scope cre
 The roadmap enforces a strict, dependency-driven sequence:
 
 ```mermaid
-flowchart TD
-    P1[Phase 1: Project Foundation & Build System] --> P2[Phase 2: Core Metadata & Query AST]
-    P2 --> P3[Phase 3: Schema Parser & Semantic Validator]
-    P2 --> P4[Phase 4: JDBC Engine, Dialects & CRUD]
-    P3 --> P4
-    P4 --> P5[Phase 5: Filtering, Sorting & Pagination Pushdown]
+graph TD
+    P1[Phase 1: Foundation & Build] --> P2[Phase 2: Core Metadata & AST]
+    P2 --> P3[Phase 3: Schema Grammar & Parser]
+    P2 --> P4[Phase 4: JDBC Engine & Dialect]
+    P4 --> P5[Phase 5: Query Filter & Pagination]
     P5 --> P6[Phase 6: Relationship Engine & Batched Loading]
     P4 --> P7[Phase 7: Database-Backed View Models]
     P7 --> P8[Phase 8: Virtual GraphORM Views & Dynamic Joins]
@@ -75,9 +70,9 @@ flowchart TD
 |---|---|---|---|
 | **Phase 1** | Project Foundation & Build System | Foundation | Multi-module Maven setup, Java 21, dependencies, CI scripts, shared exception base. |
 | **Phase 2** | Core Metadata & Unified Query AST | Foundation | Immutable `ModelMetadata`, `ViewModelMetadata`, `SelectQuery` AST, `ModelRegistry`. |
-| **Phase 3** | Schema Language Lexer, Parser & Validator | MVP | ANTLR4 grammar, tokenization, AST, semantic validation, source diagnostics. |
-| **Phase 4** | JDBC Engine, Dialects & CRUD Execution | MVP | `SqlDialect`, `PostgreSqlDialect`, `JdbcExecutor`, `DynamicRowMapper`. **Milestone 1**. |
-| **Phase 5** | Filtering, Sorting & Pagination Pushdown | MVP | Advanced `WherePredicate` tree, order-by direction/nulls, `LIMIT/OFFSET` pushdown. |
+| **Phase 3** | Schema Grammar, Parsing & Validation | Foundation | ANTLR4 parser, AST visitor, caret diagnostics, semantic validator. |
+| **Phase 4** | Database Engine & SQL Generation | MVP | `PostgreSqlDialect`, `SelectBuilder`, `DynamicRowMapper`, Testcontainers. **Milestone 1**. |
+| **Phase 5** | Query Filters, Pagination & Sorting | MVP | `WherePredicate` tree, parameterized `WhereClauseBuilder`, pushdown pagination. |
 | **Phase 6** | Relationship Metadata & Batched Loading | MVP | 1:1, 1:N, N:1, N:M relations, batch loading `WHERE id IN (?)`, statement assertions. |
 | **Phase 7** | Database-Backed View Models (Stage 1 Views) | Core | `@@view`, `@@map`, read-only query planning against existing DB views. **Milestone 2**. |
 | **Phase 8** | Virtual GraphORM Views & Dynamic Joins | Core | `@@from`, `@@leftJoin`, `@@innerJoin`, join trees, pushdown filters. |
@@ -88,13 +83,13 @@ flowchart TD
 | **Phase 13** | Spring Boot Starter Auto-Configuration | Core | `@AutoConfiguration`, DataSource binding, `@Transactional` integration, `GraphQlSourceBuilderCustomizer`. **Milestone 7**. |
 | **Phase 14** | Developer CLI Tool | Advanced | Picocli CLI: `graphorm validate`, `graphorm generate`, `graphorm init`. |
 | **Phase 15** | Security, Monitoring & Production Readiness | Advanced | Depth/complexity limits, field authorization (`@auth`), Micrometer metrics, caching. **Milestone 8**. |
-| **Phase 16** | Examples, Documentation & Release | Advanced | Complex university example app, documentation polish, quickstarts, release v1.0. |
+| **Phase 16** | Examples, Documentation & Release | Release | Complex university example app, documentation polish, quickstarts, release v1.0. **Milestone 9 - Completed**. |
 
 ---
 
 ## 4. End-to-End Measurable Milestones
 
-The roadmap is anchored by 8 end-to-end, runnable milestones demonstrating practical capabilities:
+The roadmap is anchored by 9 end-to-end, runnable milestones demonstrating practical capabilities:
 
 ### Milestone 1 (End of Phase 4): Pure JDBC Model CRUD
 - **Capability**: Define a model in schema, validate it, connect to PostgreSQL, execute `InsertQuery`, read the record back via `SelectQuery` without writing a DAO, RowMapper, or entity class.
@@ -127,6 +122,10 @@ The roadmap is anchored by 8 end-to-end, runnable milestones demonstrating pract
 ### Milestone 8 (End of Phase 15): Production-Hardened Security & Observability
 - **Capability**: Malicious nested queries exceeding complexity/depth limits are rejected before execution. `@auth` protected fields are shielded from unauthorized users. Query metrics are recorded via Micrometer.
 - **Verification**: Security unit and integration tests.
+
+### Milestone 9 (End of Phase 16): University Reference Application & Release Readiness
+- **Capability**: Complete runnable Spring Boot 3 + PostgreSQL university reference application demonstrating models, physical views, virtual aggregated views with dynamic joins, automatic GraphQL wiring, DataLoader batching, `@auth` field authorization, GraphiQL UI, and type-safe Java 21 Client APIs.
+- **Verification**: 23/23 end-to-end integration tests passing against live PostgreSQL, clean `mvn clean verify` with zero compiler warnings across all 10 modules.
 
 ---
 

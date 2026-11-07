@@ -1,0 +1,89 @@
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://localhost:5432/university_db"
+}
+
+model Department {
+  id          Int          @id @default(autoincrement())
+  name        String       @map("dept_name")
+  code        String       @unique
+  students    Student[]
+  courses     Course[]
+  instructors Instructor[]
+
+  @@map("departments")
+}
+
+model Instructor {
+  id           Int        @id @default(autoincrement())
+  name         String
+  email        String     @unique
+  salary       Float?     @auth(roles: ["ADMIN"])
+  departmentId Int        @map("department_id")
+  department   Department @relation(fields: [departmentId], references: [id])
+  courses      Course[]
+
+  @@map("instructors")
+}
+
+model Student {
+  id           Int          @id @default(autoincrement())
+  name         String
+  email        String       @unique
+  gpa          Float?       @auth(roles: ["ADMIN", "INSTRUCTOR"])
+  departmentId Int?         @map("department_id")
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  enrollments  Enrollment[]
+
+  @@map("students")
+}
+
+model Course {
+  id           Int          @id @default(autoincrement())
+  title        String
+  code         String       @unique
+  credits      Int
+  departmentId Int          @map("department_id")
+  department   Department   @relation(fields: [departmentId], references: [id])
+  instructorId Int?         @map("instructor_id")
+  instructor   Instructor?  @relation(fields: [instructorId], references: [id])
+  enrollments  Enrollment[]
+
+  @@map("courses")
+}
+
+model Enrollment {
+  id             Int      @id @default(autoincrement())
+  studentId      Int      @map("student_id")
+  student        Student  @relation(fields: [studentId], references: [id])
+  courseId       Int      @map("course_id")
+  course         Course   @relation(fields: [courseId], references: [id])
+  grade          String?  @auth(roles: ["ADMIN", "INSTRUCTOR"])
+  gradePoints    Float?   @map("grade_points")
+  enrollmentDate String   @map("enrollment_date")
+
+  @@map("enrollments")
+}
+
+view DepartmentStats {
+  id             Int    @id
+  departmentName String @map("department_name")
+  studentCount   Int    @map("student_count")
+  courseCount    Int    @map("course_count")
+
+  @@view
+  @@map("v_department_stats")
+}
+
+view StudentDashboard {
+  studentId       Int     @map("s.id")
+  studentName     String  @map("s.name")
+  departmentName  String? @map("d.dept_name")
+  enrolledCourses Int     @aggregate(count: "e.id")
+  avgGradePoints  Float?  @expression("ROUND(AVG(e.grade_points)::numeric, 2)")
+
+  @@from(Student, as: "s")
+  @@leftJoin(Department, as: "d", on: "s.departmentId == d.id")
+  @@leftJoin(Enrollment, as: "e", on: "s.id == e.studentId")
+  @@groupBy(["s.id", "s.name", "d.dept_name"])
+}

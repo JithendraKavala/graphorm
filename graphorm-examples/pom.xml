@@ -17,7 +17,7 @@
     <name>GraphORM Examples</name>
     <description>Sample applications demonstrating GraphORM capabilities</description>
 
-    <!-- Submodules will be added during Phase 16 -->
     <modules>
+        <module>spring-boot-postgres</module>
     </modules>
 </project>
