@@ -300,6 +300,7 @@ public final class SchemaToMetadataTransformer {
                 .joins(joins)
                 .groupBy(groupBy)
                 .databaseBacked(isDbBacked)
+                .rawQuery(vmNode.queryClause().orElse(null))
                 .build();
     }
 

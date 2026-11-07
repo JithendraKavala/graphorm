@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Semantic validation engine for GraphORM schema documents.
@@ -41,6 +42,11 @@ public final class SchemaValidator {
 
     private static final Set<String> SUPPORTED_AGGREGATES = Set.of(
             "count", "sum", "avg", "min", "max"
+    );
+
+    private static final Pattern FORBIDDEN_SQL = Pattern.compile(
+            "\\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE)\\b",
+            Pattern.CASE_INSENSITIVE
     );
 
     private SchemaValidator() {}
@@ -64,13 +70,13 @@ public final class SchemaValidator {
         // 3. Validate Composite Types
         validateCompositeTypes(document, diagnostics);
 
-        // 4. Validate Models (PKs, fields, relations)
+        // 4. Validate Models (PK, unique, relations, @id, @unique)
         validateModels(document, diagnostics);
 
-        // 5. Validate View Models (read-only invariant, @@view or @@from, join clauses, aggregations)
-        validateViewModels(document, diagnostics);
+        // 5. Validate Views (read-only invariant, strategy exclusivity, dependencies)
+        validateViews(document, diagnostics);
 
-        // 6. Detect circular view model dependencies
+        // 6. View dependency cycle detection
         validateViewCycles(document, diagnostics);
 
         return new ValidationResult(diagnostics);
@@ -80,23 +86,23 @@ public final class SchemaValidator {
         Map<String, SourcePosition> declared = new HashMap<>();
 
         for (ModelNode m : document.models()) {
-            checkAndRegisterName(m.name(), m.position(), declared, "entity", diagnostics);
+            checkUniqueName(declared, m.name(), m.position(), "entity", diagnostics);
         }
         for (ViewModelNode v : document.viewModels()) {
-            checkAndRegisterName(v.name(), v.position(), declared, "entity", diagnostics);
+            checkUniqueName(declared, v.name(), v.position(), "entity", diagnostics);
         }
-        for (CompositeTypeNode t : document.compositeTypes()) {
-            checkAndRegisterName(t.name(), t.position(), declared, "entity", diagnostics);
+        for (CompositeTypeNode ct : document.compositeTypes()) {
+            checkUniqueName(declared, ct.name(), ct.position(), "entity", diagnostics);
         }
         for (EnumNode e : document.enums()) {
-            checkAndRegisterName(e.name(), e.position(), declared, "entity", diagnostics);
+            checkUniqueName(declared, e.name(), e.position(), "entity", diagnostics);
         }
     }
 
-    private static void checkAndRegisterName(
+    private static void checkUniqueName(
+            Map<String, SourcePosition> declared,
             String name,
             SourcePosition pos,
-            Map<String, SourcePosition> declared,
             String kind,
             List<Diagnostic> diagnostics
     ) {
@@ -281,10 +287,10 @@ public final class SchemaValidator {
                         Optional<ModelNode> targetModelOpt = document.findModel(targetTypeName);
                         if (targetModelOpt.isPresent()) {
                             ModelNode targetModel = targetModelOpt.get();
-                            for (String ref : refFields) {
-                                if (!targetModel.hasField(ref)) {
+                            for (String targetRef : refFields) {
+                                if (!targetModel.hasField(targetRef)) {
                                     diagnostics.add(Diagnostic.error(
-                                            "Referenced field '" + ref + "' declared in @relation does not exist on target model '" + targetModel.name() + "'",
+                                            "Referenced field '" + targetRef + "' declared in @relation does not exist on target model '" + targetModel.name() + "'",
                                             referencesArg.get().position()
                                     ));
                                 }
@@ -296,7 +302,7 @@ public final class SchemaValidator {
         }
     }
 
-    private static void validateViewModels(SchemaDocument document, List<Diagnostic> diagnostics) {
+    private static void validateViews(SchemaDocument document, List<Diagnostic> diagnostics) {
         for (ViewModelNode vm : document.viewModels()) {
             // Field uniqueness and type resolution
             validateFieldList(vm.name(), vm.fields(), document, diagnostics, false);
@@ -349,7 +355,7 @@ public final class SchemaValidator {
                                 ));
                             } else {
                                 diagnostics.add(Diagnostic.error(
-                                        "Aggregate directive @aggregate on field '" + field.name() + "' must specify a target expression (e.g. @aggregate(count: \"column\"))",
+                                        "Aggregate directive @aggregate on field '" + field.name() + "' must specify a function and target expression (e.g. @aggregate(count: \"column\"))",
                                         agg.position()
                                 ));
                             }
@@ -386,6 +392,12 @@ public final class SchemaValidator {
                             vm.fromAttribute().get().position()
                     ));
                 }
+                if (vm.queryAttribute().isPresent()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Database-backed view '" + vm.name() + "' with @@view cannot declare @@query",
+                            vm.queryAttribute().get().position()
+                    ));
+                }
                 if (!vm.joinAttributes().isEmpty()) {
                     diagnostics.add(Diagnostic.error(
                             "Database-backed view '" + vm.name() + "' with @@view cannot declare join attributes",
@@ -398,6 +410,27 @@ public final class SchemaValidator {
                             vm.groupByAttribute().get().position()
                     ));
                 }
+            } else if (vm.isRawQuery()) {
+                // Strategy C: raw SQL query view (marked with @@query)
+                if (vm.fromAttribute().isPresent()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Raw query view '" + vm.name() + "' with @@query cannot declare @@from",
+                            vm.fromAttribute().get().position()
+                    ));
+                }
+                if (!vm.joinAttributes().isEmpty()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Raw query view '" + vm.name() + "' with @@query cannot declare join attributes",
+                            vm.joinAttributes().get(0).position()
+                    ));
+                }
+                if (vm.groupByAttribute().isPresent()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Raw query view '" + vm.name() + "' with @@query cannot declare @@groupBy",
+                            vm.groupByAttribute().get().position()
+                    ));
+                }
+                validateQueryAttribute(vm, vm.queryAttribute().get(), diagnostics);
             } else {
                 // Strategy B: GraphORM-defined virtual view
                 Optional<BlockAttributeNode> fromAttr = vm.fromAttribute();
@@ -447,6 +480,49 @@ public final class SchemaValidator {
                     }
                 }
             }
+        }
+    }
+
+    private static void validateQueryAttribute(
+            ViewModelNode vm,
+            BlockAttributeNode queryAttr,
+            List<Diagnostic> diagnostics
+    ) {
+        Optional<ExpressionNode> sqlArg = queryAttr.getPositionalArgumentValue(0)
+                .or(() -> queryAttr.getArgumentValue("sql"));
+
+        if (sqlArg.isEmpty()) {
+            diagnostics.add(Diagnostic.error(
+                    "View '" + vm.name() + "' @@query attribute must specify a SQL query string",
+                    queryAttr.position()
+            ));
+            return;
+        }
+
+        ExpressionNode expr = sqlArg.get();
+        if (!(expr instanceof StringLiteralNode strNode) || strNode.value().isBlank()) {
+            diagnostics.add(Diagnostic.error(
+                    "View '" + vm.name() + "' @@query attribute must specify a non-empty SQL query string",
+                    expr.position()
+            ));
+            return;
+        }
+
+        String sql = strNode.value().trim();
+        String normalized = sql.toUpperCase();
+        if (!normalized.startsWith("SELECT") && !normalized.startsWith("WITH")) {
+            diagnostics.add(Diagnostic.error(
+                    "View '" + vm.name() + "' @@query must be a read-only query starting with SELECT or WITH",
+                    expr.position()
+            ));
+        }
+
+        var matcher = FORBIDDEN_SQL.matcher(sql);
+        if (matcher.find()) {
+            diagnostics.add(Diagnostic.error(
+                    "View '" + vm.name() + "' @@query contains forbidden DDL/DML statement: " + matcher.group(),
+                    expr.position()
+            ));
         }
     }
 

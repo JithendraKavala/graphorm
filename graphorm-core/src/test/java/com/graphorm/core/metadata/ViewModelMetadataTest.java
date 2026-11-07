@@ -30,6 +30,7 @@ class ViewModelMetadataTest {
         assertThat(dbView.isReadOnly()).isTrue();
         assertThat(dbView.isDatabaseBacked()).isTrue();
         assertThat(dbView.isMaterialized()).isTrue();
+        assertThat(dbView.isRawQuery()).isFalse();
         assertThat(dbView.fields()).hasSize(2);
         assertThat(dbView.hasField("id")).isTrue();
     }
@@ -70,6 +71,7 @@ class ViewModelMetadataTest {
         assertThat(view.joinDefinitions()).hasSize(2);
         assertThat(view.groupByColumns()).containsExactly("s.id", "s.name", "d.name");
         assertThat(view.isDatabaseBacked()).isFalse();
+        assertThat(view.isRawQuery()).isFalse();
 
         // Mutating external lists should not affect view
         fields.clear();
@@ -87,6 +89,24 @@ class ViewModelMetadataTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> view.groupByColumns().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("Strategy C: Should build raw SQL subquery view model (@@query)")
+    void shouldBuildRawQueryViewModel() {
+        String sql = "SELECT id, name FROM users UNION ALL SELECT id, name FROM admins";
+        ViewModelMetadata view = ViewModelMetadata.builder("CombinedUsers")
+                .rawQuery(sql)
+                .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
+                .addField(FieldMetadata.builder("name", String.class).build())
+                .build();
+
+        assertThat(view.name()).isEqualTo("CombinedUsers");
+        assertThat(view.isRawQuery()).isTrue();
+        assertThat(view.rawQuery()).isEqualTo(sql);
+        assertThat(view.isDatabaseBacked()).isFalse();
+        assertThat(view.isReadOnly()).isTrue();
+        assertThat(view.fields()).hasSize(2);
     }
 
     @Test

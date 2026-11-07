@@ -5,12 +5,13 @@ import java.util.Objects;
 /**
  * Sealed hierarchy representing the source relation in a SQL query.
  * Permitted implementations are physical database tables, database-backed views,
- * and derived subqueries.
+ * derived subqueries, and raw SQL queries.
  */
 public sealed interface SourceTable permits
         SourceTable.PhysicalTable,
         SourceTable.DatabaseView,
-        SourceTable.SubquerySource {
+        SourceTable.SubquerySource,
+        SourceTable.RawSqlSource {
 
     /**
      * Returns the name or alias identifier of this source relation.
@@ -34,6 +35,15 @@ public sealed interface SourceTable permits
      * @return true if subquery
      */
     default boolean isSubquery() {
+        return false;
+    }
+
+    /**
+     * Indicates whether this source represents a raw SQL subquery.
+     *
+     * @return true if raw SQL subquery
+     */
+    default boolean isRawSql() {
         return false;
     }
 
@@ -107,6 +117,35 @@ public sealed interface SourceTable permits
     }
 
     /**
+     * Raw SQL derived subquery relation source (e.g. from @@query).
+     *
+     * @param sql   the raw SQL query string
+     * @param alias the subquery alias
+     */
+    record RawSqlSource(String sql, String alias) implements SourceTable {
+        public RawSqlSource {
+            Objects.requireNonNull(sql, "SQL must not be null");
+            Objects.requireNonNull(alias, "Subquery alias must not be null");
+            if (sql.isBlank()) {
+                throw new IllegalArgumentException("SQL must not be blank");
+            }
+            if (alias.isBlank()) {
+                throw new IllegalArgumentException("Subquery alias must not be blank");
+            }
+        }
+
+        @Override
+        public String identifier() {
+            return alias;
+        }
+
+        @Override
+        public boolean isRawSql() {
+            return true;
+        }
+    }
+
+    /**
      * Creates a physical table source.
      *
      * @param tableName table name
@@ -135,5 +174,16 @@ public sealed interface SourceTable permits
      */
     static SubquerySource subquery(SelectQuery subquery, String alias) {
         return new SubquerySource(subquery, alias);
+    }
+
+    /**
+     * Creates a raw SQL derived subquery source.
+     *
+     * @param sql   raw SQL query string
+     * @param alias subquery alias
+     * @return a RawSqlSource instance
+     */
+    static RawSqlSource rawSql(String sql, String alias) {
+        return new RawSqlSource(sql, alias);
     }
 }

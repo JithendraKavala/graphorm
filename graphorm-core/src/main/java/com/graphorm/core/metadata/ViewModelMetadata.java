@@ -6,8 +6,9 @@ import java.util.Objects;
 
 /**
  * Immutable metadata record representing a view model in GraphORM.
- * Supports both Strategy A (Database-Backed views via @@view) and
- * Strategy B (GraphORM-Defined virtual joined views via @@from, @@leftJoin, @@groupBy).
+ * Supports Strategy A (Database-Backed views via @@view),
+ * Strategy B (GraphORM-Defined virtual joined views via @@from, @@leftJoin, @@groupBy),
+ * and Strategy C (Raw SQL subquery views via @@query).
  * <p>
  * Invariant: View models are strictly read-only; {@link #isReadOnly()} always returns {@code true}.
  *
@@ -20,6 +21,7 @@ import java.util.Objects;
  * @param groupByColumns    the immutable list of column expressions for GROUP BY
  * @param isDatabaseBacked  true if mapped to a physical database view (Strategy A)
  * @param isMaterialized    true if the physical database view is materialized
+ * @param rawQuery          for raw query views: raw SQL SELECT/WITH query (Strategy C, @@query)
  */
 public record ViewModelMetadata(
         String name,
@@ -30,7 +32,8 @@ public record ViewModelMetadata(
         List<ViewJoinMetadata> joinDefinitions,
         List<String> groupByColumns,
         boolean isDatabaseBacked,
-        boolean isMaterialized
+        boolean isMaterialized,
+        String rawQuery
 ) implements EntityMetadata {
 
     /**
@@ -50,6 +53,23 @@ public record ViewModelMetadata(
         groupByColumns = groupByColumns == null ? List.of() : List.copyOf(groupByColumns);
     }
 
+    /**
+     * Backward-compatible constructor without {@code rawQuery}.
+     */
+    public ViewModelMetadata(
+            String name,
+            String viewName,
+            List<FieldMetadata> fields,
+            String sourceModelName,
+            String sourceAlias,
+            List<ViewJoinMetadata> joinDefinitions,
+            List<String> groupByColumns,
+            boolean isDatabaseBacked,
+            boolean isMaterialized
+    ) {
+        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns, isDatabaseBacked, isMaterialized, null);
+    }
+
     @Override
     public EntityType entityType() {
         return EntityType.VIEW;
@@ -63,6 +83,24 @@ public record ViewModelMetadata(
     @Override
     public boolean isReadOnly() {
         return true;
+    }
+
+    /**
+     * Indicates whether this view model is defined via a raw SQL query (Strategy C).
+     *
+     * @return true if raw SQL query view
+     */
+    public boolean isRawQuery() {
+        return rawQuery != null && !rawQuery.isBlank();
+    }
+
+    /**
+     * Indicates whether this view model is a virtual join view (Strategy B).
+     *
+     * @return true if virtual join view
+     */
+    public boolean isVirtual() {
+        return !isDatabaseBacked && !isRawQuery();
     }
 
     /**
@@ -88,6 +126,7 @@ public record ViewModelMetadata(
         private final List<String> groupByColumns = new ArrayList<>();
         private boolean isDatabaseBacked;
         private boolean isMaterialized;
+        private String rawQuery;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "View model name must not be null");
@@ -164,6 +203,11 @@ public record ViewModelMetadata(
             return this;
         }
 
+        public Builder rawQuery(String rawQuery) {
+            this.rawQuery = rawQuery;
+            return this;
+        }
+
         public ViewModelMetadata build() {
             return new ViewModelMetadata(
                     name,
@@ -174,7 +218,8 @@ public record ViewModelMetadata(
                     joinDefinitions,
                     groupByColumns,
                     isDatabaseBacked,
-                    isMaterialized
+                    isMaterialized,
+                    rawQuery
             );
         }
     }

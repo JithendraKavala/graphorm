@@ -8,12 +8,12 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * View model declaration block representing a read-only projection (database-backed or virtual).
+ * View model declaration block representing a read-only projection (database-backed, virtual, or raw SQL).
  *
  * @param position   source coordinate
  * @param name       declared view model name (e.g. "StudentDashboard")
  * @param fields     list of field declarations
- * @param attributes list of block attributes (e.g. @@view, @@map, @@from, @@leftJoin, @@groupBy)
+ * @param attributes list of block attributes (e.g. @@view, @@map, @@from, @@leftJoin, @@groupBy, @@query)
  */
 public record ViewModelNode(
         SourcePosition position,
@@ -31,6 +31,10 @@ public record ViewModelNode(
 
     public boolean isDatabaseBacked() {
         return hasAttribute("view");
+    }
+
+    public boolean isRawQuery() {
+        return hasAttribute("query");
     }
 
     public Optional<FieldNode> findField(String fieldName) {
@@ -67,6 +71,10 @@ public record ViewModelNode(
         return findAttribute("from");
     }
 
+    public Optional<BlockAttributeNode> queryAttribute() {
+        return findAttribute("query");
+    }
+
     public List<BlockAttributeNode> joinAttributes() {
         return attributes.stream()
                 .filter(a -> "leftJoin".equals(a.name()) || "innerJoin".equals(a.name()))
@@ -95,6 +103,21 @@ public record ViewModelNode(
                 return Optional.empty();
             }
             return Optional.of(new FromAttributeNode(from.position(), modelName, alias));
+        });
+    }
+
+    /**
+     * Parses and returns the raw SQL query if {@code @@query} is declared.
+     *
+     * @return raw SQL query string or empty if not present or malformed
+     */
+    public Optional<String> queryClause() {
+        return queryAttribute().flatMap(q -> {
+            Optional<ExpressionNode> argVal = q.getPositionalArgumentValue(0).or(() -> q.getArgumentValue("sql"));
+            if (argVal.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(extractStringOrIdent(argVal.get()));
         });
     }
 

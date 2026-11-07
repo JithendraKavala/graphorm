@@ -19,23 +19,33 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class QueryAstTest {
 
     @Test
-    @DisplayName("SourceTable: PhysicalTable, DatabaseView, and SubquerySource")
+    @DisplayName("SourceTable: PhysicalTable, DatabaseView, SubquerySource, and RawSqlSource")
     void testSourceTableVariants() {
         SourceTable.PhysicalTable table = SourceTable.table("users");
         assertThat(table.identifier()).isEqualTo("users");
         assertThat(table.isView()).isFalse();
         assertThat(table.isSubquery()).isFalse();
+        assertThat(table.isRawSql()).isFalse();
 
         SourceTable.DatabaseView view = SourceTable.view("vw_active_users");
         assertThat(view.identifier()).isEqualTo("vw_active_users");
         assertThat(view.isView()).isTrue();
         assertThat(view.isSubquery()).isFalse();
+        assertThat(view.isRawSql()).isFalse();
 
         SelectQuery innerQuery = SelectQuery.from("orders").column("id").build();
         SourceTable.SubquerySource subquery = SourceTable.subquery(innerQuery, "sub");
         assertThat(subquery.identifier()).isEqualTo("sub");
         assertThat(subquery.isView()).isFalse();
         assertThat(subquery.isSubquery()).isTrue();
+        assertThat(subquery.isRawSql()).isFalse();
+
+        SourceTable.RawSqlSource rawSql = SourceTable.rawSql("SELECT 1 UNION ALL SELECT 2", "u");
+        assertThat(rawSql.identifier()).isEqualTo("u");
+        assertThat(rawSql.sql()).isEqualTo("SELECT 1 UNION ALL SELECT 2");
+        assertThat(rawSql.isView()).isFalse();
+        assertThat(rawSql.isSubquery()).isFalse();
+        assertThat(rawSql.isRawSql()).isTrue();
 
         assertThatThrownBy(() -> SourceTable.table(" "))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -43,6 +53,10 @@ class QueryAstTest {
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> SourceTable.subquery(null, "s"))
                 .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> SourceTable.rawSql("", "s"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> SourceTable.rawSql("SELECT 1", " "))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

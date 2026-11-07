@@ -31,7 +31,7 @@ import java.util.Set;
 
 /**
  * Unified query planner for View Models (Stage 1 Database-Backed, Stage 2/3 Virtual Joined Views,
- * and Stage 4 Aggregations, GROUP BY, and Join Pruning).
+ * Stage 4 Aggregations, GROUP BY, and Join Pruning, and Stage 5 Raw SQL Subquery Views).
  * <p>
  * Handles:
  * <ul>
@@ -41,6 +41,7 @@ import java.util.Set;
  *     <li>HAVING clause mapping and automatic routing of aggregate predicates.</li>
  *     <li>Join pruning optimization when projected fields do not require joined tables.</li>
  *     <li>Automatic omission of GROUP BY when no aggregations are selected.</li>
+ *     <li>Raw SQL subquery views (Strategy C: @@query) with pushdown filtering, ordering, and pagination.</li>
  * </ul>
  */
 public final class ViewQueryPlanner {
@@ -150,7 +151,9 @@ public final class ViewQueryPlanner {
             SqlDialect dialect
     ) {
         Map<String, String> map = new HashMap<>();
-        String sourceAlias = view.sourceAlias();
+        String sourceAlias = view.isRawQuery()
+                ? (view.sourceAlias() != null && !view.sourceAlias().isBlank() ? view.sourceAlias() : view.name().toLowerCase())
+                : view.sourceAlias();
 
         for (FieldMetadata field : view.fields()) {
             if (field.isRelation()) {
@@ -494,6 +497,38 @@ public final class ViewQueryPlanner {
          * @return immutable SelectQuery
          */
         public SelectQuery build() {
+            // Strategy C: Raw SQL subquery view (@@query)
+            if (view.isRawQuery()) {
+                String alias = view.sourceAlias() != null && !view.sourceAlias().isBlank()
+                        ? view.sourceAlias()
+                        : view.name().toLowerCase();
+                SourceTable source = SourceTable.rawSql(view.rawQuery(), alias);
+                List<ProjectedColumn> columns = new ArrayList<>();
+                for (FieldMetadata field : view.fields()) {
+                    if (!field.isRelation()) {
+                        if (selectedFields.isEmpty() || selectedFields.contains(field.name())) {
+                            String colName = field.dbColumnName() != null ? field.dbColumnName() : field.name();
+                            columns.add(ProjectedColumn.of(alias + "." + colName, field.name()));
+                        }
+                    }
+                }
+                WherePredicate mappedWhere = mapFilter(wherePredicate, view, aliasToModelMap, dialect);
+                List<OrderByClause> mappedOrderBy = mapOrderBy(orderByList, view, aliasToModelMap, dialect);
+
+                return new SelectQuery(
+                        source,
+                        alias,
+                        columns,
+                        List.of(),
+                        mappedWhere,
+                        List.of(),
+                        havingPredicate,
+                        mappedOrderBy,
+                        limit,
+                        offset
+                );
+            }
+
             // Strategy A: Database-backed view
             if (view.isDatabaseBacked() || view.sourceModelName() == null) {
                 SourceTable source = SourceTable.view(view.viewName());

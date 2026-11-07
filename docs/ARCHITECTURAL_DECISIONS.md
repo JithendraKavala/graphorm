@@ -1,152 +1,117 @@
-# GraphORM: Architecture Decision Records (ADRs)
+# GraphORM: Architectural Decision Records (ADRs)
 
-This document records the foundational architectural decisions for GraphORM. Each record details the context, considered options, trade-offs, recommended choice, and downstream consequences.
-
----
-
-## Index of Architecture Decision Records
-
-- [ADR-001: Schema Language Design & Parser Selection](#adr-001-schema-language-design--parser-selection)
-- [ADR-002: GraphQL Schema vs Database Schema Responsibilities](#adr-002-graphql-schema-vs-database-schema-responsibilities)
-- [ADR-003: Runtime Metadata Representation & Immutability](#adr-003-runtime-metadata-representation--immutability)
-- [ADR-004: Internal Query AST & Composable Query Tree](#adr-004-internal-query-ast--composable-query-tree)
-- [ADR-005: Unified SQL Query Planning for Models & View Models](#adr-005-unified-sql-query-planning-for-models--view-models)
-- [ADR-006: Direct JDBC Execution Over JPA/Hibernate](#adr-006-direct-jdbc-execution-over-jpahibernate)
-- [ADR-007: Result Mapping Strategy (DynamicRowMapper vs Static Proxies)](#adr-007-result-mapping-strategy-dynamicrowmapper-vs-static-proxies)
-- [ADR-008: Relationship Loading Strategy & N+1 Prevention](#adr-008-relationship-loading-strategy--n1-prevention)
-- [ADR-009: DataLoader Integration & Hidden Dependency Injection](#adr-009-dataloader-integration--hidden-dependency-injection)
-- [ADR-010: Two-Tiered View Model Strategy (DB-Backed & GraphORM-Defined)](#adr-010-two-tiered-view-model-strategy-db-backed--graphorm-defined)
-- [ADR-011: SQL Dialect Abstraction & PostgreSQL Target](#adr-011-sql-dialect-abstraction--postgresql-target)
-- [ADR-012: Code Generation Strategy (JavaPoet Compile-Time Generation)](#adr-012-code-generation-strategy-javapoet-compile-time-generation)
-- [ADR-013: Spring Boot Auto-Configuration & Modular Independence](#adr-013-spring-boot-auto-configuration--modular-independence)
-- [ADR-014: Transaction Management & Spring PlatformTransactionManager](#adr-014-transaction-management--spring-platformtransactionmanager)
-- [ADR-015: Error Handling Hierarchy & Field-Level Authorization](#adr-015-error-handling-hierarchy--field-level-authorization)
+This document captures the key architectural decisions, rationale, trade-offs, and invariants governing GraphORM design and implementation.
 
 ---
 
-## ADR-001: Schema Language Design & Parser Selection
+## ADR-001: Schema-First Architecture Inspired by Prisma
 
 ### Context
-GraphORM requires a declarative schema language to specify physical tables (`model`), read-only views (`view`), composite types (`type`), relationships, and configurations. We must decide whether to create a custom schema grammar or use an existing format (JSON, YAML, GraphQL SDL), and choose an implementation approach for the parser.
+GraphORM requires a schema declaration language that is readable, expressive, and capable of modeling regular models, view models, relationships, and composite types.
 
 ### Options Considered
-1. **Prisma-Inspired DSL with Custom Hand-Crafted Recursive Descent Parser**:
-   - *Pros*: Zero external dependencies, precise control over error diagnostics, line/column tracking, small footprint.
-   - *Cons*: Requires writing tokenization, AST construction, and error recovery from scratch.
-2. **Prisma-Inspired DSL with ANTLR4 Parser Generator**:
-   - *Pros*: Formal grammar definition (`.g4`), robust lexer/parser generator, standard AST visitor pattern, battle-tested in compilers.
-   - *Cons*: Runtime dependency on `antlr4-runtime`, build step generation overhead.
-3. **YAML / JSON Configuration**:
-   - *Pros*: Standard parsers exist (Jackson, SnakeYAML).
-   - *Cons*: Poor developer ergonomics, extremely verbose for complex relationship and join definitions, lack of type-declaration aesthetics.
-4. **Pure GraphQL SDL Extended with Custom Directives**:
-   - *Pros*: Single schema file.
-   - *Cons*: Forces database physical modeling into GraphQL SDL, clutters public API schemas, awkward syntax for joins and aggregations.
+1. **Java Annotations Only (JPA-Style)**:
+   - *Pros*: Familiar to traditional Spring developers.
+   - *Cons*: Cannot easily generate schema documentation; hard to build unified language tooling; verbose; tightly couples schema definitions to Java bytecode.
+2. **GraphQL SDL Only**:
+   - *Pros*: Native GraphQL schema alignment.
+   - *Cons*: Missing relational mapping semantics (table names, column mappings, indexes, joins).
+3. **Custom Prisma-Inspired Schema Language (`schema.graphorm`)**:
+   - *Pros*: Human-readable, declarative, concise; native support for directives (`@id`, `@map`, `@relation`, `@@from`, `@@leftJoin`, `@@groupBy`); clean separation of schema design from runtime code.
+   - *Cons*: Requires building an ANTLR4 parser and validator.
 
 ### Recommended Choice
-**Option 2: Prisma-Inspired DSL (`schema.graphorm`) built using an ANTLR4 Grammar (`GraphOrm.g4`)**.
+**Option 3: Custom Prisma-Inspired Schema Language (`schema.graphorm`)**.
 
 ### Consequences
-- ANTLR4 generates clean, fast lexers and parsers in `graphorm-schema`.
-- Precise line/column error diagnostics are automatically provided via ANTLR syntax error listeners.
-- The grammar cleanly separates lexical tokens from syntactic rules for `model`, `view`, and `type` blocks.
-- `graphorm-schema` depends only on `antlr4-runtime` and `graphorm-core`.
+- Single source of truth for database mapping, Java code generation, and GraphQL schema derivation.
+- ANTLR4-based parser grammar provides robust AST construction and error diagnostics.
 
 ---
 
-## ADR-002: GraphQL Schema vs Database Schema Responsibilities
+## ADR-002: Model Categories (Regular Models vs View Models vs Composite Types)
 
 ### Context
-Should `schema.graphorm` automatically generate the public GraphQL SDL, or should the developer maintain a separate `schema.graphqls`?
+Applications require both transactional read-write entities, complex read-only analytical/dashboard projections, and reusable value objects.
 
 ### Options Considered
-1. **Single Schema (GraphORM generates public GraphQL schema automatically)**:
-   - *Pros*: Developer writes one schema only.
-   - *Cons*: Unintended exposure of private columns (passwords, internal flags); tightly couples public API contract to database schema; difficult to customize GraphQL field names or deprecations.
-2. **Separate Dual Schemas (Hybrid Approach)**:
-   - `schema.graphorm` defines data models, views, and database structures.
-   - `schema.graphqls` defines the public GraphQL contract.
-   - *Pros*: Clear security boundaries; fields not in GraphQL SDL are never exposed; independent schema evolution; idiomatic to Spring for GraphQL.
-   - *Cons*: Developers maintain two files (mitigated by CLI generator creating starter `.graphqls` files).
+1. **Homogeneous Entities (Everything is a `model`)**:
+   - *Pros*: Single entity concept.
+   - *Cons*: Blurs read-only vs writable boundaries; permits accidental mutations on view projections; creates confusion around primary keys and joins.
+2. **Explicit Strict Tripartite Categorization (`model`, `view`, `type`)**:
+   - `model`: Physical database table with full CRUD capabilities.
+   - `view`: Read-only projection combining multiple models, joins, aggregations, and computed expressions.
+   - `type`: Reusable nested value object without independent database identity.
+   - *Pros*: Strict compile-time and runtime invariants; impossible to generate write mutations for views; clear mental model.
+   - *Cons*: Requires separate AST nodes and validation rules for each category.
 
 ### Recommended Choice
-**Option 2: Dual Hybrid Schema-First Architecture**.
+**Option 2: Explicit Strict Tripartite Categorization (`model`, `view`, `type`)**.
 
 ### Consequences
-- `GraphOrmGraphQlRegistrar` maps GraphQL types against `ModelRegistry`.
-- Database fields not declared in `schema.graphqls` remain strictly internal.
-- View models can be selectively exposed to public clients.
+- View models are strictly immutable and read-only.
+- The schema validator and code generator enforce zero write mutations on views.
 
 ---
 
-## ADR-003: Runtime Metadata Representation & Immutability
+## ADR-003: Strict Read-Only Invariant on View Models
 
 ### Context
-How should parsed schema information be stored, accessed, and passed across the framework at runtime?
+View models represent projections, calculations, and aggregations across one or more tables. How should write operations be handled?
 
-### Options Considered
-1. **Mutable Java Beans with Reflection**:
-   - *Pros*: Easy to modify during startup.
-   - *Cons*: Concurrency risks, mutable state bugs, slow reflection at runtime.
-2. **Immutable Java 21 Records / Final Classes (`ModelRegistry`)**:
-   - *Pros*: Thread-safe by design, zero concurrency overhead, easily cached, pattern matching support, clear contract.
-   - *Cons*: Must be fully constructed in a single validation/build phase.
-
-### Recommended Choice
-**Option 2: Immutable Java 21 Records / Classes in `ModelRegistry`**.
-
-### Consequences
-- `ModelMetadata`, `ViewModelMetadata`, `FieldMetadata`, `RelationMetadata`, `CompositeTypeMetadata` are immutable records.
-- `ModelRegistry` is built once during startup by `SchemaToMetadataTransformer` and cannot be modified afterwards.
-- Runtime query execution reads directly from memory with zero reflection overhead.
+### Invariant
+**View models are 100% read-only across all layers.**
+- Schema Validator: Rejects `@default(autoincrement())` or mutable attributes on view fields.
+- Code Generator: Omits `create`, `update`, and `delete` input types and mutation APIs for views.
+- GraphQL Engine: Registers only Query fields (`studentSummary`, `studentSummaries`), never Mutation fields.
+- JDBC Engine: Throws `ReadOnlyViewException` if targeted by insert, update, or delete builders.
 
 ---
 
-## ADR-004: Internal Query AST & Composable Query Tree
+## ADR-004: Pushdown Query Execution (Zero In-Memory Table Dumps)
 
 ### Context
-How should database operations be represented internally before generating dialect-specific SQL?
+When querying a view model that aggregates or joins multiple tables, where should filtering, pagination, and sorting happen?
 
 ### Options Considered
-1. **Direct String Interpolation / Fragment Templates**:
-   - *Pros*: Simple to start.
-   - *Cons*: Severe security vulnerability (SQL injection), zero ability to inspect, prune, optimize, or adapt across SQL dialects.
-2. **jOOQ / QueryDSL Integration**:
-   - *Pros*: Existing SQL DSL libraries.
-   - *Cons*: Heavy external dependencies, commercial licensing issues (jOOQ), difficult to adapt for custom view models and GraphQL selection-set pruning.
-3. **Dedicated GraphORM Query AST (`SelectQuery`, `ProjectedColumn`, `JoinClause`, `WherePredicate`)**:
-   - *Pros*: Zero external dependencies, specifically designed for selection pruning, hidden dependency injection, and view join trees.
-   - *Cons*: Must maintain our own AST classes and dialect builders.
+1. **In-Memory Join & Filtering (Naive ORM)**:
+   - Query all rows from source tables into JVM memory, execute joins and filters using Java streams.
+   - *Pros*: Easy to implement initially.
+   - *Cons*: Catastrophic performance failure on large datasets; massive memory footprint; OOM risk; violates enterprise production requirements.
+2. **Database Pushdown (Single Dynamic SQL Execution)**:
+   - Compile view projections, joins, aggregations, filters, sorting, and pagination into a single parameterized SQL query executed directly in PostgreSQL.
+   - *Pros*: Leverages PostgreSQL query optimizer, indexes, and execution engine; minimal data over the wire; sub-millisecond execution.
+   - *Cons*: Requires a sophisticated SQL dialect generator and query planner.
 
 ### Recommended Choice
-**Option 3: Dedicated GraphORM Query AST in `graphorm-core`**.
+**Option 2: Database Pushdown via Unified Query AST**.
 
 ### Consequences
-- Clear separation between query intent (`SelectQuery`) and SQL representation (`BoundSql`).
-- Query planner can optimize, prune joins, and inject hidden columns before handing the AST to the dialect generator.
+- Strictly enforced throughout `graphorm-jdbc` and verified via Testcontainers integration tests.
+- GraphORM never dumps tables into JVM memory.
 
 ---
 
-## ADR-005: Unified SQL Query Planning for Models & View Models
+## ADR-005: Unified Query AST for Regular Models and View Models
 
 ### Context
-Should regular models and view models use separate query planners and builders, or a unified planning engine?
+Should view models use a separate query engine or query AST from regular models?
 
 ### Options Considered
-1. **Bifurcated Engines**:
-   - Simple table queries handled by a basic TableQueryEngine; complex views handled by a distinct ViewEngine.
-   - *Pros*: Simple table engine is easy to write.
-   - *Cons*: Duplication of filtering, pagination, sorting, row mapping, and dialect logic; violates Rule 12 in `AGENTS.md`.
-2. **Unified Query Planner**:
-   - A single `QueryPlanner` treats regular models as single-table queries and views as multi-table join/aggregation queries under the same `SelectQuery` AST.
-   - *Pros*: Code reuse, uniform dialect output, consistent pushdown optimization, single maintenance surface.
-   - *Cons*: Query AST must support joins and aggregations from day one.
+1. **Separate Query Engines**:
+   - Different pipelines for regular models vs view models.
+   - *Pros*: Independent implementations.
+   - *Cons*: Massive code duplication, divergent feature sets, conflicting pagination/sorting logic.
+2. **Unified `SelectQuery` AST**:
+   - A single, strongly typed `SelectQuery` AST that represents both single-table model queries and complex multi-table view queries with joins, aggregations, and GROUP BY.
+   - *Pros*: Reusable query building, consistent SQL dialect generation, uniform parameter extraction.
+   - *Cons*: The AST must support both simple and complex query structures.
 
 ### Recommended Choice
-**Option 2: Unified Query Planner for Both Models and Views**.
+**Option 2: Unified `SelectQuery` AST**.
 
 ### Consequences
-- Single query planning pipeline in `graphorm-jdbc` and `graphorm-graphql`.
+- `SelectBuilder` handles both regular models and view models through the same parameterized generation pipeline.
 - Regular models simply have zero joins and single-table sources in `SelectQuery`.
 
 ---
@@ -334,8 +299,7 @@ How should GraphORM integrate with Spring Boot applications while keeping core m
    - *Pros*: Fast integration.
    - *Cons*: Makes GraphORM unusable in Quarkus, Micronaut, CLI tools, or vanilla Java. Violates Rule 6 in `AGENTS.md`.
 2. **Strict Modular Decoupling with `graphorm-spring-boot-starter`**:
-   - `graphorm-core`, `graphorm-schema`, `graphorm-generator`, and `graphorm-jdbc` have zero Spring dependencies.
-   - `graphorm-spring-boot-starter` provides `@AutoConfiguration`, Spring DataSource binding, and Spring for GraphQL integration.
+   - `graphorm-core`, `graphorm-schema`, `graphorm-generator`, and `graphorm-jdbc` have zero Spring dependencies.\n   - `graphorm-spring-boot-starter` provides `@AutoConfiguration`, Spring DataSource binding, and Spring for GraphQL integration.
    - *Pros*: Maximum modularity, clean architecture, testable in isolation.
    - *Cons*: Requires careful dependency boundary enforcement.
 
@@ -360,8 +324,7 @@ How should database transactions be managed across standalone JDBC and Spring Bo
 2. **Pluggable `TransactionManager` SPI with Spring Synchronization**:
    - `graphorm-jdbc` provides a lightweight `TransactionManager` interface and default JDBC implementation using `Connection.setAutoCommit(false)`.
    - `graphorm-spring-boot-starter` implements the SPI by delegating to Spring's `DataSourceUtils` and `PlatformTransactionManager`.
-   - *Pros*: Seamless support for Spring's `@Transactional` alongside pure JDBC fallback.
-   - *Cons*: Must handle connection lifecycle hooks carefully.
+   - *Pros*: Seamless support for Spring's `@Transactional` alongside pure JDBC fallback.\n   - *Cons*: Must handle connection lifecycle hooks carefully.
 
 ### Recommended Choice
 **Option 2: Pluggable `TransactionManager` SPI with Spring `DataSourceUtils` Adapter**.
@@ -395,3 +358,33 @@ How should system errors and security access violations be structured and report
 ### Consequences
 - High security standards preventing database schema or credential leaks.
 - Clear, actionable diagnostics with source coordinates (file, line, column) for developers.
+
+---
+
+## ADR-016: Raw SQL Subquery View Models (`@@query` for UNION, CTEs, and Complex Projections)
+
+### Context
+Certain critical database views require SQL language features—such as `UNION`, `UNION ALL`, Common Table Expressions (`WITH`), and Window Functions—that cannot be expressed cleanly through declarative joins (`@@from`, `@@leftJoin`). How should GraphORM support these complex read-only views while preserving type-safety, automatic GraphQL schema generation, and query pushdown?
+
+### Options Considered
+1. **Force Database DDL Views Only (`@@view`)**:
+   - Users must create a physical database view or migration in PostgreSQL for every `UNION` query.
+   - *Pros*: Engine queries a named relation.
+   - *Cons*: Inconvenient for developer velocity; tightly couples schema definitions to database migration pipelines.
+2. **Ad-Hoc Unparameterized Raw SQL Strings in Client Code**:
+   - Users write raw SQL strings directly in Java repository methods.
+   - *Pros*: Quick for one-off queries.
+   - *Cons*: Bypasses GraphORM's schema, type generator, GraphQL wiring, and security validators; high risk of SQL injection.
+3. **Schema-Defined Raw SQL Views (`@@query`) Wrapped in Derived Subqueries**:
+   - Declare the subquery in the schema using single-line `@@query("...")` or multiline `@@query("""...""")`.
+   - Enforce compile-time security validation (must begin with `SELECT` or `WITH`, no DDL/DML keywords).
+   - The JDBC query planner wraps the raw query in a derived table `FROM (<raw_query>) AS <alias>`, applying pushdown filters (`WHERE`), ordering (`ORDER BY`), and pagination (`LIMIT`, `OFFSET`) with 100% positional parameter extraction (`?`).
+   - Generate read-only Java model records, client queries, and GraphQL Query fields identically to other view models.
+
+### Recommended Choice
+**Option 3: Schema-Defined Raw SQL Views (`@@query`) with Derived Subquery Pushdown**.
+
+### Consequences
+- Unlocks full SQL expressive power (including `UNION`, `UNION ALL`, recursive/non-recursive CTEs, and window functions).
+- Retains 100% type-safety, automatic GraphQL exposure, and strict read-only enforcement.
+- Safe from SQL injection via outer pushdown parameterization.

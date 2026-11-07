@@ -63,8 +63,10 @@ public final class SelectBuilder {
     public static SelectQuery.Builder forEntity(EntityMetadata entity, ModelRegistry registry) {
         Objects.requireNonNull(entity, "Entity metadata must not be null");
 
-        if (entity instanceof ViewModelMetadata vm && !vm.isDatabaseBacked() && registry != null) {
-            return ViewQueryPlanner.plan(vm, registry).toSelectQueryBuilder();
+        if (entity instanceof ViewModelMetadata vm) {
+            if (vm.isRawQuery() || (!vm.isDatabaseBacked() && registry != null)) {
+                return ViewQueryPlanner.plan(vm, registry).toSelectQueryBuilder();
+            }
         }
 
         String tableName;
@@ -207,6 +209,8 @@ public final class SelectBuilder {
             BoundSql subSql = build(subquery.subquery());
             sql.append("(").append(subSql.sql()).append(")");
             parameters.addAll(subSql.parameters());
+        } else if (source instanceof SourceTable.RawSqlSource raw) {
+            sql.append("(").append(raw.sql().trim()).append(")");
         } else {
             sql.append(dialect.quoteIdentifier(source.identifier()));
         }

@@ -24,6 +24,7 @@ import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.transaction.JdbcTransactionManager;
 import com.graphorm.jdbc.transaction.TransactionCallback;
 import com.graphorm.jdbc.transaction.TransactionManager;
+import com.graphorm.jdbc.view.ViewQueryPlanner;
 
 import javax.sql.DataSource;
 import java.util.Collections;
@@ -202,6 +203,18 @@ public class GraphOrmClient {
 
     public long count(String entityName, WherePredicate filter) {
         EntityMetadata entity = resolveEntity(entityName);
+        if (entity instanceof ViewModelMetadata vm && (vm.isVirtual() || vm.isRawQuery())) {
+            var planner = ViewQueryPlanner.plan(vm, registry, dialect);
+            if (filter != null) {
+                planner.where(filter);
+            }
+            SelectQuery query = planner.build();
+            BoundSql innerSql = SelectBuilder.of(dialect).build(query);
+            String countSql = "SELECT COUNT(*) FROM (" + innerSql.sql() + ") AS count_wrapper";
+            BoundSql countBoundSql = new BoundSql(countSql, innerSql.parameters());
+            return executor.queryForObject(countBoundSql, (rs, rowNum) -> rs.getLong(1)).orElse(0L);
+        }
+
         String sql = "SELECT COUNT(*) FROM " + dialect.quoteIdentifier(toSourceTable(entity).identifier());
         BoundSql boundSql;
         if (filter != null) {
@@ -244,7 +257,7 @@ public class GraphOrmClient {
         if (entity instanceof ViewModelMetadata vm) {
             return vm.isDatabaseBacked()
                     ? SourceTable.view(vm.viewName())
-                    : SourceTable.table(vm.sourceModelName());
+                    : (vm.sourceModelName() != null ? SourceTable.table(vm.sourceModelName()) : SourceTable.rawSql(vm.rawQuery(), vm.name().toLowerCase()));
         }
         if (entity instanceof ModelMetadata model) {
             return SourceTable.table(model.tableName());
@@ -299,17 +312,9 @@ public class GraphOrmClient {
         }
 
         public GraphOrmClient build() {
-            SqlDialect effectiveDialect = dialect != null ? dialect : new PostgreSqlDialect();
-            JdbcExecutor effectiveExecutor = executor != null ? executor : new JdbcExecutor(
-                    Objects.requireNonNull(dataSource, "Either dataSource or executor must be set"),
-                    effectiveDialect
-            );
-            return new GraphOrmClient(
-                    effectiveExecutor,
-                    Objects.requireNonNull(registry, "ModelRegistry must not be null"),
-                    effectiveDialect,
-                    transactionManager
-            );
+            SqlDialect activeDialect = dialect != null ? dialect : new PostgreSqlDialect();
+            JdbcExecutor activeExecutor = executor != null ? executor : new JdbcExecutor(dataSource, activeDialect);
+            return new GraphOrmClient(activeExecutor, registry, activeDialect, transactionManager);
         }
     }
 }

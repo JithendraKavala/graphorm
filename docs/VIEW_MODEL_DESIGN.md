@@ -31,9 +31,9 @@ GraphORM strictly categorizes schema definitions into three primitives:
 
 ---
 
-## 3. Two-Tiered View Strategy
+## 3. Three-Tiered View Strategy
 
-GraphORM supports two distinct implementation strategies for view models:
+GraphORM supports three distinct implementation strategies for view models:
 
 ```mermaid
 graph TD
@@ -41,9 +41,14 @@ graph TD
         DBV["view StudentSummary @@view @@map('vw_student_summary')"] -->|Introspect & Direct SELECT| PhysView[("PostgreSQL Physical View / Materialized View")]
     end
 
-    subgraph "Strategy B: GraphORM-Defined Views"
+    subgraph "Strategy B: GraphORM-Defined Virtual Views"
         GDV["view StudentDashboard @@from(Student) @@leftJoin(Dept) @@leftJoin(Enrollment)"] -->|Unified Query Planner| DynamicSQL["Dynamic SQL (Joins + Aggregations + GROUP BY)"]
         DynamicSQL --> PhysTables[("PostgreSQL Physical Tables")]
+    end
+
+    subgraph "Strategy C: Raw SQL Subquery Views"
+        RSV["view UserUnion @@query('SELECT ... UNION ALL SELECT ...')"] -->|Derived Subquery Wrapper| SubquerySQL["FROM (raw_query) AS alias (Pushdown WHERE/ORDER BY/LIMIT)"]
+        SubquerySQL --> PhysTables
     end
 ```
 
@@ -102,6 +107,38 @@ view StudentDashboard {
 - `@expression("SQL expression")`: Declares a computed SQL expression.
 - `@@groupBy(["alias.column", ...])`: Defines grouping columns required when aggregations are present.
 
+### 3.3 Strategy C: Raw SQL Subquery Views (`@@query`)
+
+Raw SQL subquery views enable complex SQL constructs that are impractical to express purely through declarative join annotations—specifically `UNION`, `UNION ALL`, Common Table Expressions (`WITH`), and Window Functions—while retaining full type-safety, automatic GraphQL schema generation, and query pushdown optimization.
+
+#### Schema Declaration:
+```prisma
+view UserDirectory {
+    id    Int    @id
+    name  String
+    email String
+    role  String
+    score Float
+
+    @@query("""
+        SELECT id, name, email, 'student' AS role, score FROM students
+        UNION ALL
+        SELECT id, name, email, 'instructor' AS role, score FROM instructors
+    """)
+}
+```
+
+#### Characteristics & Security Invariants:
+- Declared with single-line `@@query("...")` or multiline triple-quoted `@@query("""...""")`.
+- **Mutual Exclusivity**: A view must specify exactly one strategy: `@@view`, `@@from`, or `@@query`. Combining `@@query` with `@@view`, `@@from`, `@@leftJoin`, or `@@groupBy` is rejected at compile time.
+- **SQL Security Validation**:
+  - The query must begin with `SELECT` or `WITH`.
+  - DDL and DML operations (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, `CREATE`, `GRANT`, `EXEC`) are strictly forbidden and rejected during schema validation.
+- **Derived Subquery Pushdown Execution**:
+  - The JDBC query planner wraps the raw SQL in a derived subquery `FROM (<raw_query>) AS <alias>`.
+  - Outer query pushdown filters (`WHERE`), ordering (`ORDER BY`), and pagination (`LIMIT`, `OFFSET`) are applied dynamically to the derived subquery with 100% positional parameter extraction (`?`).
+  - View remains strictly read-only; attempts to call `create`, `update`, or `delete` on `GraphOrmClient` throw `ReadOnlyViewException`.
+
 ---
 
 ## 4. Query Planning & Pushdown Execution
@@ -120,7 +157,7 @@ flowchart TD
 ```
 
 ### 4.1 Step 1: Source Dependency Resolution
-The planner reads `ViewModelMetadata`, extracts the root source table (`@@from`) and all join definitions (`@@leftJoin`, `@@innerJoin`), and constructs a join dependency graph.
+The planner reads `ViewModelMetadata`, extracts the root source table (`@@from`, `SourceTable.view()`, or `SourceTable.rawSql()`), and constructs the appropriate execution plan.
 
 ### 4.2 Step 2: Join Pruning & Selective Projection
 If a client query requests only `{ studentName departmentName }` from `StudentDashboard`, the query planner observes that no fields from the `Enrollment` table (`courseCount`, `gpa`) are requested. It prunes the `LEFT JOIN enrollments e` and omits the `GROUP BY` clause entirely, generating a significantly faster two-table join query:
@@ -141,6 +178,7 @@ The JDBC executor extracts this value for downstream batching, and strips it bef
 Filters applied to view fields are translated to qualified source column predicates:
 - `where: { courseCount: { gte: 3 } }` -> translated to `HAVING COUNT(e.id) >= ?`
 - `where: { departmentName: { eq: "Computer Science" } }` -> translated to `WHERE d.name = ?`
+- `where: { role: { eq: "instructor" } }` on `@@query` views -> translated to `WHERE alias."role" = ?`
 - `orderBy: { gpa: DESC }` -> translated to `ORDER BY AVG(e.grade_points) DESC`
 - `limit: 10, offset: 20` -> translated to `LIMIT ? OFFSET ?`
 
@@ -170,4 +208,4 @@ View model capabilities are rolled out progressively across the project roadmap:
 - **Stage 3 (Phase 8)**: Filter, sort, and pagination pushdown across joined source models.
 - **Stage 4 (Phase 9)**: Aggregations (`@aggregate`), computed expressions (`@expression`), `GROUP BY`, `HAVING`, and join pruning.
 - **Stage 5 (Phase 11)**: Nested relationships on views, hidden dependency foreign key injection, and DataLoader batching.
-- **Stage 6 (Phase 15)**: Advanced SQL optimizations (PostgreSQL CTEs for recursive views) and Materialized View lifecycle management (`REFRESH MATERIALIZED VIEW`).
+- **Stage 6 (Phase 15)**: Raw SQL subquery views (`@@query`) for `UNION`, `UNION ALL`, CTEs, window functions, and advanced PostgreSQL queries.

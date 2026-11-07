@@ -2,41 +2,65 @@ package com.graphorm.schema.parser;
 
 import com.graphorm.schema.GraphOrmBaseVisitor;
 import com.graphorm.schema.GraphOrmParser;
-import com.graphorm.schema.ast.*;
+import com.graphorm.schema.ast.ArgumentNode;
+import com.graphorm.schema.ast.ArrayLiteralNode;
+import com.graphorm.schema.ast.AstNode;
+import com.graphorm.schema.ast.BlockAttributeNode;
+import com.graphorm.schema.ast.BooleanLiteralNode;
+import com.graphorm.schema.ast.CompositeTypeNode;
+import com.graphorm.schema.ast.DatasourceNode;
+import com.graphorm.schema.ast.EnumNode;
+import com.graphorm.schema.ast.EnumValueNode;
+import com.graphorm.schema.ast.ExpressionNode;
+import com.graphorm.schema.ast.FieldAttributeNode;
+import com.graphorm.schema.ast.FieldNode;
+import com.graphorm.schema.ast.FloatLiteralNode;
+import com.graphorm.schema.ast.FunctionCallNode;
+import com.graphorm.schema.ast.GeneratorNode;
+import com.graphorm.schema.ast.IdentifierNode;
+import com.graphorm.schema.ast.IntLiteralNode;
+import com.graphorm.schema.ast.ModelNode;
+import com.graphorm.schema.ast.QualifiedIdentifierNode;
+import com.graphorm.schema.ast.SchemaDocument;
+import com.graphorm.schema.ast.SourcePosition;
+import com.graphorm.schema.ast.StringLiteralNode;
+import com.graphorm.schema.ast.TypeNode;
+import com.graphorm.schema.ast.ViewModelNode;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * ANTLR visitor converting the CST parse trees into strongly typed, immutable AST nodes.
+ * Concrete ANTLR AST Visitor constructing the immutable GraphORM AST hierarchy.
  */
-public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
+public final class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
 
     @Override
     public AstNode visitSchemaDocument(GraphOrmParser.SchemaDocumentContext ctx) {
         List<DatasourceNode> datasources = new ArrayList<>();
         List<GeneratorNode> generators = new ArrayList<>();
         List<ModelNode> models = new ArrayList<>();
-        List<ViewModelNode> viewModels = new ArrayList<>();
+        List<ViewModelNode> views = new ArrayList<>();
         List<CompositeTypeNode> compositeTypes = new ArrayList<>();
         List<EnumNode> enums = new ArrayList<>();
 
         if (ctx.declaration() != null) {
             for (GraphOrmParser.DeclarationContext declCtx : ctx.declaration()) {
-                if (declCtx.datasourceBlock() != null) {
-                    datasources.add((DatasourceNode) visit(declCtx.datasourceBlock()));
-                } else if (declCtx.generatorBlock() != null) {
-                    generators.add((GeneratorNode) visit(declCtx.generatorBlock()));
-                } else if (declCtx.modelBlock() != null) {
-                    models.add((ModelNode) visit(declCtx.modelBlock()));
-                } else if (declCtx.viewBlock() != null) {
-                    viewModels.add((ViewModelNode) visit(declCtx.viewBlock()));
-                } else if (declCtx.compositeTypeBlock() != null) {
-                    compositeTypes.add((CompositeTypeNode) visit(declCtx.compositeTypeBlock()));
-                } else if (declCtx.enumBlock() != null) {
-                    enums.add((EnumNode) visit(declCtx.enumBlock()));
+                AstNode node = visit(declCtx);
+                if (node instanceof DatasourceNode ds) {
+                    datasources.add(ds);
+                } else if (node instanceof GeneratorNode gen) {
+                    generators.add(gen);
+                } else if (node instanceof ModelNode model) {
+                    models.add(model);
+                } else if (node instanceof ViewModelNode view) {
+                    views.add(view);
+                } else if (node instanceof CompositeTypeNode ct) {
+                    compositeTypes.add(ct);
+                } else if (node instanceof EnumNode en) {
+                    enums.add(en);
                 }
             }
         }
@@ -46,7 +70,7 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
                 datasources,
                 generators,
                 models,
-                viewModels,
+                views,
                 compositeTypes,
                 enums
         );
@@ -55,29 +79,29 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
     @Override
     public AstNode visitDatasourceBlock(GraphOrmParser.DatasourceBlockContext ctx) {
         String name = ctx.identifier().getText();
-        Map<String, ExpressionNode> properties = new LinkedHashMap<>();
+        Map<String, ExpressionNode> configs = new HashMap<>();
         if (ctx.configEntry() != null) {
-            for (GraphOrmParser.ConfigEntryContext entry : ctx.configEntry()) {
-                String key = entry.identifier().getText();
-                ExpressionNode val = (ExpressionNode) visit(entry.value());
-                properties.put(key, val);
+            for (GraphOrmParser.ConfigEntryContext entryCtx : ctx.configEntry()) {
+                String key = entryCtx.identifier().getText();
+                ExpressionNode val = (ExpressionNode) visit(entryCtx.value());
+                configs.put(key, val);
             }
         }
-        return new DatasourceNode(SourcePosition.from(ctx), name, properties);
+        return new DatasourceNode(SourcePosition.from(ctx), name, configs);
     }
 
     @Override
     public AstNode visitGeneratorBlock(GraphOrmParser.GeneratorBlockContext ctx) {
         String name = ctx.identifier().getText();
-        Map<String, ExpressionNode> properties = new LinkedHashMap<>();
+        Map<String, ExpressionNode> configs = new HashMap<>();
         if (ctx.configEntry() != null) {
-            for (GraphOrmParser.ConfigEntryContext entry : ctx.configEntry()) {
-                String key = entry.identifier().getText();
-                ExpressionNode val = (ExpressionNode) visit(entry.value());
-                properties.put(key, val);
+            for (GraphOrmParser.ConfigEntryContext entryCtx : ctx.configEntry()) {
+                String key = entryCtx.identifier().getText();
+                ExpressionNode val = (ExpressionNode) visit(entryCtx.value());
+                configs.put(key, val);
             }
         }
-        return new GeneratorNode(SourcePosition.from(ctx), name, properties);
+        return new GeneratorNode(SourcePosition.from(ctx), name, configs);
     }
 
     @Override
@@ -87,11 +111,12 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         List<BlockAttributeNode> attributes = new ArrayList<>();
 
         if (ctx.modelElement() != null) {
-            for (GraphOrmParser.ModelElementContext elem : ctx.modelElement()) {
-                if (elem.fieldDeclaration() != null) {
-                    fields.add((FieldNode) visit(elem.fieldDeclaration()));
-                } else if (elem.blockAttribute() != null) {
-                    attributes.add((BlockAttributeNode) visit(elem.blockAttribute()));
+            for (GraphOrmParser.ModelElementContext elemCtx : ctx.modelElement()) {
+                AstNode node = visit(elemCtx);
+                if (node instanceof FieldNode field) {
+                    fields.add(field);
+                } else if (node instanceof BlockAttributeNode attr) {
+                    attributes.add(attr);
                 }
             }
         }
@@ -106,11 +131,12 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         List<BlockAttributeNode> attributes = new ArrayList<>();
 
         if (ctx.viewElement() != null) {
-            for (GraphOrmParser.ViewElementContext elem : ctx.viewElement()) {
-                if (elem.fieldDeclaration() != null) {
-                    fields.add((FieldNode) visit(elem.fieldDeclaration()));
-                } else if (elem.blockAttribute() != null) {
-                    attributes.add((BlockAttributeNode) visit(elem.blockAttribute()));
+            for (GraphOrmParser.ViewElementContext elemCtx : ctx.viewElement()) {
+                AstNode node = visit(elemCtx);
+                if (node instanceof FieldNode field) {
+                    fields.add(field);
+                } else if (node instanceof BlockAttributeNode attr) {
+                    attributes.add(attr);
                 }
             }
         }
@@ -124,9 +150,10 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         List<FieldNode> fields = new ArrayList<>();
 
         if (ctx.compositeTypeElement() != null) {
-            for (GraphOrmParser.CompositeTypeElementContext elem : ctx.compositeTypeElement()) {
-                if (elem.fieldDeclaration() != null) {
-                    fields.add((FieldNode) visit(elem.fieldDeclaration()));
+            for (GraphOrmParser.CompositeTypeElementContext elemCtx : ctx.compositeTypeElement()) {
+                AstNode node = visit(elemCtx);
+                if (node instanceof FieldNode field) {
+                    fields.add(field);
                 }
             }
         }
@@ -141,11 +168,12 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         List<BlockAttributeNode> attributes = new ArrayList<>();
 
         if (ctx.enumElement() != null) {
-            for (GraphOrmParser.EnumElementContext elem : ctx.enumElement()) {
-                if (elem.enumValue() != null) {
-                    values.add((EnumValueNode) visit(elem.enumValue()));
-                } else if (elem.blockAttribute() != null) {
-                    attributes.add((BlockAttributeNode) visit(elem.blockAttribute()));
+            for (GraphOrmParser.EnumElementContext elemCtx : ctx.enumElement()) {
+                AstNode node = visit(elemCtx);
+                if (node instanceof EnumValueNode val) {
+                    values.add(val);
+                } else if (node instanceof BlockAttributeNode attr) {
+                    attributes.add(attr);
                 }
             }
         }
@@ -158,8 +186,8 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         String name = ctx.identifier().getText();
         List<FieldAttributeNode> attributes = new ArrayList<>();
         if (ctx.fieldAttribute() != null) {
-            for (GraphOrmParser.FieldAttributeContext attr : ctx.fieldAttribute()) {
-                attributes.add((FieldAttributeNode) visit(attr));
+            for (GraphOrmParser.FieldAttributeContext attrCtx : ctx.fieldAttribute()) {
+                attributes.add((FieldAttributeNode) visit(attrCtx));
             }
         }
         return new EnumValueNode(SourcePosition.from(ctx), name, attributes);
@@ -171,8 +199,8 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         TypeNode type = (TypeNode) visit(ctx.fieldType());
         List<FieldAttributeNode> attributes = new ArrayList<>();
         if (ctx.fieldAttribute() != null) {
-            for (GraphOrmParser.FieldAttributeContext attr : ctx.fieldAttribute()) {
-                attributes.add((FieldAttributeNode) visit(attr));
+            for (GraphOrmParser.FieldAttributeContext attrCtx : ctx.fieldAttribute()) {
+                attributes.add((FieldAttributeNode) visit(attrCtx));
             }
         }
         return new FieldNode(SourcePosition.from(ctx), name, type, attributes);
@@ -181,9 +209,9 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
     @Override
     public AstNode visitFieldType(GraphOrmParser.FieldTypeContext ctx) {
         String typeName = ctx.typeName().getText();
-        boolean isOptional = ctx.optionalModifier() != null;
-        boolean isList = ctx.listModifier() != null;
-        return new TypeNode(SourcePosition.from(ctx), typeName, isOptional, isList);
+        boolean optional = ctx.optionalModifier() != null;
+        boolean list = ctx.listModifier() != null;
+        return new TypeNode(SourcePosition.from(ctx), typeName, optional, list);
     }
 
     @Override
@@ -212,9 +240,9 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
 
     @Override
     public AstNode visitNamedArgument(GraphOrmParser.NamedArgumentContext ctx) {
-        String paramName = ctx.identifier().getText();
+        String name = ctx.identifier().getText();
         ExpressionNode val = (ExpressionNode) visit(ctx.value());
-        return ArgumentNode.named(SourcePosition.from(ctx), paramName, val);
+        return ArgumentNode.named(SourcePosition.from(ctx), name, val);
     }
 
     @Override
@@ -286,7 +314,18 @@ public class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         if (quoted == null || quoted.length() < 2) {
             return "";
         }
-        String s = quoted.substring(1, quoted.length() - 1);
+        boolean isTriple = (quoted.startsWith("\"\"\"") && quoted.endsWith("\"\"\"") && quoted.length() >= 6)
+                || (quoted.startsWith("'''") && quoted.endsWith("'''") && quoted.length() >= 6);
+
+        String s;
+        if (isTriple) {
+            s = quoted.substring(3, quoted.length() - 3);
+            s = s.stripIndent().trim();
+            return s;
+        } else {
+            s = quoted.substring(1, quoted.length() - 1);
+        }
+
         StringBuilder sb = new StringBuilder();
         boolean escape = false;
         for (int i = 0; i < s.length(); i++) {
