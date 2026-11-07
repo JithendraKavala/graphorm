@@ -162,7 +162,15 @@ public sealed interface WherePredicate permits
 
     /**
      * Parameterized raw SQL predicate snippet with positional parameters.
+     *
+     * @deprecated As of 0.1.0, prefer strongly typed AST predicates ({@link #eq}, {@link #and}, {@link #between}, etc.).
+     *             RawPredicate bypasses AST sanitization and identifier quoting. It is intended strictly for internal
+     *             dialect extensions or complex vendor-specific expressions with parameterized inputs.
+     *             <p>
+     *             <strong>SECURITY WARNING (SEC-05):</strong> Never construct {@code RawPredicate} by concatenating
+     *             untrusted user input. Always parameterize arguments using positional '?' placeholders.
      */
+    @Deprecated(since = "0.1.0")
     record RawPredicate(String sql, List<Object> parameters) implements WherePredicate {
         public RawPredicate {
             Objects.requireNonNull(sql, "SQL must not be null");

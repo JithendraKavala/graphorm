@@ -20,11 +20,11 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Dynamic row mapper converting JDBC {@link ResultSet} rows into generic {@link Map Maps},
@@ -33,6 +33,38 @@ import java.util.UUID;
 public final class DynamicRowMapper {
 
     private DynamicRowMapper() {}
+
+    private record CachedRecordMetadata<T>(
+            Constructor<T> constructor,
+            RecordComponent[] components,
+            String[] normalizedNames,
+            String[] snakeCaseNormalizedNames
+    ) {}
+
+    private static final Map<Class<?>, CachedRecordMetadata<?>> RECORD_METADATA_CACHE = new ConcurrentHashMap<>();
+
+    @SuppressWarnings("unchecked")
+    private static <T> CachedRecordMetadata<T> getRecordMetadata(Class<T> recordClass) {
+        return (CachedRecordMetadata<T>) RECORD_METADATA_CACHE.computeIfAbsent(recordClass, cls -> {
+            RecordComponent[] components = cls.getRecordComponents();
+            Class<?>[] paramTypes = new Class<?>[components.length];
+            String[] normalizedNames = new String[components.length];
+            String[] snakeCaseNormalizedNames = new String[components.length];
+            for (int i = 0; i < components.length; i++) {
+                paramTypes[i] = components[i].getType();
+                String compName = components[i].getName();
+                normalizedNames[i] = normalizeKey(compName);
+                snakeCaseNormalizedNames[i] = normalizeKey(toSnakeCase(compName));
+            }
+            try {
+                Constructor<?> ctor = cls.getDeclaredConstructor(paramTypes);
+                ctor.setAccessible(true);
+                return new CachedRecordMetadata<>(ctor, components, normalizedNames, snakeCaseNormalizedNames);
+            } catch (NoSuchMethodException e) {
+                throw new QueryExecutionException("Failed to find canonical constructor for record: " + cls.getName(), e);
+            }
+        });
+    }
 
     /**
      * Maps the current row of the given {@link ResultSet} into an ordered {@link Map} of column
@@ -60,6 +92,58 @@ public final class DynamicRowMapper {
     }
 
     /**
+     * Maps an in-memory row map into an immutable Java 21 record instance using cached constructor metadata.
+     *
+     * @param rowMap      the row map of column names to values
+     * @param recordClass the target record class
+     * @param <T>         the record type
+     * @return the instantiated and populated record
+     */
+    public static <T> T mapMapToRecord(Map<String, Object> rowMap, Class<T> recordClass) {
+        Objects.requireNonNull(rowMap, "Row map must not be null");
+        Objects.requireNonNull(recordClass, "Record class must not be null");
+
+        if (!recordClass.isRecord()) {
+            throw new IllegalArgumentException("Target class must be a Java record: " + recordClass.getName());
+        }
+
+        CachedRecordMetadata<T> metadata = getRecordMetadata(recordClass);
+        RecordComponent[] components = metadata.components();
+        Object[] args = new Object[components.length];
+
+        // Build case-insensitive lookup
+        Map<String, Object> lookup = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : rowMap.entrySet()) {
+            lookup.put(normalizeKey(entry.getKey()), entry.getValue());
+        }
+
+        for (int i = 0; i < components.length; i++) {
+            RecordComponent comp = components[i];
+            Object rawValue = lookup.get(metadata.normalizedNames()[i]);
+            if (rawValue == null && !lookup.containsKey(metadata.normalizedNames()[i])) {
+                rawValue = lookup.get(metadata.snakeCaseNormalizedNames()[i]);
+            }
+            if (rawValue == null && !lookup.containsKey(metadata.normalizedNames()[i])) {
+                String normName = metadata.normalizedNames()[i];
+                for (Map.Entry<String, Object> entry : lookup.entrySet()) {
+                    String k = entry.getKey();
+                    if (k.endsWith(normName)) {
+                        rawValue = entry.getValue();
+                        break;
+                    }
+                }
+            }
+            args[i] = convertValue(rawValue, comp.getType());
+        }
+
+        try {
+            return metadata.constructor().newInstance(args);
+        } catch (ReflectiveOperationException e) {
+            throw new QueryExecutionException("Failed to instantiate record: " + recordClass.getName(), e);
+        }
+    }
+
+    /**
      * Maps the current row of the given {@link ResultSet} into an immutable Java 21 record instance.
      *
      * @param rs          the ResultSet positioned at a valid row
@@ -70,45 +154,7 @@ public final class DynamicRowMapper {
      */
     public static <T> T mapRowToRecord(ResultSet rs, Class<T> recordClass) throws SQLException {
         Objects.requireNonNull(rs, "ResultSet must not be null");
-        Objects.requireNonNull(recordClass, "Record class must not be null");
-
-        if (!recordClass.isRecord()) {
-            throw new IllegalArgumentException("Target class must be a Java record: " + recordClass.getName());
-        }
-
-        Map<String, Object> rowMap = mapRowToMap(rs);
-        // Build case-insensitive lookup
-        Map<String, Object> lookup = new LinkedHashMap<>();
-        for (Map.Entry<String, Object> entry : rowMap.entrySet()) {
-            lookup.put(normalizeKey(entry.getKey()), entry.getValue());
-        }
-
-        RecordComponent[] components = recordClass.getRecordComponents();
-        Class<?>[] paramTypes = new Class<?>[components.length];
-        Object[] args = new Object[components.length];
-
-        for (int i = 0; i < components.length; i++) {
-            RecordComponent comp = components[i];
-            paramTypes[i] = comp.getType();
-            String compName = comp.getName();
-
-            // Try exact match, camelCase -> snake_case, and lowercased
-            Object rawValue = lookup.get(normalizeKey(compName));
-            if (rawValue == null && !lookup.containsKey(normalizeKey(compName))) {
-                String snakeCase = toSnakeCase(compName);
-                rawValue = lookup.get(normalizeKey(snakeCase));
-            }
-
-            args[i] = convertValue(rawValue, comp.getType());
-        }
-
-        try {
-            Constructor<T> canonicalConstructor = recordClass.getDeclaredConstructor(paramTypes);
-            canonicalConstructor.setAccessible(true);
-            return canonicalConstructor.newInstance(args);
-        } catch (ReflectiveOperationException e) {
-            throw new QueryExecutionException("Failed to instantiate record: " + recordClass.getName(), e);
-        }
+        return mapMapToRecord(mapRowToMap(rs), recordClass);
     }
 
     /**
@@ -223,12 +269,15 @@ public final class DynamicRowMapper {
         }
         if (targetType == BigDecimal.class) {
             if (value instanceof BigDecimal bd) return bd;
-            if (value instanceof Number n) return BigDecimal.valueOf(n.doubleValue());
+            if (value instanceof Long l) return BigDecimal.valueOf(l);
+            if (value instanceof Integer i) return BigDecimal.valueOf(i);
             return new BigDecimal(value.toString());
         }
         if (targetType == BigInteger.class) {
             if (value instanceof BigInteger bi) return bi;
-            if (value instanceof Number n) return BigInteger.valueOf(n.longValue());
+            if (value instanceof Long l) return BigInteger.valueOf(l);
+            if (value instanceof Integer i) return BigInteger.valueOf(i);
+            if (value instanceof BigDecimal bd) return bd.toBigInteger();
             return new BigInteger(value.toString());
         }
 

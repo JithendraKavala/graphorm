@@ -74,6 +74,9 @@ public final class WhereClauseBuilder {
         } else if (predicate instanceof WherePredicate.BetweenPredicate between) {
             renderBetween(between, dialect, sql, parameters);
         } else if (predicate instanceof WherePredicate.RawPredicate raw) {
+            // SECURITY WARNING (SEC-05): RawPredicate bypasses AST identifier quoting and parameter sanitization.
+            // It must ONLY be constructed with static, developer-controlled SQL templates with positional '?' placeholders.
+            // Never interpolate or concatenate untrusted user input directly into RawPredicate.sql().
             sql.append(raw.sql());
             parameters.addAll(raw.parameters());
         } else {

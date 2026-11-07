@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -34,6 +35,9 @@ import java.util.stream.Collectors;
  */
 public class PostgreSqlDialect implements SqlDialect {
 
+    private static final Pattern EXPLICIT_EXPRESSION_PATTERN =
+            Pattern.compile("^[A-Za-z_][A-Za-z0-9_]*\\s*\\(.*\\)(::[A-Za-z0-9_]+)?$");
+
     @Override
     public String quoteIdentifier(String identifier) {
         Objects.requireNonNull(identifier, "Identifier must not be null");
@@ -41,8 +45,23 @@ public class PostgreSqlDialect implements SqlDialect {
             throw new IllegalArgumentException("Identifier must not be blank");
         }
 
-        if (identifier.equals("*") || identifier.contains("(") || identifier.contains(" ")) {
+        if (identifier.equals("*")) {
+            return "*";
+        }
+
+        if (identifier.contains(";") || identifier.contains("--") || identifier.contains("/*")
+                || identifier.contains("*/") || identifier.contains("\0") || identifier.contains("\r")
+                || identifier.contains("\n")) {
+            throw new IllegalArgumentException("Identifier contains illegal syntax characters: " + identifier);
+        }
+
+        // Allow explicit SQL function or aggregate expressions without quoting
+        if (EXPLICIT_EXPRESSION_PATTERN.matcher(identifier).matches()) {
             return identifier;
+        }
+
+        if (identifier.contains("(") || identifier.contains(")")) {
+            throw new IllegalArgumentException("Identifier contains illegal syntax characters (parentheses): " + identifier);
         }
 
         // Handle composite or qualified identifiers like "students.id" or "s.*"
@@ -61,7 +80,21 @@ public class PostgreSqlDialect implements SqlDialect {
             return "*";
         }
         if (part.startsWith("\"") && part.endsWith("\"") && part.length() >= 2) {
-            return part;
+            String inner = part.substring(1, part.length() - 1);
+            boolean escaped = true;
+            for (int i = 0; i < inner.length(); i++) {
+                if (inner.charAt(i) == '"') {
+                    if (i + 1 < inner.length() && inner.charAt(i + 1) == '"') {
+                        i++;
+                    } else {
+                        escaped = false;
+                        break;
+                    }
+                }
+            }
+            if (escaped) {
+                return part;
+            }
         }
         return "\"" + part.replace("\"", "\"\"") + "\"";
     }
@@ -175,12 +208,15 @@ public class PostgreSqlDialect implements SqlDialect {
         }
         if (target == BigDecimal.class) {
             if (dbValue instanceof BigDecimal bd) return bd;
-            if (dbValue instanceof Number n) return BigDecimal.valueOf(n.doubleValue());
+            if (dbValue instanceof Long l) return BigDecimal.valueOf(l);
+            if (dbValue instanceof Integer i) return BigDecimal.valueOf(i);
             return new BigDecimal(dbValue.toString());
         }
         if (target == BigInteger.class) {
             if (dbValue instanceof BigInteger bi) return bi;
-            if (dbValue instanceof Number n) return BigInteger.valueOf(n.longValue());
+            if (dbValue instanceof Long l) return BigInteger.valueOf(l);
+            if (dbValue instanceof Integer i) return BigInteger.valueOf(i);
+            if (dbValue instanceof BigDecimal bd) return bd.toBigInteger();
             return new BigInteger(dbValue.toString());
         }
         if (target == Boolean.class || target == boolean.class) {

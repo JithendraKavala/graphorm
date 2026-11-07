@@ -1,0 +1,110 @@
+directive @auth(roles: [String!]!) on FIELD_DEFINITION
+
+type Department {
+  id: ID!
+  name: String!
+  code: String!
+  students: [Student!]!
+  courses: [Course!]!
+  instructors: [Instructor!]!
+}
+
+type Instructor {
+  id: ID!
+  name: String!
+  email: String!
+  salary: Float @auth(roles: ["ADMIN"])
+  departmentId: Int!
+  department: Department
+  courses: [Course!]!
+}
+
+type Student {
+  id: ID!
+  name: String!
+  email: String!
+  gpa: Float @auth(roles: ["ADMIN", "INSTRUCTOR"])
+  departmentId: Int
+  department: Department
+  enrollments: [Enrollment!]!
+}
+
+type Course {
+  id: ID!
+  title: String!
+  code: String!
+  credits: Int!
+  departmentId: Int!
+  department: Department
+  instructorId: Int
+  instructor: Instructor
+  enrollments: [Enrollment!]!
+}
+
+type Enrollment {
+  id: ID!
+  studentId: Int!
+  student: Student
+  courseId: Int!
+  course: Course
+  grade: String @auth(roles: ["ADMIN", "INSTRUCTOR"])
+  gradePoints: Float
+  enrollmentDate: String!
+}
+
+type DepartmentStats {
+  id: ID!
+  departmentName: String!
+  studentCount: Int!
+  courseCount: Int!
+}
+
+type StudentDashboard {
+  studentId: Int!
+  studentName: String!
+  departmentName: String
+  enrolledCourses: Int!
+  avgGradePoints: Float
+}
+
+input StudentInput {
+  name: String!
+  email: String!
+  departmentId: Int
+  gpa: Float
+}
+
+input CourseInput {
+  title: String!
+  code: String!
+  credits: Int!
+  departmentId: Int!
+  instructorId: Int
+}
+
+input DepartmentInput {
+  name: String!
+  code: String!
+}
+
+type Query {
+  students: [Student!]!
+  student(id: ID!): Student
+  departments: [Department!]!
+  department(id: ID!): Department
+  courses: [Course!]!
+  course(id: ID!): Course
+  instructors: [Instructor!]!
+  instructor(id: ID!): Instructor
+  enrollments: [Enrollment!]!
+  enrollment(id: ID!): Enrollment
+  departmentStats: [DepartmentStats!]!
+  studentDashboards: [StudentDashboard!]!
+  studentDashboard(id: ID!): StudentDashboard
+}
+
+type Mutation {
+  createStudent(input: StudentInput!): Student!
+  createCourse(input: CourseInput!): Course!
+  createDepartment(input: DepartmentInput!): Department!
+}

@@ -4,8 +4,8 @@
 [![Spring Boot 3](https://img.shields.io/badge/Spring%20Boot-3.2+-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![GraphQL Java](https://img.shields.io/badge/GraphQL%20Java-21+-e10098.svg)](https://www.graphql-java.com/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/badge/Build-Passing-success.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-100%25%20Passing-success.svg)]()
+[![Build Status](https://img.shields.io/badge/Build-Passing-success.svg)](https://github.com/graphorm/graphorm/actions)
+[![Tests](https://img.shields.io/badge/Tests-100%25%20Passing-success.svg)](https://github.com/graphorm/graphorm/actions)
 
 **GraphORM** is a modern, high-performance **Hybrid Schema-First ORM and Automatic GraphQL Engine** designed specifically for **Java 21+** and **Spring Boot 3+**.
 
@@ -171,12 +171,12 @@ query {
 |---|---|---|
 | [`graphorm-core`](graphorm-core) | Metadata, AST models, query builders, domain exceptions | Zero DB/Spring dependencies |
 | [`graphorm-schema`](graphorm-schema) | ANTLR4 grammar, AST visitor, validator, transformer | Core + ANTLR4 runtime only |
-| [`graphorm-generator`](graphorm-generator) | JavaPoet generator for records, DTOs, and client APIs | Core + JavaPoet only |
+| [`graphorm-generator`](graphorm-generator) | JavaPoet generator for records, DTOs, and client APIs | Core + JavaPoet + JDBC |
 | [`graphorm-jdbc`](graphorm-jdbc) | Dialect SQL generation, execution, row mapping, transactions | Core + `java.sql` only (No Spring) |
 | [`graphorm-graphql`](graphorm-graphql) | Auto DataFetchers, DataLoaders, selection set analyzer | Core + JDBC + GraphQL Java |
 | [`graphorm-spring-boot-starter`](graphorm-spring-boot-starter) | Spring Boot 3 auto-configuration and starters | Spring Boot 3 + GraphQL + JDBC |
 | [`graphorm-cli`](graphorm-cli) | Picocli developer CLI (`validate`, `generate`, `init`, `introspect`) | Core + Schema + Generator + JDBC |
-| [`graphorm-examples`](graphorm-examples) | End-to-end reference applications (`spring-boot-postgres`) | Full stack demonstration |
+| [`graphorm-examples`](graphorm-examples) | End-to-end reference applications (`spring-boot-postgres`, `university-dashboard`) | Full stack demonstration (Spring Boot + PostgreSQL + React 18) |
 
 ---
 

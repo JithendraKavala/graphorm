@@ -10,6 +10,7 @@ import com.graphorm.graphql.planner.AnalyzedSelectionSet;
 import com.graphorm.graphql.planner.SelectionSetAnalyzer;
 import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.graphql.security.FieldAuthorizerContext;
+import com.graphorm.graphql.response.ResponseAssembler;
 import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.dialect.SqlDialect;
@@ -27,16 +28,36 @@ import java.util.Objects;
  * Generic GraphQL {@link DataFetcher} for querying a list of regular models (e.g. {@code Query.students}).
  * Handles selective column projection, hidden dependency foreign key injection (TASK-11.2, TASK-11.3),
  * field-level security verification (TASK-15.2), dynamic filtering (where), sorting (orderBy), and pagination (limit, offset).
+ * Enforces a default maximum page size limit for unbounded list queries (PERF-02).
  */
 public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object>>> {
 
     private static final Logger log = LoggerFactory.getLogger(ModelListDataFetcher.class);
+
+    public static final int DEFAULT_MAX_PAGE_SIZE = 100;
 
     private final ModelMetadata model;
     private final ModelRegistry registry;
     private final JdbcExecutor executor;
     private final ArgumentBinder argumentBinder;
     private final SqlDialect dialect;
+    private final int maxPageSize;
+
+    public ModelListDataFetcher(
+            ModelMetadata model,
+            ModelRegistry registry,
+            JdbcExecutor executor,
+            ArgumentBinder argumentBinder,
+            SqlDialect dialect,
+            int maxPageSize
+    ) {
+        this.model = Objects.requireNonNull(model, "ModelMetadata must not be null");
+        this.registry = registry;
+        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
+        this.argumentBinder = argumentBinder != null ? argumentBinder : new ArgumentBinder();
+        this.dialect = dialect != null ? dialect : executor.dialect();
+        this.maxPageSize = maxPageSize > 0 ? maxPageSize : DEFAULT_MAX_PAGE_SIZE;
+    }
 
     public ModelListDataFetcher(
             ModelMetadata model,
@@ -45,11 +66,7 @@ public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object
             ArgumentBinder argumentBinder,
             SqlDialect dialect
     ) {
-        this.model = Objects.requireNonNull(model, "ModelMetadata must not be null");
-        this.registry = registry;
-        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
-        this.argumentBinder = argumentBinder != null ? argumentBinder : new ArgumentBinder();
-        this.dialect = dialect != null ? dialect : executor.dialect();
+        this(model, registry, executor, argumentBinder, dialect, DEFAULT_MAX_PAGE_SIZE);
     }
 
     @Override
@@ -82,8 +99,10 @@ public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object
         }
 
         Integer limit = argumentBinder.bindLimit(env);
-        if (limit != null) {
-            builder.limit(limit);
+        if (limit != null && limit > 0) {
+            builder.limit(Math.min(limit, maxPageSize));
+        } else {
+            builder.limit(maxPageSize);
         }
 
         Integer offset = argumentBinder.bindOffset(env);
@@ -93,12 +112,21 @@ public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object
 
         SelectQuery query = builder.build();
         List<Map<String, Object>> rows = executor.queryForList(query);
-        return rows.stream()
+        List<Map<String, Object>> normalized = rows.stream()
                 .map(row -> EntityRowNormalizer.normalize(row, model))
                 .toList();
+
+        if (analyzed != null && analyzed.requestedRelations().isEmpty() && !analyzed.hiddenDependencyFields().isEmpty()) {
+            return ResponseAssembler.stripHidden(normalized, analyzed.hiddenDependencyFields());
+        }
+        return normalized;
     }
 
     public ModelMetadata model() {
         return model;
+    }
+
+    public int maxPageSize() {
+        return maxPageSize;
     }
 }

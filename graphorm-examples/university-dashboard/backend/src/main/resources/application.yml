@@ -1,0 +1,43 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: graphorm-example-university-dashboard
+  datasource:
+    url: jdbc:postgresql://localhost:5432/university_db
+    username: postgres
+    password: ""
+    driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
+  graphql:
+    graphiql:
+      enabled: true
+      path: /graphiql
+    schema:
+      printer:
+        enabled: true
+
+graphorm:
+  schema-location: classpath:schema.graphorm
+  dialect: postgresql
+  sql-logging: true
+  graphql:
+    enabled: true
+    auto-fetchers: true
+  security:
+    field-authorization-enabled: true
+    depth-limit-enabled: true
+    max-query-depth: 10
+    complexity-limit-enabled: true
+    max-query-complexity: 150
+  metrics:
+    enabled: true
+
+logging:
+  level:
+    com.graphorm: DEBUG

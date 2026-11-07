@@ -9,6 +9,7 @@ import com.graphorm.graphql.planner.AnalyzedSelectionSet;
 import com.graphorm.graphql.planner.SelectionSetAnalyzer;
 import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.graphql.security.FieldAuthorizerContext;
+import com.graphorm.graphql.response.ResponseAssembler;
 import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
@@ -89,7 +90,11 @@ public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
                 .build();
 
         Optional<Map<String, Object>> row = executor.queryForObject(query);
-        return row.map(r -> EntityRowNormalizer.normalize(r, view)).orElse(null);
+        Map<String, Object> normalized = row.map(r -> EntityRowNormalizer.normalize(r, view)).orElse(null);
+        if (normalized != null && analyzed != null && !analyzed.hiddenDependencyFields().isEmpty()) {
+            return ResponseAssembler.stripHidden(normalized, analyzed.hiddenDependencyFields());
+        }
+        return normalized;
     }
 
     private String resolvePkField(ViewModelMetadata view, String idArgName) {

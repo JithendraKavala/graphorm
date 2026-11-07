@@ -11,7 +11,7 @@ import java.util.Objects;
 public final class FieldAuthorizerContext {
 
     private static final ThreadLocal<FieldAuthorizer> HOLDER = new ThreadLocal<>();
-    private static volatile FieldAuthorizer defaultAuthorizer = FieldAuthorizer.PERMIT_ALL;
+    private static volatile FieldAuthorizer defaultAuthorizer = FieldAuthorizer.DENY_ALL;
 
     private FieldAuthorizerContext() {}
 
@@ -39,7 +39,7 @@ public final class FieldAuthorizerContext {
      * @param authorizer the default authorizer
      */
     public static void setDefaultAuthorizer(FieldAuthorizer authorizer) {
-        defaultAuthorizer = authorizer != null ? authorizer : FieldAuthorizer.PERMIT_ALL;
+        defaultAuthorizer = authorizer != null ? authorizer : FieldAuthorizer.DENY_ALL;
     }
 
     /**

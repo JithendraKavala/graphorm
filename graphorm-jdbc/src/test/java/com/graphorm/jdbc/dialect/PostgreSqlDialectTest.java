@@ -90,7 +90,23 @@ class PostgreSqlDialectTest {
             assertThatThrownBy(() -> dialect.quoteIdentifier("   "))
                     .isInstanceOf(IllegalArgumentException.class);
         }
+
+        @Test
+        @DisplayName("SEC-05: Should reject syntax delimiters and safely quote identifiers with spaces")
+        void shouldSanitizeIdentifiersSecurely() {
+            assertThat(dialect.quoteIdentifier("first name")).isEqualTo("\"first name\"");
+            assertThat(dialect.quoteIdentifier("COUNT(e.id)")).isEqualTo("COUNT(e.id)");
+            assertThat(dialect.quoteIdentifier("LOWER(email)")).isEqualTo("LOWER(email)");
+
+            assertThatThrownBy(() -> dialect.quoteIdentifier("col; DROP TABLE students; --"))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> dialect.quoteIdentifier("students--"))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> dialect.quoteIdentifier("foo/*comment*/bar"))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
+
 
     @Nested
     @DisplayName("Limit / Offset Pagination Tests")
@@ -282,6 +298,18 @@ class PostgreSqlDialectTest {
             assertThat(boundSql.sql())
                     .isEqualTo("DELETE FROM \"students\" WHERE \"id\" = ?");
             assertThat(boundSql.parameters()).containsExactly(1L);
+        }
+            @Test
+        @DisplayName("DB-03: Should preserve BigDecimal numeric precision without doubleValue truncation")
+        void shouldPreserveBigDecimalPrecision() {
+            FieldMetadata bdField = FieldMetadata.builder("amount", BigDecimal.class).build();
+            String preciseVal = "12345678901234567890.1234567890";
+            assertThat(dialect.convertFromDatabaseValue(preciseVal, bdField))
+                    .isEqualTo(new BigDecimal(preciseVal));
+            assertThat(dialect.convertFromDatabaseValue(100L, bdField))
+                    .isEqualTo(BigDecimal.valueOf(100L));
+            assertThat(dialect.convertFromDatabaseValue(42, bdField))
+                    .isEqualTo(BigDecimal.valueOf(42));
         }
     }
 }

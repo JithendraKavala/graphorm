@@ -17,6 +17,7 @@ import com.graphorm.spring.boot.autoconfigure.GraphOrmProperties;
 import graphql.execution.instrumentation.Instrumentation;
 import graphql.language.DirectiveDefinition;
 import graphql.language.FieldDefinition;
+import graphql.language.InterfaceTypeDefinition;
 import graphql.language.ObjectTypeDefinition;
 import graphql.language.TypeDefinition;
 import graphql.language.TypeName;
@@ -67,23 +68,39 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
         this.metricsListener = metricsListener;
     }
 
-    public GraphQlAutoConfigurationCustomizer(
-            ModelRegistry modelRegistry,
-            JdbcExecutor executor,
-            SqlDialect dialect,
-            GraphOrmProperties properties,
-            ArgumentBinder argumentBinder
-    ) {
-        this(modelRegistry, executor, dialect, properties, argumentBinder, null, null);
+    public static boolean hasAuthDirectives(ModelRegistry modelRegistry) {
+        if (modelRegistry == null) {
+            return false;
+        }
+        boolean inModels = modelRegistry.getAllModels().stream()
+                .flatMap(m -> m.fields().stream())
+                .anyMatch(f -> f.authRoles() != null && !f.authRoles().isEmpty());
+        boolean inViews = modelRegistry.getAllViewModels().stream()
+                .flatMap(v -> v.fields().stream())
+                .anyMatch(f -> f.authRoles() != null && !f.authRoles().isEmpty());
+        return inModels || inViews;
     }
 
-    public GraphQlAutoConfigurationCustomizer(
-            ModelRegistry modelRegistry,
-            JdbcExecutor executor,
-            SqlDialect dialect,
-            GraphOrmProperties properties
-    ) {
-        this(modelRegistry, executor, dialect, properties, new ArgumentBinder(), null, null);
+    public static boolean hasAuthDirectives(TypeDefinitionRegistry registry) {
+        if (registry == null) {
+            return false;
+        }
+        for (TypeDefinition<?> typeDef : registry.types().values()) {
+            if (typeDef instanceof ObjectTypeDefinition otd) {
+                for (FieldDefinition fd : otd.getFieldDefinitions()) {
+                    if (fd.hasDirective("auth")) {
+                        return true;
+                    }
+                }
+            } else if (typeDef instanceof InterfaceTypeDefinition itd) {
+                for (FieldDefinition fd : itd.getFieldDefinitions()) {
+                    if (fd.hasDirective("auth")) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     @Override
@@ -101,6 +118,14 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
         // 2. Configure Runtime Wiring (auto-registering generic DataFetchers and directive wirings)
         builder.configureRuntimeWiring(wiringBuilder -> {
             TypeDefinitionRegistry typeRegistry = registryRef.get();
+            boolean hasAuth = hasAuthDirectives(modelRegistry) || hasAuthDirectives(typeRegistry);
+            if (hasAuth && (fieldAuthorizer == null || fieldAuthorizer == FieldAuthorizer.PERMIT_ALL)) {
+                throw new IllegalStateException(
+                        "GraphORM schema defines @auth directives, but no non-default FieldAuthorizer bean is configured. " +
+                        "Configure a custom FieldAuthorizer bean or include spring-boot-starter-security to prevent unauthorized access."
+                );
+            }
+
             if (typeRegistry != null && properties.getGraphql().isAutoFetchers()) {
                 GraphOrmGraphQlRegistrar registrar = new GraphOrmGraphQlRegistrar(
                         modelRegistry,

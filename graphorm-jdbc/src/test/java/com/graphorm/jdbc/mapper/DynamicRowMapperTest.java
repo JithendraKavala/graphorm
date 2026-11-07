@@ -188,6 +188,8 @@ class DynamicRowMapperTest {
             assertThat(DynamicRowMapper.convertValue(12.5, Float.class)).isEqualTo(12.5f);
             assertThat(DynamicRowMapper.convertValue(12.5f, Double.class)).isEqualTo(12.5);
             assertThat(DynamicRowMapper.convertValue("123.45", BigDecimal.class)).isEqualTo(new BigDecimal("123.45"));
+            String highPrecision = "12345678901234567890.12345678901234567890";
+            assertThat(DynamicRowMapper.convertValue(highPrecision, BigDecimal.class)).isEqualTo(new BigDecimal(highPrecision));
             assertThat(DynamicRowMapper.convertValue("9999999999", BigInteger.class)).isEqualTo(new BigInteger("9999999999"));
         }
 

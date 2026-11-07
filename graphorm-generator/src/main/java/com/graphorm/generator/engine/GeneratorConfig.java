@@ -20,11 +20,26 @@ public record GeneratorConfig(
 
     public GeneratorConfig {
         Objects.requireNonNull(basePackage, "basePackage must not be null");
+        if (!GeneratedSourceFile.isValidPackageName(basePackage)) {
+            throw new IllegalArgumentException("Invalid basePackage name: '" + basePackage + "'");
+        }
         if (modelPackage == null) modelPackage = basePackage + ".model";
         if (inputPackage == null) inputPackage = basePackage + ".input";
         if (filterPackage == null) filterPackage = basePackage + ".filter";
         if (clientPackage == null) clientPackage = basePackage + ".client";
         if (metadataPackage == null) metadataPackage = basePackage + ".metadata";
+
+        validatePackage(modelPackage, "modelPackage");
+        validatePackage(inputPackage, "inputPackage");
+        validatePackage(filterPackage, "filterPackage");
+        validatePackage(clientPackage, "clientPackage");
+        validatePackage(metadataPackage, "metadataPackage");
+    }
+
+    private static void validatePackage(String pkg, String fieldName) {
+        if (!GeneratedSourceFile.isValidPackageName(pkg)) {
+            throw new IllegalArgumentException("Invalid " + fieldName + " name: '" + pkg + "'");
+        }
     }
 
     public static Builder builder() {

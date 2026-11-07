@@ -19,5 +19,6 @@
 
     <modules>
         <module>spring-boot-postgres</module>
+        <module>university-dashboard/backend</module>
     </modules>
 </project>

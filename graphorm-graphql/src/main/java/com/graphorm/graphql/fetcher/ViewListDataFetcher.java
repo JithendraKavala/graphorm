@@ -10,6 +10,7 @@ import com.graphorm.graphql.planner.AnalyzedSelectionSet;
 import com.graphorm.graphql.planner.SelectionSetAnalyzer;
 import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.graphql.security.FieldAuthorizerContext;
+import com.graphorm.graphql.response.ResponseAssembler;
 import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
@@ -99,9 +100,14 @@ public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>
 
         SelectQuery query = builder.build();
         List<Map<String, Object>> rows = executor.queryForList(query);
-        return rows.stream()
+        List<Map<String, Object>> normalized = rows.stream()
                 .map(row -> EntityRowNormalizer.normalize(row, view))
                 .toList();
+
+        if (analyzed != null && !analyzed.hiddenDependencyFields().isEmpty()) {
+            return ResponseAssembler.stripHidden(normalized, analyzed.hiddenDependencyFields());
+        }
+        return normalized;
     }
 
     public ViewModelMetadata view() {

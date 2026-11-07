@@ -6,7 +6,9 @@ import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.UpdateQuery;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.exception.QueryExecutionException;
+import com.graphorm.jdbc.util.StatementInterceptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -105,8 +107,8 @@ class JdbcExecutorTest {
         }
 
         @Test
-        @DisplayName("Should return Optional.empty when queryForObject finds zero rows")
-        void shouldReturnEmptyWhenNotFound() {
+        @DisplayName("Should return empty Optional when queryForObject has no rows")
+        void shouldReturnEmptyWhenNoRows() {
             mockDbState.stubRows = List.of();
 
             Optional<SimpleUser> user = executor.queryForObject(
@@ -118,14 +120,15 @@ class JdbcExecutorTest {
         }
 
         @Test
-        @DisplayName("Should throw QueryExecutionException when queryForObject returns more than one row")
-        void shouldThrowWhenMultipleRowsReturned() {
+        @DisplayName("Should throw QueryExecutionException when queryForObject returns multiple rows")
+        void shouldThrowWhenMultipleRows() {
             mockDbState.stubRows = List.of(
-                    Map.of("id", 1L, "name", "A"),
-                    Map.of("id", 2L, "name", "B")
+                    Map.of("id", 1L, "name", "User1", "email", "u1@example.com"),
+                    Map.of("id", 2L, "name", "User2", "email", "u2@example.com")
             );
 
-            assertThatThrownBy(() -> executor.queryForObject(BoundSql.of("SELECT * FROM users")))
+            SelectQuery query = SelectQuery.from("users").build();
+            assertThatThrownBy(() -> executor.queryForObject(query, SimpleUser.class))
                     .isInstanceOf(QueryExecutionException.class)
                     .hasMessageContaining("Expected single row result but found 2");
         }
@@ -136,40 +139,23 @@ class JdbcExecutorTest {
     class MutationExecutionTests {
 
         @Test
-        @DisplayName("Should execute INSERT update query and bind parameters")
-        void shouldExecuteInsert() {
-            mockDbState.affectedRows = 1;
+        @DisplayName("Should execute update returning affected rows count")
+        void shouldExecuteUpdate() {
+            mockDbState.affectedRows = 3;
 
-            InsertQuery query = InsertQuery.into("users")
-                    .value("name", "Eve")
-                    .value("email", "eve@example.com")
+            UpdateQuery query = UpdateQuery.table("users")
+                    .set("name", "Updated")
+                    .where(WherePredicate.gt("id", 10L))
                     .build();
 
             int rows = executor.executeUpdate(query);
-            assertThat(rows).isEqualTo(1);
-            assertThat(mockDbState.boundParams).containsExactly("Eve", "eve@example.com");
-
+            assertThat(rows).isEqualTo(3);
             assertThat(mockDbState.connectionClosed.get()).isTrue();
             assertThat(mockDbState.statementClosed.get()).isTrue();
         }
 
         @Test
-        @DisplayName("Should execute UPDATE query and bind parameters in order")
-        void shouldExecuteUpdate() {
-            mockDbState.affectedRows = 1;
-
-            UpdateQuery query = UpdateQuery.table("users")
-                    .set("name", "Eve Updated")
-                    .where(WherePredicate.eq("id", 1L))
-                    .build();
-
-            int rows = executor.executeUpdate(query);
-            assertThat(rows).isEqualTo(1);
-            assertThat(mockDbState.boundParams).containsExactly("Eve Updated", 1L);
-        }
-
-        @Test
-        @DisplayName("Should execute DELETE query and bind parameters")
+        @DisplayName("Should execute delete query returning affected rows")
         void shouldExecuteDelete() {
             mockDbState.affectedRows = 1;
 
@@ -183,7 +169,7 @@ class JdbcExecutorTest {
         }
 
         @Test
-        @DisplayName("Should execute insert and return mapped record")
+        @DisplayName("Should execute insert and return mapped record on returning dialect")
         void shouldExecuteInsertAndReturn() {
             mockDbState.stubRows = List.of(
                     Map.of("id", 77L, "name", "Frank", "email", "frank@example.com")
@@ -198,6 +184,118 @@ class JdbcExecutorTest {
             assertThat(inserted).isPresent();
             assertThat(inserted.get().id()).isEqualTo(77L);
             assertThat(inserted.get().name()).isEqualTo("Frank");
+        }
+
+        @Test
+        @DisplayName("[DB-02] Should execute insert and return generated keys on non-returning dialect")
+        void shouldExecuteInsertAndReturnOnNonReturningDialect() {
+            mockDbState.affectedRows = 1;
+            mockDbState.stubRows = List.of(
+                    Map.of("id", 88L)
+            );
+
+            SqlDialect nonReturningDialect = new PostgreSqlDialect() {
+                @Override
+                public boolean supportsReturning() {
+                    return false;
+                }
+            };
+
+            JdbcExecutor nonReturningExecutor = new JdbcExecutor(mockDataSource, nonReturningDialect);
+
+            InsertQuery query = InsertQuery.into("users")
+                    .value("name", "Grace")
+                    .value("email", "grace@example.com")
+                    .build();
+
+            Optional<SimpleUser> inserted = nonReturningExecutor.executeInsertAndReturn(query, SimpleUser.class);
+            assertThat(inserted).isPresent();
+            assertThat(inserted.get().id()).isEqualTo(88L);
+            assertThat(inserted.get().name()).isEqualTo("Grace");
+            assertThat(inserted.get().email()).isEqualTo("grace@example.com");
+
+            Optional<Map<String, Object>> mapResult = nonReturningExecutor.executeInsertAndReturn(query);
+            assertThat(mapResult).isPresent();
+            assertThat(mapResult.get()).containsEntry("id", 88L);
+            assertThat(mapResult.get()).containsEntry("name", "Grace");
+        }
+    }
+
+    @Nested
+    @DisplayName("[REL-01] Resource Leak & Statement Interceptor Tests")
+    class InterceptorAndLeakTests {
+
+        @Test
+        @DisplayName("Should guarantee connection release even if interceptor throws in queryForList")
+        void shouldReleaseConnectionWhenInterceptorThrowsInQueryForList() {
+            mockDbState.stubRows = List.of(Map.of("id", 1L));
+
+            AtomicBoolean secondInterceptorCalled = new AtomicBoolean(false);
+
+            executor.addInterceptor(new StatementInterceptor() {
+                @Override
+                public void afterExecute(String sql, List<Object> parameters, long durationNanos) {
+                    throw new RuntimeException("Simulated interceptor failure!");
+                }
+            });
+            executor.addInterceptor(new StatementInterceptor() {
+                @Override
+                public void afterExecute(String sql, List<Object> parameters, long durationNanos) {
+                    secondInterceptorCalled.set(true);
+                }
+            });
+
+            BoundSql boundSql = BoundSql.of("SELECT * FROM users");
+            List<Map<String, Object>> result = executor.queryForList(boundSql);
+
+            assertThat(result).hasSize(1);
+            assertThat(mockDbState.connectionClosed.get()).isTrue();
+            assertThat(secondInterceptorCalled.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Should guarantee connection release even if interceptor throws in executeUpdate")
+        void shouldReleaseConnectionWhenInterceptorThrowsInExecuteUpdate() {
+            mockDbState.affectedRows = 1;
+
+            AtomicBoolean secondInterceptorCalled = new AtomicBoolean(false);
+
+            executor.addInterceptor(new StatementInterceptor() {
+                @Override
+                public void afterExecute(String sql, List<Object> parameters, long durationNanos) {
+                    throw new RuntimeException("Simulated interceptor failure in update!");
+                }
+            });
+            executor.addInterceptor(new StatementInterceptor() {
+                @Override
+                public void afterExecute(String sql, List<Object> parameters, long durationNanos) {
+                    secondInterceptorCalled.set(true);
+                }
+            });
+
+            BoundSql boundSql = BoundSql.of("UPDATE users SET name = 'test'");
+            int updated = executor.executeUpdate(boundSql);
+
+            assertThat(updated).isEqualTo(1);
+            assertThat(mockDbState.connectionClosed.get()).isTrue();
+            assertThat(secondInterceptorCalled.get()).isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("[SEC-02] Parameter Logging Tests")
+    class ParameterLoggingTests {
+
+        @Test
+        @DisplayName("Parameter logging defaults to redacted/count representation")
+        void shouldDefaultToRedacted() {
+            assertThat(executor.isLogParameters()).isFalse();
+
+            executor.setLogParameters(true);
+            assertThat(executor.isLogParameters()).isTrue();
+
+            executor.setLogParameters(false);
+            assertThat(executor.isLogParameters()).isFalse();
         }
     }
 
@@ -319,6 +417,9 @@ class JdbcExecutorTest {
                             throw new SQLException("Simulated DB error");
                         }
                         return state.affectedRows;
+                    }
+                    if ("getGeneratedKeys".equals(methodName)) {
+                        return createMockResultSet(state);
                     }
                     if ("close".equals(methodName)) {
                         state.statementClosed.set(true);

@@ -2,8 +2,14 @@
 target/
 *.class
 
-# Log file
+# Log and process files
 *.log
+*.pid
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
 
 # Package Files #
 *.jar

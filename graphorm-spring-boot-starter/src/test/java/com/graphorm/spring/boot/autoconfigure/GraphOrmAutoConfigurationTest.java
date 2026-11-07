@@ -2,6 +2,7 @@ package com.graphorm.spring.boot.autoconfigure;
 
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
+import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.jdbc.client.GraphOrmClient;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
@@ -13,6 +14,7 @@ import com.graphorm.spring.boot.transaction.SpringTransactionManagerAdapter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.graphql.GraphQlAutoConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -104,6 +106,49 @@ class GraphOrmAutoConfigurationTest {
     }
 
     @Test
+    @DisplayName("[DB-01] Unsupported SQL dialect throws IllegalArgumentException during context startup")
+    void testUnsupportedDialectFailsFast() {
+        contextRunner
+                .withPropertyValues("graphorm.dialect=mysql")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                            .hasMessageContaining("Unsupported SQL dialect 'mysql'");
+                });
+    }
+
+    @Test
+    @DisplayName("[SEC-01] @auth directives in schema without FieldAuthorizer bean fails fast at startup")
+    void testAuthDirectiveWithoutAuthorizerFailsFast() {
+        contextRunner
+                .withConfiguration(AutoConfigurations.of(GraphQlAutoConfiguration.class))
+                .withPropertyValues(
+                        "graphorm.schema-location=classpath:security-schema.graphorm",
+                        "graphorm.security.field-authorization-enabled=false"
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("@auth");
+                });
+    }
+
+    @Test
+    @DisplayName("[SEC-01] @auth directives in schema with configured FieldAuthorizer succeeds")
+    void testAuthDirectiveWithCustomAuthorizerSucceeds() {
+        contextRunner
+                .withConfiguration(AutoConfigurations.of(GraphQlAutoConfiguration.class))
+                .withPropertyValues("graphorm.schema-location=classpath:security-schema.graphorm")
+                .withUserConfiguration(CustomAuthorizerConfig.class)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(FieldAuthorizer.class);
+                });
+    }
+
+    @Test
     @DisplayName("ConditionalOnMissingBean allows custom user beans to override defaults")
     void testCustomBeanOverrides() {
         contextRunner
@@ -118,6 +163,14 @@ class GraphOrmAutoConfigurationTest {
                     GraphOrmClient client = context.getBean(GraphOrmClient.class);
                     assertThat(client).isSameAs(CustomUserConfig.CUSTOM_CLIENT);
                 });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomAuthorizerConfig {
+        @Bean
+        public FieldAuthorizer customFieldAuthorizer() {
+            return roles -> true;
+        }
     }
 
     @Configuration(proxyBeanMethods = false)

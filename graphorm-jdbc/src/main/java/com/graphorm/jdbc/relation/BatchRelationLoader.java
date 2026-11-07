@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Batched relationship loading engine executing {@code WHERE target_col IN (?, ...)} queries
@@ -367,6 +368,17 @@ public class BatchRelationLoader {
         }
         if (key instanceof Number num) {
             return num.longValue();
+        }
+        if (key instanceof UUID uuid) {
+            return uuid.toString().toLowerCase(Locale.ROOT);
+        }
+        if (key instanceof CharSequence cs) {
+            String str = cs.toString().trim();
+            try {
+                return UUID.fromString(str).toString().toLowerCase(Locale.ROOT);
+            } catch (IllegalArgumentException ignored) {
+                return str;
+            }
         }
         return key;
     }

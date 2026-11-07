@@ -177,4 +177,26 @@ class BatchRelationLoaderTest {
 
         assertThat(testExecutor.queryCallCount).isZero();
     }
+    @Test
+    @DisplayName("REL-02: Should coerce and match UUID instances and String representations symmetrically")
+    void shouldCoerceUuidAndStringKeysSymmetrically() {
+        java.util.UUID deptUuid = java.util.UUID.fromString("12345678-1234-1234-1234-123456789abc");
+        String deptUuidUpperStr = "12345678-1234-1234-1234-123456789ABC";
+
+        Map<String, Object> parentWithUuid = new HashMap<>();
+        parentWithUuid.put("id", 1L);
+        parentWithUuid.put("name", "Alice");
+        parentWithUuid.put("departmentId", deptUuid);
+
+        Map<String, Object> deptReturnedFromDb = new HashMap<>();
+        deptReturnedFromDb.put("id", deptUuidUpperStr);
+        deptReturnedFromDb.put("name", "Artificial Intelligence");
+
+        testExecutor.returnedRows = List.of(deptReturnedFromDb);
+
+        loader.loadAndAttach("Student", "department", List.of(parentWithUuid));
+
+        assertThat(testExecutor.queryCallCount).isEqualTo(1);
+        assertThat(parentWithUuid.get("department")).isEqualTo(deptReturnedFromDb);
+    }
 }

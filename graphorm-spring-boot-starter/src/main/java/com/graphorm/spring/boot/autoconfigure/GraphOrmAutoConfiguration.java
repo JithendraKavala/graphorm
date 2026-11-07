@@ -62,11 +62,16 @@ public class GraphOrmAutoConfiguration {
     @ConditionalOnMissingBean
     public SqlDialect sqlDialect(GraphOrmProperties properties) {
         String dialectName = properties.getDialect();
+        if (dialectName == null || dialectName.isBlank()) {
+            throw new IllegalArgumentException("Property 'graphorm.dialect' must not be blank");
+        }
         if ("postgresql".equalsIgnoreCase(dialectName) || "postgres".equalsIgnoreCase(dialectName)) {
             return new PostgreSqlDialect();
         }
-        log.warn("Unknown dialect '{}'; defaulting to PostgreSqlDialect", dialectName);
-        return new PostgreSqlDialect();
+        throw new IllegalArgumentException(
+                "Unsupported SQL dialect '" + dialectName + "'. Supported dialects: [postgresql, postgres]. " +
+                "To use a custom dialect, register a custom SqlDialect bean in the application context."
+        );
     }
 
     @Bean
@@ -232,13 +237,21 @@ public class GraphOrmAutoConfiguration {
                 ObjectProvider<FieldAuthorizer> fieldAuthorizerProvider,
                 ObjectProvider<DataLoaderMetricsListener> metricsListenerProvider
         ) {
+            FieldAuthorizer fieldAuthorizer = fieldAuthorizerProvider.getIfAvailable();
+            if (GraphQlAutoConfigurationCustomizer.hasAuthDirectives(modelRegistry) &&
+                    (fieldAuthorizer == null || fieldAuthorizer == FieldAuthorizer.PERMIT_ALL)) {
+                throw new IllegalStateException(
+                        "GraphORM schema defines @auth directives, but no non-default FieldAuthorizer bean is configured. " +
+                        "Configure a custom FieldAuthorizer bean or include spring-boot-starter-security to prevent unauthorized access."
+                );
+            }
             return new GraphQlAutoConfigurationCustomizer(
                     modelRegistry,
                     jdbcExecutor,
                     sqlDialect,
                     properties,
                     new ArgumentBinder(),
-                    fieldAuthorizerProvider.getIfAvailable(),
+                    fieldAuthorizer,
                     metricsListenerProvider.getIfAvailable()
             );
         }

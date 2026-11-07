@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-base: #0D1117;
+    --bg-surface: #161B22;
+    --bg-elevated: #21262D;
+    --border-subtle: #30363D;
+    --border-brand: rgba(56, 189, 248, 0.25);
+    --brand-primary: #38BDF8;
+    --sky-primary: #38BDF8;
+    --emerald-primary: #10B981;
+    --amber-primary: #F59E0B;
+  }
+
+  body {
+    margin: 0;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: #0D1117;
+    color: #F0F6FC;
+    overflow-x: hidden;
+    letter-spacing: -0.012em;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom technical scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #0D1117;
+}
+::-webkit-scrollbar-thumb {
+  background: #21262D;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #30363D;
+}
+
+/* Technical grid background */
+.bg-tech-grid {
+  background-image:
+    linear-gradient(to right, rgba(240, 246, 252, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(240, 246, 252, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.glass-panel {
+  background: rgba(22, 27, 34, 0.95);
+  border: 1px solid #30363D;
+}

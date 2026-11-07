@@ -156,6 +156,33 @@ class GenerateCommandTest {
     }
 
     @Test
+    @DisplayName("[SEC-03] Should reject path traversal or invalid identifiers in --package")
+    void shouldRejectPathTraversalInPackage() throws Exception {
+        String schema = """
+                model User {
+                  id Int @id
+                }
+                """;
+        Path schemaFile = tempDir.resolve("simple_sec.graphorm");
+        Files.writeString(schemaFile, schema);
+
+        Path outputDir = tempDir.resolve("out_sec");
+
+        StringWriter out = new StringWriter();
+        StringWriter err = new StringWriter();
+
+        int exitCode = GraphOrmCli.execute(new PrintWriter(out), new PrintWriter(err),
+                "generate",
+                "-s", schemaFile.toString(),
+                "-o", outputDir.toString(),
+                "-p", "../../malicious"
+        );
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(err.toString()).contains("invalid package identifier");
+    }
+
+    @Test
     @DisplayName("Should clean directory when --clean is provided")
     void shouldCleanOutputDirectory() throws Exception {
         String schema = """

@@ -2,6 +2,7 @@ package com.graphorm.cli.command;
 
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.generator.engine.CodeGeneratorEngine;
+import com.graphorm.generator.engine.GeneratedSourceFile;
 import com.graphorm.generator.engine.GeneratorConfig;
 import com.graphorm.schema.ast.ExpressionNode;
 import com.graphorm.schema.ast.GeneratorNode;
@@ -49,27 +50,26 @@ public class GenerateCommand implements Callable<Integer> {
             description = "Path to the GraphORM schema file (default: ${DEFAULT-VALUE})",
             defaultValue = "schema.graphorm"
     )
-    private Path schemaPath;
+    private Path schemaPath = Path.of("schema.graphorm");
 
     @Option(
             names = {"-o", "--output"},
-            description = "Target directory for generated Java sources (default: ${DEFAULT-VALUE})",
+            description = "Root output directory for generated Java sources (default: ${DEFAULT-VALUE})",
             defaultValue = "target/generated-sources/graphorm"
     )
-    private Path outputDir;
+    private Path outputDir = Path.of("target/generated-sources/graphorm");
 
     @Option(
             names = {"-p", "--package"},
-            description = "Base Java package for generated classes (overrides generator block in schema)"
+            description = "Base Java package name (overrides generator block in schema, default: ${DEFAULT-VALUE})"
     )
     private String basePackage;
 
     @Option(
             names = {"--clean"},
-            description = "Clean output directory before generation (default: ${DEFAULT-VALUE})",
-            defaultValue = "false"
+            description = "Clean output directory before generation (default: false)"
     )
-    private boolean clean;
+    private boolean clean = false;
 
     public GenerateCommand() {}
 
@@ -80,18 +80,29 @@ public class GenerateCommand implements Callable<Integer> {
         this.clean = clean;
     }
 
+    public void setSchemaPath(Path schemaPath) {
+        this.schemaPath = schemaPath;
+    }
+
+    public void setOutputDir(Path outputDir) {
+        this.outputDir = outputDir;
+    }
+
+    public void setBasePackage(String basePackage) {
+        this.basePackage = basePackage;
+    }
+
+    public void setClean(boolean clean) {
+        this.clean = clean;
+    }
+
     @Override
     public Integer call() {
         PrintWriter out = spec != null ? spec.commandLine().getOut() : new PrintWriter(System.out, true);
         PrintWriter err = spec != null ? spec.commandLine().getErr() : new PrintWriter(System.err, true);
 
-        if (schemaPath == null || !Files.exists(schemaPath)) {
-            err.println("Error: Schema file not found: " + schemaPath);
-            return 1;
-        }
-
-        if (Files.isDirectory(schemaPath)) {
-            err.println("Error: Schema path is a directory, not a file: " + schemaPath);
+        if (!Files.exists(schemaPath)) {
+            err.println("Error: Schema file does not exist: " + schemaPath);
             return 1;
         }
 
@@ -131,12 +142,21 @@ public class GenerateCommand implements Callable<Integer> {
             effectivePackage = resolvePackageFromSchema(document);
         }
 
+        // Validate package name identifier to prevent path traversal (SEC-03)
+        if (!GeneratedSourceFile.isValidPackageName(effectivePackage)) {
+            err.println("Cannot generate code: invalid package identifier '" + effectivePackage +
+                    "'. Package names must be valid Java identifiers.");
+            return 1;
+        }
+
+        Path normalizedOutputDir = outputDir.toAbsolutePath().normalize();
+
         // Clean output directory if requested
-        if (clean && Files.exists(outputDir)) {
+        if (clean && Files.exists(normalizedOutputDir)) {
             try {
-                cleanDirectory(outputDir);
+                cleanDirectory(normalizedOutputDir);
             } catch (IOException e) {
-                err.println("Error cleaning output directory " + outputDir + ": " + e.getMessage());
+                err.println("Error cleaning output directory " + normalizedOutputDir + ": " + e.getMessage());
                 return 1;
             }
         }
@@ -148,11 +168,11 @@ public class GenerateCommand implements Callable<Integer> {
             GeneratorConfig config = GeneratorConfig.of(effectivePackage);
             CodeGeneratorEngine engine = CodeGeneratorEngine.create(config);
 
-            List<Path> writtenFiles = engine.writeAll(registry, outputDir);
+            List<Path> writtenFiles = engine.writeAll(registry, normalizedOutputDir);
             long elapsed = System.currentTimeMillis() - startTime;
 
             out.printf("Successfully generated %d Java source file(s) into '%s' (%d ms)%n",
-                    writtenFiles.size(), outputDir, elapsed);
+                    writtenFiles.size(), normalizedOutputDir, elapsed);
             out.println("  Base package: " + effectivePackage);
             out.printf("  Entities: %d model(s), %d view(s), %d composite type(s), %d enum(s)%n",
                     registry.getAllModels().size(),

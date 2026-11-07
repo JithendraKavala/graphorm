@@ -13,7 +13,7 @@ public interface StatementInterceptor {
      * @param sql        the SQL query string
      * @param parameters positional parameter values bound to the statement
      */
-    void beforeExecute(String sql, List<Object> parameters);
+    default void beforeExecute(String sql, List<Object> parameters) {}
 
     /**
      * Called immediately after a SQL statement has finished execution.

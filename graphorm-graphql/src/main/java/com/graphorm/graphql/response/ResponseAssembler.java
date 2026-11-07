@@ -13,8 +13,18 @@ import java.util.stream.Collectors;
 
 /**
  * Assembles and cleans GraphQL responses, ensuring that hidden dependency columns
- * (e.g. foreign keys auto-injected for downstream relationship loading) are stripped
- * before final client delivery (TASK-11.3).
+ * (e.g. foreign keys auto-injected for downstream relationship loading or view join calculations)
+ * are stripped before final client delivery (TASK-11.3, DOC-01).
+ * <p>
+ * In the GraphQL engine:
+ * <ul>
+ *   <li>When downstream relationship fields are absent, DataFetchers invoke {@link #stripHidden} directly
+ *       to remove hidden columns before returning from the fetcher.</li>
+ *   <li>When downstream relations are present, intermediate maps retain foreign keys so child
+ *       DataFetchers (e.g. {@code ModelRelationDataFetcher}) can extract join keys from {@code env.getSource()}.
+ *       GraphQL Java's execution strategy then guarantees that only client-requested fields are serialized
+ *       into the final JSON response.</li>
+ * </ul>
  */
 public final class ResponseAssembler {
 
