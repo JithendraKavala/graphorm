@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 49
+- **Completed Tasks**: 55
 - **In Progress**: 0
-- **Not Started**: 16
-- **Current Active Phase**: Phase 12 (Phase 11 & Milestone 5 100% Completed, Ready for Phase 12 & Milestone 6)
+- **Not Started**: 10
+- **Current Active Phase**: Phase 13 (Phase 12 & Milestone 6 100% Completed, Ready for Phase 13: Spring Boot Integration Starter & Milestone 7)
 
 ---
 
@@ -68,12 +68,12 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 11** | **Milestone 5** | `TASK-11.3` | Hidden Dependency Foreign Key Injection | Completed | `TASK-11.2` | Auto-injects hidden foreign keys with `isHidden=true` | Injected in `SelectionSetAnalyzer`, `ProjectedColumn.hidden(...)`, stripped before JSON response in `ResponseAssembler.java` |
 | **Phase 11** | **Milestone 5** | `TASK-11.4` | `DataLoaderRegistry` Wiring with `BatchRelationLoader` | Completed | `TASK-11.3` | Integrates GraphQL Java DataLoader for relationships | `BatchRelationDataLoader.java`, `GraphOrmDataLoaderRegistryFactory.java`, `ModelRelationDataFetcher.java`, `GraphOrmDataLoaderInstrumentation.java` |
 | **Phase 11** | **Milestone 5** | `TASK-11.5` | N+1 Elimination Verification Tests | Completed | `TASK-11.4` | Assert exact query counts and projected columns | `PostgresNPlusOneEliminationIntegrationTest.java` (5 tests, Milestone 5 deliverable verified: exactly 2 SQL queries for nested relations & 100 students in 5 departments) |
-| **Phase 12** | **Milestone 6** | `TASK-12.1` | `ModelRecordGenerator` via JavaPoet | Not Started | `TASK-11.5` | Generates immutable Java 21 model records | Clean Java 21 syntax |
-| **Phase 12** | **Milestone 6** | `TASK-12.2` | `ViewModelRecordGenerator` (Read-Only Records) | Not Started | `TASK-12.1` | Generates read-only view projection records | Projection records |
-| **Phase 12** | **Milestone 6** | `TASK-12.3` | `InputDtoGenerator` (Regular Models Only) | Not Started | `TASK-12.2` | Generates `CreateInput` and `UpdateInput` | Never for views |
-| **Phase 12** | **Milestone 6** | `TASK-12.4` | `FilterCriteriaGenerator` | Not Started | `TASK-12.3` | Generates fluent type-safe criteria builders | Type-safe filters |
-| **Phase 12** | **Milestone 6** | `TASK-12.5` | `ClientApiGenerator` for `GraphOrmClient` | Not Started | `TASK-12.4` | Prisma-style client (`db.student()`, `db.dashboard()`) | Read-only view methods |
-| **Phase 12** | **Milestone 6** | `TASK-12.6` | In-Memory `JavaCompiler` Test Harness | Not Started | `TASK-12.5` | Compiles generated code in memory with 0 warnings | Milestone 6 verification |
+| **Phase 12** | **Milestone 6** | `TASK-12.1` | `ModelRecordGenerator` via JavaPoet | Completed | `TASK-11.5` | Generates immutable Java 21 model records | Clean Java 21 syntax records, Builder, with-methods, metadata constants, unit tested |
+| **Phase 12** | **Milestone 6** | `TASK-12.2` | `ViewModelRecordGenerator` (Read-Only Records) | Completed | `TASK-12.1` | Generates read-only view projection records | Projection records, zero mutation/setter methods, unit tested |
+| **Phase 12** | **Milestone 6** | `TASK-12.3` | `InputDtoGenerator` (Regular Models Only) | Completed | `TASK-12.2` | Generates `CreateInput` and `UpdateInput` | Strictly rejects view models with `ReadOnlyViewException`, `toMap()` serialization, unit tested |
+| **Phase 12** | **Milestone 6** | `TASK-12.4` | `FilterCriteriaGenerator` | Completed | `TASK-12.3` | Generates fluent type-safe criteria builders | Type-safe filters, composable FieldFilters, CriteriaBuilders, WherePredicate generation |
+| **Phase 12** | **Milestone 6** | `TASK-12.5` | `ClientApiGenerator` for `GraphOrmClient` | Completed | `TASK-12.4` | Prisma-style client (`db.student()`, `db.dashboard()`) | `ModelAccessor` CRUD vs `ReadOnlyModelAccessor` strict read-only segregation, unit tested |
+| **Phase 12** | **Milestone 6** | `TASK-12.6` | In-Memory `JavaCompiler` Test Harness | Completed | `TASK-12.5` | Compiles generated code in memory with 0 warnings | Milestone 6 deliverable verified: `InMemoryCompiler` (JSR-199) with 0 errors & 0 warnings, `PostgresClientExecutionIntegrationTest` passing against PostgreSQL |
 | **Phase 13** | **Milestone 7** | `TASK-13.1` | `GraphOrmProperties` Configuration | Not Started | `TASK-11.5`, `TASK-12.6` | Config properties for schema, batch size, logging | Spring Boot config |
 | **Phase 13** | **Milestone 7** | `TASK-13.2` | `SpringTransactionManagerAdapter` | Not Started | `TASK-13.1` | Adapts to Spring's `DataSourceUtils` and `@Transactional` | Transaction sync |
 | **Phase 13** | **Milestone 7** | `TASK-13.3` | `GraphOrmAutoConfiguration` | Not Started | `TASK-13.2` | Auto-configures beans via `AutoConfiguration.imports` | Spring Boot 3+ |
