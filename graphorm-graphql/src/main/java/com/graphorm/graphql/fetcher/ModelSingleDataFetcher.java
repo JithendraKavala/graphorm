@@ -5,7 +5,8 @@ import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
-import com.graphorm.graphql.binding.ArgumentBinder;
+import com.graphorm.graphql.planner.AnalyzedSelectionSet;
+import com.graphorm.graphql.planner.SelectionSetAnalyzer;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
@@ -20,6 +21,7 @@ import java.util.Optional;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a single regular model by unique/primary key (e.g. {@code Query.student(id: ID!)}).
+ * Supports selective column projection and hidden dependency foreign key injection.
  */
 public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -64,7 +66,17 @@ public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> 
 
         idValue = EntityRowNormalizer.coerceToFieldType(idValue, pkFieldMeta);
 
-        SelectQuery query = SelectBuilder.forEntity(model, registry)
+        AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, model, registry);
+
+        SelectQuery.Builder builder;
+        if (analyzed != null && !analyzed.projectedColumns().isEmpty()) {
+            builder = SelectQuery.from(model.tableName());
+            builder.columns(analyzed.projectedColumns());
+        } else {
+            builder = SelectBuilder.forEntity(model, registry);
+        }
+
+        SelectQuery query = builder
                 .where(WherePredicate.eq(pkColumn, idValue))
                 .limit(1)
                 .build();

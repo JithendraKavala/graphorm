@@ -8,10 +8,10 @@ This document tracks the live implementation status across all phases, milestone
 
 - **Total Phases**: 16
 - **Total Tasks**: 65
-- **Completed Tasks**: 44
+- **Completed Tasks**: 49
 - **In Progress**: 0
-- **Not Started**: 21
-- **Current Active Phase**: Phase 11 (Phase 10 & Milestone 4 100% Completed, Ready for Phase 11 & Milestone 5)
+- **Not Started**: 16
+- **Current Active Phase**: Phase 12 (Phase 11 & Milestone 5 100% Completed, Ready for Phase 12 & Milestone 6)
 
 ---
 
@@ -63,11 +63,11 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 10** | **Milestone 4** | `TASK-10.4` | Generic View Query DataFetchers (Read-Only) | Completed | `TASK-10.3` | Registers view queries, strictly omits view mutations | `ViewListDataFetcher.java`, `ViewSingleDataFetcher.java`, `GraphOrmGraphQlRegistrarTest.java` (strict read-only guard) |
 | **Phase 10** | **Milestone 4** | `TASK-10.5` | GraphQL Argument Binder | Completed | `TASK-10.4` | Converts GraphQL arguments to `WherePredicate` | `ArgumentBinder.java`, `ArgumentBinderTest.java` (10 tests) |
 | **Phase 10** | **Milestone 4** | `TASK-10.6` | End-to-End GraphQL Execution Tests | Completed | `TASK-10.5` | Models and views queried via GraphQL Java engine | `PostgresGraphQlExecutionIntegrationTest.java` (10 tests, Milestone 4 verified) |
-| **Phase 11** | **Milestone 5** | `TASK-11.1` | `SelectionSetAnalyzer` for Field Trees | Not Started | `TASK-10.6` | Traverses GraphQL selection set | Selection set analysis |
-| **Phase 11** | **Milestone 5** | `TASK-11.2` | Selective Column Projection in SQL | Not Started | `TASK-11.1` | `SELECT` statement includes only requested fields | Over-fetching eliminated |
-| **Phase 11** | **Milestone 5** | `TASK-11.3` | Hidden Dependency Foreign Key Injection | Not Started | `TASK-11.2` | Auto-injects hidden foreign keys with `isHidden=true` | Downstream batching |
-| **Phase 11** | **Milestone 5** | `TASK-11.4` | `DataLoaderRegistry` Wiring with `BatchRelationLoader` | Not Started | `TASK-11.3` | Integrates GraphQL Java DataLoader for relationships | Batched execution |
-| **Phase 11** | **Milestone 5** | `TASK-11.5` | N+1 Elimination Verification Tests | Not Started | `TASK-11.4` | Assert exact query counts and projected columns | Milestone 5 verification |
+| **Phase 11** | **Milestone 5** | `TASK-11.1` | `SelectionSetAnalyzer` for Field Trees | Completed | `TASK-10.6` | Traverses GraphQL selection set | `SelectionSetAnalyzer.java`, `FieldTreeNode.java`, `AnalyzedSelectionSet.java`, `SelectionSetAnalyzerTest.java` (6 tests) |
+| **Phase 11** | **Milestone 5** | `TASK-11.2` | Selective Column Projection in SQL | Completed | `TASK-11.1` | `SELECT` statement includes only requested fields | Over-fetching eliminated in `ModelListDataFetcher`, `ModelSingleDataFetcher`, `ViewListDataFetcher`, `ViewSingleDataFetcher`, `RelationPlanner` |
+| **Phase 11** | **Milestone 5** | `TASK-11.3` | Hidden Dependency Foreign Key Injection | Completed | `TASK-11.2` | Auto-injects hidden foreign keys with `isHidden=true` | Injected in `SelectionSetAnalyzer`, `ProjectedColumn.hidden(...)`, stripped before JSON response in `ResponseAssembler.java` |
+| **Phase 11** | **Milestone 5** | `TASK-11.4` | `DataLoaderRegistry` Wiring with `BatchRelationLoader` | Completed | `TASK-11.3` | Integrates GraphQL Java DataLoader for relationships | `BatchRelationDataLoader.java`, `GraphOrmDataLoaderRegistryFactory.java`, `ModelRelationDataFetcher.java`, `GraphOrmDataLoaderInstrumentation.java` |
+| **Phase 11** | **Milestone 5** | `TASK-11.5` | N+1 Elimination Verification Tests | Completed | `TASK-11.4` | Assert exact query counts and projected columns | `PostgresNPlusOneEliminationIntegrationTest.java` (5 tests, Milestone 5 deliverable verified: exactly 2 SQL queries for nested relations & 100 students in 5 departments) |
 | **Phase 12** | **Milestone 6** | `TASK-12.1` | `ModelRecordGenerator` via JavaPoet | Not Started | `TASK-11.5` | Generates immutable Java 21 model records | Clean Java 21 syntax |
 | **Phase 12** | **Milestone 6** | `TASK-12.2` | `ViewModelRecordGenerator` (Read-Only Records) | Not Started | `TASK-12.1` | Generates read-only view projection records | Projection records |
 | **Phase 12** | **Milestone 6** | `TASK-12.3` | `InputDtoGenerator` (Regular Models Only) | Not Started | `TASK-12.2` | Generates `CreateInput` and `UpdateInput` | Never for views |

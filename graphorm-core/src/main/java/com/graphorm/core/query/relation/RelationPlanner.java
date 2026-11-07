@@ -5,7 +5,7 @@ import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.RelationMetadata;
-import com.graphorm.core.metadata.RelationType;
+import com.graphorm.core.query.ProjectedColumn;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
 
@@ -19,33 +19,33 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Plans batched relationship queries for 1:1, 1:N, and N:1 relations across entities.
- * Generates unified {@link SelectQuery} ASTs targeting related tables using parameterized
- * {@code WHERE target_col IN (?, ...)} predicates and prevents infinite circular loops.
+ * Plans efficient batch queries for entity relationships, eliminating N+1 query bottlenecks.
+ * Generates SQL queries using {@code WHERE target_column IN (?, ?, ...)} with cycle detection
+ * and support for selective column projection and hidden join-key injection.
  */
 public class RelationPlanner {
 
     private final ModelRegistry modelRegistry;
 
+    /**
+     * Creates a new RelationPlanner with the provided model registry.
+     *
+     * @param modelRegistry the model registry
+     */
     public RelationPlanner(ModelRegistry modelRegistry) {
         this.modelRegistry = Objects.requireNonNull(modelRegistry, "ModelRegistry must not be null");
     }
 
     /**
-     * Factory method creating a new {@link RelationPlanner}.
+     * Factory method creating a new RelationPlanner instance.
      *
      * @param modelRegistry the model registry
-     * @return a new RelationPlanner instance
+     * @return a new RelationPlanner
      */
     public static RelationPlanner of(ModelRegistry modelRegistry) {
         return new RelationPlanner(modelRegistry);
     }
 
-    /**
-     * Returns the underlying model registry.
-     *
-     * @return model registry
-     */
     public ModelRegistry modelRegistry() {
         return modelRegistry;
     }
@@ -59,11 +59,24 @@ public class RelationPlanner {
      * @return the execution plan
      */
     public RelationPlan plan(String sourceModelName, String relationName, Collection<?> parentKeys) {
+        return plan(sourceModelName, relationName, parentKeys, null);
+    }
+
+    /**
+     * Plans a batched query for the specified relation on a source model with selective column projection.
+     *
+     * @param sourceModelName the declared source model name
+     * @param relationName    the relation name on the source model
+     * @param parentKeys      the collection of join keys extracted from parent entities
+     * @param selectedFields  the subset of target model field names to project (null or empty for all fields)
+     * @return the execution plan
+     */
+    public RelationPlan plan(String sourceModelName, String relationName, Collection<?> parentKeys, Collection<String> selectedFields) {
         Objects.requireNonNull(sourceModelName, "Source model name must not be null");
         Objects.requireNonNull(relationName, "Relation name must not be null");
         ModelMetadata sourceModel = modelRegistry.getModel(sourceModelName);
         RelationMetadata relation = sourceModel.getRelation(relationName);
-        return plan(sourceModel, relation, parentKeys, null);
+        return plan(sourceModel, relation, parentKeys, selectedFields, null);
     }
 
     /**
@@ -75,7 +88,25 @@ public class RelationPlanner {
      * @return the execution plan
      */
     public RelationPlan plan(ModelMetadata sourceModel, RelationMetadata relation, Collection<?> parentKeys) {
-        return plan(sourceModel, relation, parentKeys, null);
+        return plan(sourceModel, relation, parentKeys, null, null);
+    }
+
+    /**
+     * Plans a batched query for the specified relation metadata with selective column projection.
+     *
+     * @param sourceModel    the source model metadata
+     * @param relation       the relation metadata
+     * @param parentKeys     the collection of join keys extracted from parent entities
+     * @param selectedFields the subset of target model field names to project (null or empty for all fields)
+     * @return the execution plan
+     */
+    public RelationPlan plan(
+            ModelMetadata sourceModel,
+            RelationMetadata relation,
+            Collection<?> parentKeys,
+            Collection<String> selectedFields
+    ) {
+        return plan(sourceModel, relation, parentKeys, selectedFields, null);
     }
 
     /**
@@ -92,6 +123,28 @@ public class RelationPlanner {
             ModelMetadata sourceModel,
             RelationMetadata relation,
             Collection<?> parentKeys,
+            Set<String> activePath
+    ) {
+        return plan(sourceModel, relation, parentKeys, null, activePath);
+    }
+
+    /**
+     * Plans a batched query with selective column projection, hidden dependency injection,
+     * and circular traversal defense using an active visited path.
+     *
+     * @param sourceModel    the source model metadata
+     * @param relation       the relation metadata
+     * @param parentKeys     the collection of join keys extracted from parent entities
+     * @param selectedFields the subset of target model field names to project (null or empty for all fields)
+     * @param activePath     the set of entity names or relation tokens currently in the traversal stack
+     * @return the execution plan
+     * @throws CircularRelationException if a circular relation loop is detected
+     */
+    public RelationPlan plan(
+            ModelMetadata sourceModel,
+            RelationMetadata relation,
+            Collection<?> parentKeys,
+            Collection<String> selectedFields,
             Set<String> activePath
     ) {
         Objects.requireNonNull(sourceModel, "Source model must not be null");
@@ -131,11 +184,32 @@ public class RelationPlanner {
 
         // Build SelectQuery AST targeting the related table
         SelectQuery.Builder queryBuilder = SelectQuery.from(targetModel.tableName());
-        for (FieldMetadata field : targetModel.fields()) {
-            if (!field.isRelation()) {
-                queryBuilder.column(field.dbColumnName(), field.name());
+
+        if (selectedFields != null && !selectedFields.isEmpty()) {
+            boolean targetJoinProjected = false;
+            for (String fieldName : selectedFields) {
+                if (targetModel.hasField(fieldName)) {
+                    FieldMetadata field = targetModel.getField(fieldName);
+                    if (!field.isRelation()) {
+                        queryBuilder.column(field.dbColumnName(), field.name());
+                        if (field.name().equals(targetField.name()) || field.dbColumnName().equals(targetJoinColumn)) {
+                            targetJoinProjected = true;
+                        }
+                    }
+                }
+            }
+            // Auto-inject hidden target join column if not explicitly requested
+            if (!targetJoinProjected) {
+                queryBuilder.hiddenColumn(targetJoinColumn, targetField.name());
+            }
+        } else {
+            for (FieldMetadata field : targetModel.fields()) {
+                if (!field.isRelation()) {
+                    queryBuilder.column(field.dbColumnName(), field.name());
+                }
             }
         }
+
         queryBuilder.where(WherePredicate.in(targetJoinColumn, distinctKeys));
         SelectQuery selectQuery = queryBuilder.build();
 
@@ -188,7 +262,7 @@ public class RelationPlanner {
                 );
             }
 
-            RelationPlan plan = plan(currentModel, relation, currentKeys, activePath);
+            RelationPlan plan = plan(currentModel, relation, currentKeys, null, activePath);
             plans.add(plan);
 
             activePath.add(edgeToken);
@@ -206,8 +280,8 @@ public class RelationPlanner {
             RelationMetadata relation,
             ModelMetadata targetModel
     ) {
-        // Direct foreign key fields defined on relation
-        if (!relation.foreignKeyFields().isEmpty()) {
+        // Direct foreign key fields defined on relation (only if field exists on source model)
+        if (!relation.foreignKeyFields().isEmpty() && sourceModel.hasField(relation.foreignKeyFields().getFirst())) {
             String sourceFk = relation.foreignKeyFields().getFirst();
             String targetRef = !relation.referenceFields().isEmpty()
                     ? relation.referenceFields().getFirst()

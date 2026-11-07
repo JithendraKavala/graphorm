@@ -6,6 +6,8 @@ import com.graphorm.core.query.OrderByClause;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.graphql.binding.ArgumentBinder;
+import com.graphorm.graphql.planner.AnalyzedSelectionSet;
+import com.graphorm.graphql.planner.SelectionSetAnalyzer;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
@@ -20,7 +22,8 @@ import java.util.Objects;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a list of regular models (e.g. {@code Query.students}).
- * Handles dynamic filtering (where), sorting (orderBy), and pagination (limit, offset).
+ * Handles selective column projection, hidden dependency foreign key injection (TASK-11.2, TASK-11.3),
+ * dynamic filtering (where), sorting (orderBy), and pagination (limit, offset).
  */
 public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object>>> {
 
@@ -50,7 +53,15 @@ public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object
     public List<Map<String, Object>> get(DataFetchingEnvironment env) {
         log.debug("Executing ModelListDataFetcher for model: {}", model.name());
 
-        SelectQuery.Builder builder = SelectBuilder.forEntity(model, registry);
+        AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, model, registry);
+
+        SelectQuery.Builder builder;
+        if (analyzed != null && !analyzed.projectedColumns().isEmpty()) {
+            builder = SelectQuery.from(model.tableName());
+            builder.columns(analyzed.projectedColumns());
+        } else {
+            builder = SelectBuilder.forEntity(model, registry);
+        }
 
         WherePredicate where = argumentBinder.bindWhere(env, model);
         if (where != null) {

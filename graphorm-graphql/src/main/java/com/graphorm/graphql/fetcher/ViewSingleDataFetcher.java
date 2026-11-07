@@ -5,6 +5,8 @@ import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.ViewModelMetadata;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
+import com.graphorm.graphql.planner.AnalyzedSelectionSet;
+import com.graphorm.graphql.planner.SelectionSetAnalyzer;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.view.ViewQueryPlanner;
@@ -13,12 +15,15 @@ import graphql.schema.DataFetchingEnvironment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Generic GraphQL {@link DataFetcher} for querying a single view model entity (e.g. {@code Query.studentDashboard(studentId: Int!)}).
+ * Generic GraphQL {@link DataFetcher} for querying a single view model by unique key (e.g. {@code Query.studentDashboard(studentId: Int!)}).
+ * Translates queries via {@link ViewQueryPlanner} with selective projection and join pruning.
  */
 public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -52,65 +57,64 @@ public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
     public Map<String, Object> get(DataFetchingEnvironment env) {
         log.debug("Executing ViewSingleDataFetcher for view: {}", view.name());
 
-        String viewFieldName = resolveViewField(env);
-        Object idValue = extractId(env, viewFieldName);
+        String pkField = resolvePkField(view, idArgumentName);
+        FieldMetadata pkFieldMeta = view.findField(pkField).orElse(null);
+
+        Object idValue = extractId(env, pkField);
         if (idValue == null) {
             return null;
         }
 
-        FieldMetadata fieldMeta = view.findField(viewFieldName).orElse(null);
-        idValue = EntityRowNormalizer.coerceToFieldType(idValue, fieldMeta);
+        idValue = EntityRowNormalizer.coerceToFieldType(idValue, pkFieldMeta);
 
-        ViewQueryPlanner.ViewQueryBuilder builder = ViewQueryPlanner.forView(view, registry, dialect)
-                .where(WherePredicate.eq(viewFieldName, idValue))
-                .limit(1);
+        AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, view, registry);
+        Set<String> selectedFieldNames = null;
+        if (analyzed != null && !analyzed.requestedScalarFields().isEmpty()) {
+            selectedFieldNames = new LinkedHashSet<>(analyzed.requestedScalarFields());
+            selectedFieldNames.addAll(analyzed.hiddenDependencyFields());
+        }
 
-        SelectQuery query = builder.build();
+        SelectQuery query = ViewQueryPlanner.plan(view, registry, selectedFieldNames, dialect)
+                .where(WherePredicate.eq(pkField, idValue))
+                .limit(1)
+                .build();
+
         Optional<Map<String, Object>> row = executor.queryForObject(query);
         return row.map(r -> EntityRowNormalizer.normalize(r, view)).orElse(null);
     }
 
-    private String resolveViewField(DataFetchingEnvironment env) {
-        if (view.hasField(idArgumentName)) {
-            return idArgumentName;
+    private String resolvePkField(ViewModelMetadata view, String idArgName) {
+        if (view.hasField(idArgName)) {
+            return idArgName;
         }
-        for (String arg : env.getArguments().keySet()) {
-            if (view.hasField(arg)) {
-                return arg;
-            }
-        }
-        if (view.hasField("id")) {
-            return "id";
-        }
-        // First scalar field
         for (FieldMetadata f : view.fields()) {
-            if (!f.isRelation()) {
+            if (f.name().equalsIgnoreCase(idArgName) || f.name().equalsIgnoreCase("id") || f.name().equalsIgnoreCase(view.name() + "Id")) {
                 return f.name();
             }
         }
-        return idArgumentName;
+        return idArgName;
     }
 
-    private Object extractId(DataFetchingEnvironment env, String viewFieldName) {
-        if (env.containsArgument(idArgumentName) && env.getArgument(idArgumentName) != null) {
+    private Object extractId(DataFetchingEnvironment env, String pkField) {
+        if (env.containsArgument(idArgumentName)) {
             return env.getArgument(idArgumentName);
         }
-        if (env.containsArgument(viewFieldName) && env.getArgument(viewFieldName) != null) {
-            return env.getArgument(viewFieldName);
-        }
-        if (env.containsArgument("id") && env.getArgument("id") != null) {
+        if (env.containsArgument("id")) {
             return env.getArgument("id");
+        }
+        if (env.containsArgument(pkField)) {
+            return env.getArgument(pkField);
         }
         Object whereArg = env.getArgument("where");
         if (whereArg instanceof Map<?, ?> whereMap) {
-            if (whereMap.get(idArgumentName) != null) {
+            if (whereMap.containsKey(idArgumentName)) {
                 return whereMap.get(idArgumentName);
             }
-            if (whereMap.get(viewFieldName) != null) {
-                return whereMap.get(viewFieldName);
-            }
-            if (whereMap.get("id") != null) {
+            if (whereMap.containsKey("id")) {
                 return whereMap.get("id");
+            }
+            if (whereMap.containsKey(pkField)) {
+                return whereMap.get(pkField);
             }
         }
         return null;

@@ -3,11 +3,13 @@ package com.graphorm.graphql.engine;
 import com.graphorm.core.exception.ReadOnlyViewException;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
+import com.graphorm.core.metadata.RelationMetadata;
 import com.graphorm.core.metadata.ViewModelMetadata;
 import com.graphorm.graphql.binding.ArgumentBinder;
 import com.graphorm.graphql.fetcher.ModelCreateDataFetcher;
 import com.graphorm.graphql.fetcher.ModelDeleteDataFetcher;
 import com.graphorm.graphql.fetcher.ModelListDataFetcher;
+import com.graphorm.graphql.fetcher.ModelRelationDataFetcher;
 import com.graphorm.graphql.fetcher.ModelSingleDataFetcher;
 import com.graphorm.graphql.fetcher.ModelUpdateDataFetcher;
 import com.graphorm.graphql.fetcher.ViewListDataFetcher;
@@ -18,6 +20,7 @@ import com.graphorm.graphql.schema.GraphQlTypeInspector;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
+import com.graphorm.jdbc.relation.BatchRelationLoader;
 import graphql.schema.DataFetcher;
 import graphql.schema.FieldCoordinates;
 import graphql.schema.GraphQLCodeRegistry;
@@ -39,13 +42,14 @@ import java.util.function.Predicate;
 
 /**
  * Automatically discovers, binds, and registers generic {@link DataFetcher} instances
- * for models and view models in GraphQL Java runtime wiring or code registry.
+ * for models, view models, and nested relationships in GraphQL Java runtime wiring or code registry.
  * <p>
  * Enforces:
  * <ul>
  *     <li>Auto-registration of {@code Query.<model>s} and {@code Query.<model>}.</li>
  *     <li>Auto-registration of {@code Mutation.create<Model>}, {@code update<Model>}, {@code delete<Model>} (regular models only).</li>
  *     <li>Auto-registration of {@code Query.<view>s} and {@code Query.<view>}.</li>
+ *     <li>Auto-registration of relationship {@code <Model>.<relation>} DataFetchers backed by {@link BatchRelationLoader} and DataLoader (TASK-11.4).</li>
  *     <li>Strict read-only invariant: NEVER registers any mutations for view models.</li>
  *     <li>Custom resolver coexistence: skips registration if a custom fetcher is already registered.</li>
  * </ul>
@@ -58,6 +62,7 @@ public class GraphOrmGraphQlRegistrar {
     private final JdbcExecutor executor;
     private final SqlDialect dialect;
     private final ArgumentBinder argumentBinder;
+    private final BatchRelationLoader batchRelationLoader;
     private boolean failFastOnViewMutation = true;
     private final Set<FieldCoordinates> customResolverCoordinates = new HashSet<>();
     private Predicate<FieldCoordinates> customResolverPredicate = coords -> false;
@@ -72,6 +77,7 @@ public class GraphOrmGraphQlRegistrar {
         this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
         this.dialect = dialect != null ? dialect : executor.dialect();
         this.argumentBinder = argumentBinder != null ? argumentBinder : new ArgumentBinder();
+        this.batchRelationLoader = new BatchRelationLoader(this.executor, this.modelRegistry);
     }
 
     public GraphOrmGraphQlRegistrar(ModelRegistry modelRegistry, JdbcExecutor executor) {
@@ -144,7 +150,11 @@ public class GraphOrmGraphQlRegistrar {
             wiringBuilder.type(mutationWiring);
         }
 
-        log.info("GraphORM registered {} queries and {} mutations into GraphQL RuntimeWiring", queryCount, mutationCount);
+        // Auto-register relationship DataFetchers on Model and View types
+        int relCount = registerRelationshipFetchers(wiringBuilder);
+
+        log.info("GraphORM registered {} queries, {} mutations, and {} relation DataFetchers into GraphQL RuntimeWiring",
+                queryCount, mutationCount, relCount);
         return bindings;
     }
 
@@ -176,8 +186,54 @@ public class GraphOrmGraphQlRegistrar {
             codeRegistryBuilder.dataFetcher(coords, fetcher);
         }
 
+        // Auto-register relationship DataFetchers on Model and View types
+        registerRelationshipFetchers(codeRegistryBuilder);
+
         log.info("GraphORM registered {} DataFetchers into GraphQLCodeRegistry", bindings.size());
         return bindings;
+    }
+
+    private int registerRelationshipFetchers(RuntimeWiring.Builder wiringBuilder) {
+        int count = 0;
+        for (ModelMetadata model : modelRegistry.getAllModels()) {
+            if (model.relations().isEmpty()) {
+                continue;
+            }
+            TypeRuntimeWiring.Builder typeWiring = TypeRuntimeWiring.newTypeWiring(model.name());
+            int modelRelCount = 0;
+            for (RelationMetadata relation : model.relations()) {
+                FieldCoordinates coords = FieldCoordinates.coordinates(model.name(), relation.relationName());
+                if (isCustomResolverPresent(coords)) {
+                    log.info("Custom resolver detected for {}; skipping GraphORM auto-wiring", coords);
+                    continue;
+                }
+                ModelRelationDataFetcher fetcher = new ModelRelationDataFetcher(model, relation, modelRegistry, batchRelationLoader);
+                typeWiring.dataFetcher(relation.relationName(), fetcher);
+                modelRelCount++;
+                count++;
+            }
+            if (modelRelCount > 0) {
+                wiringBuilder.type(typeWiring);
+            }
+        }
+        return count;
+    }
+
+    private int registerRelationshipFetchers(GraphQLCodeRegistry.Builder codeRegistryBuilder) {
+        int count = 0;
+        for (ModelMetadata model : modelRegistry.getAllModels()) {
+            for (RelationMetadata relation : model.relations()) {
+                FieldCoordinates coords = FieldCoordinates.coordinates(model.name(), relation.relationName());
+                if (isCustomResolverPresent(coords) || codeRegistryBuilder.hasDataFetcher(coords)) {
+                    log.info("Custom resolver detected for {}; skipping GraphORM auto-wiring", coords);
+                    continue;
+                }
+                ModelRelationDataFetcher fetcher = new ModelRelationDataFetcher(model, relation, modelRegistry, batchRelationLoader);
+                codeRegistryBuilder.dataFetcher(coords, fetcher);
+                count++;
+            }
+        }
+        return count;
     }
 
     /**
@@ -287,5 +343,9 @@ public class GraphOrmGraphQlRegistrar {
 
     public ArgumentBinder argumentBinder() {
         return argumentBinder;
+    }
+
+    public BatchRelationLoader batchRelationLoader() {
+        return batchRelationLoader;
     }
 }

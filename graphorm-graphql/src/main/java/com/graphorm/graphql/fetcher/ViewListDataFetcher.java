@@ -6,6 +6,8 @@ import com.graphorm.core.query.OrderByClause;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.graphql.binding.ArgumentBinder;
+import com.graphorm.graphql.planner.AnalyzedSelectionSet;
+import com.graphorm.graphql.planner.SelectionSetAnalyzer;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.view.ViewQueryPlanner;
@@ -14,13 +16,16 @@ import graphql.schema.DataFetchingEnvironment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a list of view model entities (e.g. {@code Query.studentDashboards}).
- * Translates filters, sorting, and pagination via {@link ViewQueryPlanner} with automatic join pruning and aggregate handling.
+ * Translates filters, sorting, and pagination via {@link ViewQueryPlanner} with selective projection, join pruning,
+ * and aggregate handling.
  */
 public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>>> {
 
@@ -54,7 +59,14 @@ public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>
     public List<Map<String, Object>> get(DataFetchingEnvironment env) {
         log.debug("Executing ViewListDataFetcher for view: {}", view.name());
 
-        ViewQueryPlanner.ViewQueryBuilder builder = ViewQueryPlanner.forView(view, registry, dialect);
+        AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, view, registry);
+        Set<String> selectedFieldNames = null;
+        if (analyzed != null && !analyzed.requestedScalarFields().isEmpty()) {
+            selectedFieldNames = new LinkedHashSet<>(analyzed.requestedScalarFields());
+            selectedFieldNames.addAll(analyzed.hiddenDependencyFields());
+        }
+
+        ViewQueryPlanner.ViewQueryBuilder builder = ViewQueryPlanner.plan(view, registry, selectedFieldNames, dialect);
 
         WherePredicate where = argumentBinder.bindWhere(env, view);
         if (where != null) {

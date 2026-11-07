@@ -13,6 +13,7 @@ import com.graphorm.jdbc.mapper.RowMapper;
 import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,6 +24,7 @@ import java.util.Objects;
 /**
  * Batched relationship loading engine executing {@code WHERE target_col IN (?, ...)} queries
  * and correlating child entities back to their corresponding parents in memory with zero N+1 queries.
+ * Supports selective column projection and hidden dependency foreign key injection.
  */
 public class BatchRelationLoader {
 
@@ -57,12 +59,34 @@ public class BatchRelationLoader {
      * @param <C>             child type
      * @return batch load result with mapped associations
      */
-    @SuppressWarnings("unchecked")
     public <P, C> BatchLoadResult<P, C> load(
             String sourceModelName,
             String relationName,
             List<P> parents,
             Class<C> childClass
+    ) {
+        return load(sourceModelName, relationName, parents, childClass, null);
+    }
+
+    /**
+     * Loads related child entities for a list of parent entities using a child class with selective projection.
+     *
+     * @param sourceModelName declared name of the source parent model
+     * @param relationName    name of the relation on the source model
+     * @param parents         collection of parent entities
+     * @param childClass      the Java record, class, or Map type for children
+     * @param selectedFields  selective field names to project (null for all fields)
+     * @param <P>             parent type
+     * @param <C>             child type
+     * @return batch load result with mapped associations
+     */
+    @SuppressWarnings("unchecked")
+    public <P, C> BatchLoadResult<P, C> load(
+            String sourceModelName,
+            String relationName,
+            List<P> parents,
+            Class<C> childClass,
+            Collection<String> selectedFields
     ) {
         Objects.requireNonNull(sourceModelName, "Source model name must not be null");
         Objects.requireNonNull(relationName, "Relation name must not be null");
@@ -79,7 +103,7 @@ public class BatchRelationLoader {
                 ? (RowMapper<C>) DynamicRowMapper.mapToMap()
                 : DynamicRowMapper.mapToRecord(childClass);
 
-        return load(sourceModel, relation, parents, childMapper);
+        return load(sourceModel, relation, parents, childMapper, selectedFields);
     }
 
     /**
@@ -98,6 +122,28 @@ public class BatchRelationLoader {
             RelationMetadata relation,
             List<P> parents,
             RowMapper<C> childMapper
+    ) {
+        return load(sourceModel, relation, parents, childMapper, null);
+    }
+
+    /**
+     * Loads related child entities using a custom RowMapper with selective column projection.
+     *
+     * @param sourceModel    the source model metadata
+     * @param relation       the relation metadata
+     * @param parents        collection of parent entities
+     * @param childMapper    custom row mapper for children
+     * @param selectedFields selective target field names to project (null for all fields)
+     * @param <P>            parent type
+     * @param <C>            child type
+     * @return batch load result with mapped associations
+     */
+    public <P, C> BatchLoadResult<P, C> load(
+            ModelMetadata sourceModel,
+            RelationMetadata relation,
+            List<P> parents,
+            RowMapper<C> childMapper,
+            Collection<String> selectedFields
     ) {
         Objects.requireNonNull(sourceModel, "Source model must not be null");
         Objects.requireNonNull(relation, "Relation metadata must not be null");
@@ -126,7 +172,7 @@ public class BatchRelationLoader {
         }
 
         // Generate batched RelationPlan
-        RelationPlan plan = relationPlanner.plan(sourceModel, relation, parentKeys);
+        RelationPlan plan = relationPlanner.plan(sourceModel, relation, parentKeys, selectedFields);
         if (plan.keys().isEmpty()) {
             return BatchLoadResult.empty();
         }
@@ -165,6 +211,65 @@ public class BatchRelationLoader {
         }
 
         return new BatchLoadResult<>(oneToOne, oneToMany, childrenByKey);
+    }
+
+    /**
+     * Loads children directly by their join key values, returning a map of Key -> Result.
+     * Ideal for DataLoader integration where parent join keys are collected in batches.
+     *
+     * @param sourceModel    the source model
+     * @param relation       the relation metadata
+     * @param parentKeys     the collection of parent join keys
+     * @param selectedFields selective target field names to project (null for all fields)
+     * @return map from original parent key to either a single child (for to-one) or a List of children (for to-many)
+     */
+    public Map<Object, Object> loadByKeys(
+            ModelMetadata sourceModel,
+            RelationMetadata relation,
+            Collection<?> parentKeys,
+            Collection<String> selectedFields
+    ) {
+        Objects.requireNonNull(sourceModel, "Source model must not be null");
+        Objects.requireNonNull(relation, "Relation metadata must not be null");
+
+        if (parentKeys == null || parentKeys.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        RelationPlan plan = relationPlanner.plan(sourceModel, relation, parentKeys, selectedFields);
+        if (plan.keys().isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<Map<String, Object>> children = jdbcExecutor.queryForList(plan.selectQuery());
+
+        // Group children by normalized join key
+        Map<Object, List<Map<String, Object>>> childrenByKey = new LinkedHashMap<>();
+        for (Map<String, Object> child : children) {
+            Object childKey = extractFieldValue(child, plan.targetJoinField(), plan.targetJoinColumn());
+            Object normKey = normalizeKey(childKey);
+            if (normKey != null) {
+                childrenByKey.computeIfAbsent(normKey, k -> new ArrayList<>()).add(child);
+            }
+        }
+
+        Map<Object, Object> resultMap = new LinkedHashMap<>();
+        boolean isToOne = plan.isToOne();
+
+        for (Object key : parentKeys) {
+            if (key == null) {
+                continue;
+            }
+            Object normKey = normalizeKey(key);
+            List<Map<String, Object>> matching = childrenByKey.getOrDefault(normKey, List.of());
+            if (isToOne) {
+                resultMap.put(key, matching.isEmpty() ? null : matching.getFirst());
+            } else {
+                resultMap.put(key, matching);
+            }
+        }
+
+        return resultMap;
     }
 
     /**
@@ -242,7 +347,7 @@ public class BatchRelationLoader {
     }
 
     private String determineSourceJoinField(ModelMetadata sourceModel, RelationMetadata relation) {
-        if (!relation.foreignKeyFields().isEmpty()) {
+        if (!relation.foreignKeyFields().isEmpty() && sourceModel.hasField(relation.foreignKeyFields().getFirst())) {
             return relation.foreignKeyFields().getFirst();
         }
         ModelMetadata targetModel = relationPlanner.modelRegistry().getModel(relation.targetModel());
