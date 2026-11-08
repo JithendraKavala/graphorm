@@ -345,6 +345,24 @@ class QueryAstTest {
         assertThatThrownBy(() -> QueryGuards.createDelete(studentView, WherePredicate.eq("id", 1L)))
                 .isInstanceOf(ReadOnlyViewException.class);
 
+        // Read-only physical model via @@readonly
+        ModelMetadata readOnlyModel = ModelMetadata.builder("AuditLog")
+                .tableName("audit_logs")
+                .readOnly(true)
+                .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
+                .build();
+        assertThat(readOnlyModel.isReadOnly()).isTrue();
+        QueryGuards.ensureWritable(studentModel, "INSERT");
+        assertThatThrownBy(() -> QueryGuards.ensureWritable(readOnlyModel, "INSERT"))
+                .isInstanceOf(ReadOnlyViewException.class)
+                .hasMessageContaining("Cannot perform INSERT on read-only view 'AuditLog'");
+        assertThatThrownBy(() -> QueryGuards.createInsert(readOnlyModel, Map.of("id", 1L)))
+                .isInstanceOf(ReadOnlyViewException.class);
+        assertThatThrownBy(() -> QueryGuards.createUpdate(readOnlyModel, Map.of("id", 1L), WherePredicate.eq("id", 1L)))
+                .isInstanceOf(ReadOnlyViewException.class);
+        assertThatThrownBy(() -> QueryGuards.createDelete(readOnlyModel, WherePredicate.eq("id", 1L)))
+                .isInstanceOf(ReadOnlyViewException.class);
+
         // DatabaseView source table is read-only
         SourceTable.DatabaseView dbViewSource = SourceTable.view("vw_test");
         assertThatThrownBy(() -> QueryGuards.assertNotView(dbViewSource, "DELETE"))

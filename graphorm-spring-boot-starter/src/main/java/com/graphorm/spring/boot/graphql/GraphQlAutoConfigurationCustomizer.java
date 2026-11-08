@@ -72,13 +72,17 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
         if (modelRegistry == null) {
             return false;
         }
-        boolean inModels = modelRegistry.getAllModels().stream()
+        boolean inModelFields = modelRegistry.getAllModels().stream()
                 .flatMap(m -> m.fields().stream())
                 .anyMatch(f -> f.authRoles() != null && !f.authRoles().isEmpty());
-        boolean inViews = modelRegistry.getAllViewModels().stream()
+        boolean inViewFields = modelRegistry.getAllViewModels().stream()
                 .flatMap(v -> v.fields().stream())
                 .anyMatch(f -> f.authRoles() != null && !f.authRoles().isEmpty());
-        return inModels || inViews;
+        boolean inModels = modelRegistry.getAllModels().stream()
+                .anyMatch(m -> m.authRoles() != null && !m.authRoles().isEmpty());
+        boolean inViews = modelRegistry.getAllViewModels().stream()
+                .anyMatch(v -> v.authRoles() != null && !v.authRoles().isEmpty());
+        return inModelFields || inViewFields || inModels || inViews;
     }
 
     public static boolean hasAuthDirectives(TypeDefinitionRegistry registry) {

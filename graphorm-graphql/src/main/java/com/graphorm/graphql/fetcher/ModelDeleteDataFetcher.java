@@ -1,10 +1,14 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.query.DeleteQuery;
+import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.WherePredicate;
+import com.graphorm.graphql.security.FieldAuthorizer;
+import com.graphorm.graphql.security.FieldAuthorizerContext;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import graphql.schema.DataFetcher;
@@ -18,6 +22,7 @@ import java.util.Objects;
 
 /**
  * Generic GraphQL {@link DataFetcher} for deleting a model entity (e.g. {@code Mutation.deleteStudent(id: ID!): Boolean!}).
+ * Enforces writability and model-level authorization.
  */
 public class ModelDeleteDataFetcher implements DataFetcher<Object> {
 
@@ -47,6 +52,20 @@ public class ModelDeleteDataFetcher implements DataFetcher<Object> {
     @Override
     public Object get(DataFetchingEnvironment env) {
         log.debug("Executing ModelDeleteDataFetcher for model: {}", model.name());
+
+        QueryGuards.ensureWritable(model, "DELETE");
+
+        if (model.hasAuthRoles()) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            if (!authorizer.isAuthorized(model.authRoles())) {
+                log.warn("Access denied to model '{}'. Required roles: {}, user roles: {}",
+                        model.name(), model.authRoles(), authorizer.getCurrentRoles());
+                throw new AccessDeniedException(
+                        "ACCESS_DENIED",
+                        "Access denied to model '" + model.name() + "'. Required roles: " + model.authRoles()
+                );
+            }
+        }
 
         String pkField = model.primaryKeyFields().isEmpty() ? "id" : model.primaryKeyFields().getFirst();
         FieldMetadata pkFieldMeta = model.findField(pkField).orElse(null);

@@ -9,7 +9,7 @@ import java.util.Objects;
 
 /**
  * Defensive query guards and factories enforcing the architectural read-only invariant.
- * Ensures view models are never targeted by write queries (INSERT, UPDATE, DELETE).
+ * Ensures view models and read-only physical models are never targeted by write queries (INSERT, UPDATE, DELETE).
  */
 public final class QueryGuards {
 
@@ -31,6 +31,17 @@ public final class QueryGuards {
     }
 
     /**
+     * Ensures that the given entity metadata is writable, throwing {@link ReadOnlyViewException} if read-only.
+     *
+     * @param entity    the entity to check
+     * @param operation the attempted write operation (e.g. "INSERT", "UPDATE", "DELETE")
+     * @throws ReadOnlyViewException if the entity is read-only
+     */
+    public static void ensureWritable(EntityMetadata entity, String operation) {
+        assertWritable(entity, operation);
+    }
+
+    /**
      * Asserts that an entity with the given properties is writable.
      *
      * @param entityName the entity name
@@ -44,6 +55,18 @@ public final class QueryGuards {
         if (isReadOnly) {
             throw new ReadOnlyViewException(entityName, operation);
         }
+    }
+
+    /**
+     * Ensures that an entity with the given properties is writable.
+     *
+     * @param entityName the entity name
+     * @param isReadOnly whether the entity is marked read-only
+     * @param operation  the attempted write operation
+     * @throws ReadOnlyViewException if isReadOnly is true
+     */
+    public static void ensureWritable(String entityName, boolean isReadOnly, String operation) {
+        assertWritable(entityName, isReadOnly, operation);
     }
 
     /**

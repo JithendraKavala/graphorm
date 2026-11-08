@@ -40,8 +40,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *     <li>Database-backed physical view queries</li>
  *     <li>Virtual aggregated view queries</li>
  *     <li>Model mutations</li>
- *     <li>Strict read-only view mutation exclusion</li>
- *     <li>Field-level authorization via {@code @auth} directive</li>
+ *     <li>Strict read-only view and physical model mutation exclusion</li>
+ *     <li>Field-level, model-level, and view-level authorization via {@code @auth} and {@code @@auth}</li>
+ *     <li>Backend-injected column attribute {@code @injected}</li>
  *     <li>Query depth and complexity security limits</li>
  * </ul>
  */
@@ -114,9 +115,15 @@ class UniversityGraphQlE2EIntegrationTest {
     private GraphQlSource graphQlSource;
 
     private ExecutionResult executeQuery(String query) {
-        return graphQlSource.graphQl().execute(
-                ExecutionInput.newExecutionInput().query(query).build()
-        );
+        return executeQuery(query, Map.of());
+    }
+
+    private ExecutionResult executeQuery(String query, Map<String, Object> context) {
+        ExecutionInput.Builder builder = ExecutionInput.newExecutionInput().query(query);
+        if (context != null && !context.isEmpty()) {
+            builder.graphQLContext(context);
+        }
+        return graphQlSource.graphQl().execute(builder.build());
     }
 
     @Test
@@ -393,5 +400,204 @@ class UniversityGraphQlE2EIntegrationTest {
         GraphQLError error = result.getErrors().get(0);
         assertThat(error.getMessage()).contains("complexity");
         assertThat(error.getExtensions()).containsEntry("code", "GRAPHQL_COMPLEXITY_LIMIT_EXCEEDED");
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("@@readonly: GradeScale queries succeed and mutations are strictly omitted from GraphQL schema")
+    void testReadOnlyPhysicalModelGradeScale() {
+        GraphQLObjectType mutationType = graphQlSource.schema().getMutationType();
+        assertThat(mutationType).isNotNull();
+
+        // GradeScale mutations must NOT exist
+        assertThat(mutationType.getFieldDefinition("createGradeScale")).isNull();
+        assertThat(mutationType.getFieldDefinition("updateGradeScale")).isNull();
+        assertThat(mutationType.getFieldDefinition("deleteGradeScale")).isNull();
+
+        // GradeScale queries must work
+        String query = """
+                query {
+                    gradeScales {
+                        id
+                        letter
+                        minScore
+                        gpaPoint
+                    }
+                }
+                """;
+
+        ExecutionResult result = executeQuery(query);
+        assertThat(result.getErrors()).isEmpty();
+        Map<String, Object> data = result.getData();
+        assertThat(data).containsKey("gradeScales");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> scales = (List<Map<String, Object>>) data.get("gradeScales");
+        assertThat(scales).hasSize(5);
+
+        Map<String, Object> scaleA = scales.stream()
+                .filter(s -> "A".equals(s.get("letter")))
+                .findFirst()
+                .orElseThrow();
+        assertThat(scaleA.get("minScore")).isEqualTo(90.0);
+        assertThat(scaleA.get("gpaPoint")).isEqualTo(4.0);
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("@@auth on Model: rejects access to auditLogs query without ADMIN role")
+    void testModelLevelAuthRejectsUnauthorized() {
+        // Authenticated as regular STUDENT
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("student", "student123",
+                        List.of(new SimpleGrantedAuthority("ROLE_STUDENT")))
+        );
+
+        String query = """
+                query {
+                    auditLogs {
+                        id
+                        action
+                        tenantId
+                        performedBy
+                    }
+                }
+                """;
+
+        ExecutionResult result = executeQuery(query);
+        assertThat(result.getErrors()).isNotEmpty();
+        GraphQLError error = result.getErrors().get(0);
+        assertThat(error.getMessage()).contains("Access denied");
+        assertThat(error.getExtensions()).containsEntry("code", "ACCESS_DENIED");
+    }
+
+    @Test
+    @Order(12)
+    @DisplayName("@@auth on Model: permits access to auditLogs query with ADMIN role")
+    void testModelLevelAuthPermitsAdmin() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("admin", "admin123",
+                        List.of(new SimpleGrantedAuthority("ROLE_ADMIN")))
+        );
+
+        String query = """
+                query {
+                    auditLogs {
+                        id
+                        action
+                        tenantId
+                        performedBy
+                    }
+                }
+                """;
+
+        ExecutionResult result = executeQuery(query);
+        assertThat(result.getErrors()).isEmpty();
+        Map<String, Object> data = result.getData();
+        assertThat(data).containsKey("auditLogs");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> logs = (List<Map<String, Object>>) data.get("auditLogs");
+        assertThat(logs).hasSizeGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("@@auth on View: rejects access to auditSummaries query without ADMIN role")
+    void testViewLevelAuthRejectsUnauthorized() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("student", "student123",
+                        List.of(new SimpleGrantedAuthority("ROLE_STUDENT")))
+        );
+
+        String query = """
+                query {
+                    auditSummaries {
+                        id
+                        action
+                        tenantId
+                        performedBy
+                    }
+                }
+                """;
+
+        ExecutionResult result = executeQuery(query);
+        assertThat(result.getErrors()).isNotEmpty();
+        GraphQLError error = result.getErrors().get(0);
+        assertThat(error.getMessage()).contains("Access denied");
+        assertThat(error.getExtensions()).containsEntry("code", "ACCESS_DENIED");
+    }
+
+    @Test
+    @Order(14)
+    @DisplayName("@@auth on View: permits access to auditSummaries query with ADMIN role")
+    void testViewLevelAuthPermitsAdmin() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("admin", "admin123",
+                        List.of(new SimpleGrantedAuthority("ROLE_ADMIN")))
+        );
+
+        String query = """
+                query {
+                    auditSummaries {
+                        id
+                        action
+                        tenantId
+                        performedBy
+                    }
+                }
+                """;
+
+        ExecutionResult result = executeQuery(query);
+        assertThat(result.getErrors()).isEmpty();
+        Map<String, Object> data = result.getData();
+        assertThat(data).containsKey("auditSummaries");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> summaries = (List<Map<String, Object>>) data.get("auditSummaries");
+        assertThat(summaries).hasSizeGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    @Order(15)
+    @DisplayName("@injected: backend automatically injects context and security values on createAuditLog mutation")
+    void testInjectedColumnsOnCreateAuditLogMutation() {
+        // Authenticated as ADMIN with username "auditor_clara"
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("auditor_clara", "admin123",
+                        List.of(new SimpleGrantedAuthority("ROLE_ADMIN")))
+        );
+
+        String mutation = """
+                mutation {
+                    createAuditLog(input: {
+                        action: "CURRICULUM_REVISION"
+                        details: "Added quantum computing modules"
+                    }) {
+                        id
+                        action
+                        details
+                        tenantId
+                        performedBy
+                    }
+                }
+                """;
+
+        // tenantId provided in GraphQL execution context
+        Map<String, Object> context = Map.of("tenantId", "tenant-science-faculty");
+        ExecutionResult result = executeQuery(mutation, context);
+
+        assertThat(result.getErrors()).isEmpty();
+        Map<String, Object> data = result.getData();
+        assertThat(data).containsKey("createAuditLog");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> created = (Map<String, Object>) data.get("createAuditLog");
+        assertThat(created.get("action")).isEqualTo("CURRICULUM_REVISION");
+        assertThat(created.get("details")).isEqualTo("Added quantum computing modules");
+        // Verified: tenantId was injected from GraphQLContext
+        assertThat(created.get("tenantId")).isEqualTo("tenant-science-faculty");
+        // Verified: performedBy was injected from Spring Security SecurityContextHolder
+        assertThat(created.get("performedBy")).isEqualTo("auditor_clara");
     }
 }

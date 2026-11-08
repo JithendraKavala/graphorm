@@ -39,6 +39,24 @@ public interface EntityMetadata {
     List<FieldMetadata> fields();
 
     /**
+     * Returns the list of authorization roles required to access this entity, if declared.
+     *
+     * @return immutable list of auth roles, or empty list if unrestricted
+     */
+    default List<String> authRoles() {
+        return List.of();
+    }
+
+    /**
+     * Indicates whether this entity has role-based authorization requirements declared.
+     *
+     * @return true if entity has required auth roles
+     */
+    default boolean hasAuthRoles() {
+        return authRoles() != null && !authRoles().isEmpty();
+    }
+
+    /**
      * Looks up a field by its logical name.
      *
      * @param fieldName the name of the field to find

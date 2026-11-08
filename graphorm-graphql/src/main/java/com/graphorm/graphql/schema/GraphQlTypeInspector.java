@@ -140,7 +140,7 @@ public class GraphQlTypeInspector {
         String idArgName = resolveIdArgumentName(field, entity);
 
         GraphQlOperationKind kind;
-        if (entity.isReadOnly()) {
+        if (entity instanceof com.graphorm.core.metadata.ViewModelMetadata) {
             kind = isList ? GraphQlOperationKind.VIEW_LIST_QUERY : GraphQlOperationKind.VIEW_SINGLE_QUERY;
         } else {
             kind = isList ? GraphQlOperationKind.MODEL_LIST_QUERY : GraphQlOperationKind.MODEL_SINGLE_QUERY;

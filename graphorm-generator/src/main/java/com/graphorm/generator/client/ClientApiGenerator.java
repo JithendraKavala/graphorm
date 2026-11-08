@@ -8,6 +8,7 @@ import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
 import com.graphorm.core.query.OrderByClause;
 import com.graphorm.core.query.ProjectedColumn;
+import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.UpdateQuery;
 import com.graphorm.core.query.WherePredicate;
@@ -200,6 +201,7 @@ public final class ClientApiGenerator {
                 .addAnnotation(Override.class)
                 .returns(modelType)
                 .addParameter(createInputType, "createInput")
+                .addStatement("$T.ensureWritable(metadata, \"INSERT\")", QueryGuards.class)
                 .addStatement("$T.requireNonNull(createInput, \"createInput must not be null\")", Objects.class)
                 .addStatement("$T<String, Object> values = createInput.toMap()", Map.class)
                 .addStatement("$T insertQuery = $T.into(metadata.tableName()).values(values).build()",
@@ -223,6 +225,7 @@ public final class ClientApiGenerator {
                 .returns(modelType)
                 .addParameter(Object.class, "id")
                 .addParameter(updateInputType, "updateInput")
+                .addStatement("$T.ensureWritable(metadata, \"UPDATE\")", QueryGuards.class)
                 .addStatement("$T.requireNonNull(id, \"id must not be null\")", Objects.class)
                 .addStatement("$T.requireNonNull(updateInput, \"updateInput must not be null\")", Objects.class)
                 .addStatement("$T<String, Object> values = updateInput.toMap()", Map.class)
@@ -238,6 +241,7 @@ public final class ClientApiGenerator {
                 .addAnnotation(Override.class)
                 .returns(TypeName.BOOLEAN)
                 .addParameter(Object.class, "id")
+                .addStatement("$T.ensureWritable(metadata, \"DELETE\")", QueryGuards.class)
                 .addStatement("$T.requireNonNull(id, \"id must not be null\")", Objects.class)
                 .addStatement("$T deleteQuery = $T.from(metadata.tableName()).where($T.eq($S, id)).build()",
                         DeleteQuery.class, DeleteQuery.class, WherePredicate.class, pkCol)
@@ -250,6 +254,7 @@ public final class ClientApiGenerator {
                 .addAnnotation(Override.class)
                 .returns(TypeName.LONG)
                 .addParameter(consumerType, "specConsumer")
+                .addStatement("$T.ensureWritable(metadata, \"DELETE\")", QueryGuards.class)
                 .addStatement("$T spec = new $T(() -> $T.INSTANCE)", querySpecType, querySpecType, filterType)
                 .addStatement("specConsumer.accept(spec)")
                 .addStatement("$T predicate = spec.getPredicate() == null ? $T.raw($S) : spec.getPredicate()",

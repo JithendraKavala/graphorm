@@ -1,5 +1,7 @@
 -- Drop objects in reverse dependency order
 DROP VIEW IF EXISTS v_department_stats CASCADE;
+DROP TABLE IF EXISTS audit_logs CASCADE;
+DROP TABLE IF EXISTS grade_scales CASCADE;
 DROP TABLE IF EXISTS enrollments CASCADE;
 DROP TABLE IF EXISTS courses CASCADE;
 DROP TABLE IF EXISTS students CASCADE;
@@ -45,6 +47,23 @@ CREATE TABLE enrollments (
     grade VARCHAR(5),
     grade_points DOUBLE PRECISION,
     enrollment_date VARCHAR(20) NOT NULL
+);
+
+-- Read-Only Reference Model (Stage 15.9 @@readonly)
+CREATE TABLE grade_scales (
+    id SERIAL PRIMARY KEY,
+    letter VARCHAR(10) NOT NULL UNIQUE,
+    min_score DOUBLE PRECISION NOT NULL,
+    gpa_point DOUBLE PRECISION NOT NULL
+);
+
+-- Model-Level Authorization & Backend-Injected Model (Stage 15.7 @@auth & 15.8 @injected)
+CREATE TABLE audit_logs (
+    id SERIAL PRIMARY KEY,
+    action VARCHAR(100) NOT NULL,
+    details VARCHAR(255),
+    tenant_id VARCHAR(50) NOT NULL,
+    performed_by VARCHAR(100) NOT NULL
 );
 
 -- Database-Backed Physical View (Stage 1 View Model)

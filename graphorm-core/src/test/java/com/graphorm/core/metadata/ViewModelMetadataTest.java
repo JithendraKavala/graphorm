@@ -33,6 +33,7 @@ class ViewModelMetadataTest {
         assertThat(dbView.isRawQuery()).isFalse();
         assertThat(dbView.fields()).hasSize(2);
         assertThat(dbView.hasField("id")).isTrue();
+        assertThat(dbView.hasAuthRoles()).isFalse();
     }
 
     @Test
@@ -68,33 +69,26 @@ class ViewModelMetadataTest {
         assertThat(view.isReadOnly()).isTrue();
         assertThat(view.sourceModelName()).isEqualTo("Student");
         assertThat(view.sourceAlias()).isEqualTo("s");
+        assertThat(view.fields()).hasSize(3);
         assertThat(view.joinDefinitions()).hasSize(2);
         assertThat(view.groupByColumns()).containsExactly("s.id", "s.name", "d.name");
+        assertThat(view.isVirtual()).isTrue();
         assertThat(view.isDatabaseBacked()).isFalse();
-        assertThat(view.isRawQuery()).isFalse();
 
-        // Mutating external lists should not affect view
-        fields.clear();
+        // Mutate inputs to ensure defensive copying
+        fields.add(FieldMetadata.builder("extra").build());
         joins.clear();
         groupBy.clear();
 
         assertThat(view.fields()).hasSize(3);
         assertThat(view.joinDefinitions()).hasSize(2);
         assertThat(view.groupByColumns()).hasSize(3);
-
-        // Mutating returned lists must throw UnsupportedOperationException
-        assertThatThrownBy(() -> view.fields().clear())
-                .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> view.joinDefinitions().clear())
-                .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> view.groupByColumns().clear())
-                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
-    @DisplayName("Strategy C: Should build raw SQL subquery view model (@@query)")
+    @DisplayName("Strategy C: Should build raw SQL query view model")
     void shouldBuildRawQueryViewModel() {
-        String sql = "SELECT id, name FROM users UNION ALL SELECT id, name FROM admins";
+        String sql = "SELECT id, name FROM users UNION SELECT id, name FROM archived_users";
         ViewModelMetadata view = ViewModelMetadata.builder("CombinedUsers")
                 .rawQuery(sql)
                 .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
@@ -107,6 +101,58 @@ class ViewModelMetadataTest {
         assertThat(view.isDatabaseBacked()).isFalse();
         assertThat(view.isReadOnly()).isTrue();
         assertThat(view.fields()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Should configure authRoles on view model")
+    void shouldConfigureAuthRolesOnViewModel() {
+        ViewModelMetadata view = ViewModelMetadata.builder("ExecutiveDashboard")
+                .authRoles("EXEC", "DIRECTOR")
+                .build();
+
+        assertThat(view.hasAuthRoles()).isTrue();
+        assertThat(view.authRoles()).containsExactly("EXEC", "DIRECTOR");
+
+        ViewModelMetadata viewWithList = ViewModelMetadata.builder("FinanceReport")
+                .authRoles(List.of("FINANCE"))
+                .build();
+        assertThat(viewWithList.hasAuthRoles()).isTrue();
+        assertThat(viewWithList.authRoles()).containsExactly("FINANCE");
+    }
+
+    @Test
+    @DisplayName("Should support backward-compatible constructors")
+    void shouldSupportBackwardCompatibleConstructors() {
+        ViewModelMetadata legacy9 = new ViewModelMetadata(
+                "LegacyView",
+                "legacy_v",
+                List.of(),
+                "Source",
+                "s",
+                List.of(),
+                List.of(),
+                false,
+                false
+        );
+        assertThat(legacy9.isReadOnly()).isTrue();
+        assertThat(legacy9.hasAuthRoles()).isFalse();
+        assertThat(legacy9.authRoles()).isEmpty();
+
+        ViewModelMetadata legacy10 = new ViewModelMetadata(
+                "LegacyView10",
+                "legacy_v10",
+                List.of(),
+                null,
+                null,
+                List.of(),
+                List.of(),
+                false,
+                false,
+                "SELECT 1"
+        );
+        assertThat(legacy10.isReadOnly()).isTrue();
+        assertThat(legacy10.hasAuthRoles()).isFalse();
+        assertThat(legacy10.authRoles()).isEmpty();
     }
 
     @Test

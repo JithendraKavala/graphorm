@@ -1,13 +1,14 @@
 package com.graphorm.core.metadata;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
  * Immutable metadata record representing a regular model mapped 1:1 to a physical database table.
- * Supports full CRUD operations.
+ * Supports full CRUD operations (or read-only projection if annotated with @@readonly).
  *
  * @param name              the declared model name (e.g. "Student")
  * @param tableName         the physical database table name (e.g. "students")
@@ -15,6 +16,8 @@ import java.util.Optional;
  * @param primaryKeyFields  the field names forming the primary key
  * @param uniqueConstraints the list of unique constraint column sets
  * @param relations         the declared relationships originating from this model
+ * @param isReadOnly        whether this physical model is read-only (declared via @@readonly)
+ * @param authRoles         the authorization roles required to access this model (declared via @@auth)
  */
 public record ModelMetadata(
         String name,
@@ -22,7 +25,9 @@ public record ModelMetadata(
         List<FieldMetadata> fields,
         List<String> primaryKeyFields,
         List<List<String>> uniqueConstraints,
-        List<RelationMetadata> relations
+        List<RelationMetadata> relations,
+        boolean isReadOnly,
+        List<String> authRoles
 ) implements EntityMetadata {
 
     /**
@@ -43,6 +48,36 @@ public record ModelMetadata(
                 ? List.of()
                 : List.copyOf(uniqueConstraints.stream().map(List::copyOf).toList());
         relations = relations == null ? List.of() : List.copyOf(relations);
+        authRoles = authRoles == null ? List.of() : List.copyOf(authRoles);
+    }
+
+    /**
+     * Backward-compatible constructor without isReadOnly and authRoles.
+     */
+    public ModelMetadata(
+            String name,
+            String tableName,
+            List<FieldMetadata> fields,
+            List<String> primaryKeyFields,
+            List<List<String>> uniqueConstraints,
+            List<RelationMetadata> relations
+    ) {
+        this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, false, List.of());
+    }
+
+    /**
+     * Backward-compatible constructor without authRoles.
+     */
+    public ModelMetadata(
+            String name,
+            String tableName,
+            List<FieldMetadata> fields,
+            List<String> primaryKeyFields,
+            List<List<String>> uniqueConstraints,
+            List<RelationMetadata> relations,
+            boolean isReadOnly
+    ) {
+        this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, List.of());
     }
 
     @Override
@@ -52,7 +87,17 @@ public record ModelMetadata(
 
     @Override
     public boolean isReadOnly() {
-        return false;
+        return isReadOnly;
+    }
+
+    @Override
+    public List<String> authRoles() {
+        return authRoles;
+    }
+
+    @Override
+    public boolean hasAuthRoles() {
+        return authRoles != null && !authRoles.isEmpty();
     }
 
     /**
@@ -126,6 +171,8 @@ public record ModelMetadata(
         private final List<String> primaryKeyFields = new ArrayList<>();
         private final List<List<String>> uniqueConstraints = new ArrayList<>();
         private final List<RelationMetadata> relations = new ArrayList<>();
+        private boolean isReadOnly = false;
+        private final List<String> authRoles = new ArrayList<>();
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Model name must not be null");
@@ -197,6 +244,43 @@ public record ModelMetadata(
             return this;
         }
 
+        public Builder readOnly(boolean isReadOnly) {
+            this.isReadOnly = isReadOnly;
+            return this;
+        }
+
+        public Builder isReadOnly(boolean isReadOnly) {
+            this.isReadOnly = isReadOnly;
+            return this;
+        }
+
+        public Builder authRoles(List<String> roles) {
+            this.authRoles.clear();
+            if (roles != null) {
+                this.authRoles.addAll(roles);
+            }
+            return this;
+        }
+
+        public Builder authRoles(String... roles) {
+            this.authRoles.clear();
+            if (roles != null) {
+                for (String r : roles) {
+                    if (r != null && !r.isBlank()) {
+                        this.authRoles.add(r.trim());
+                    }
+                }
+            }
+            return this;
+        }
+
+        public Builder addAuthRole(String role) {
+            if (role != null && !role.isBlank()) {
+                this.authRoles.add(role.trim());
+            }
+            return this;
+        }
+
         public ModelMetadata build() {
             return new ModelMetadata(
                     name,
@@ -204,7 +288,9 @@ public record ModelMetadata(
                     fields,
                     primaryKeyFields,
                     uniqueConstraints,
-                    relations
+                    relations,
+                    isReadOnly,
+                    List.copyOf(authRoles)
             );
         }
     }

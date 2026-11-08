@@ -1,5 +1,6 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
@@ -25,7 +26,7 @@ import java.util.Optional;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a single regular model by unique/primary key (e.g. {@code Query.student(id: ID!)}).
- * Supports selective column projection, hidden dependency foreign key injection, and field-level security verification (TASK-15.2).
+ * Supports selective column projection, hidden dependency foreign key injection, model authorization, and field-level security verification (TASK-15.2).
  */
 public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -58,6 +59,18 @@ public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> 
     @Override
     public Map<String, Object> get(DataFetchingEnvironment env) {
         log.debug("Executing ModelSingleDataFetcher for model: {}", model.name());
+
+        if (model.hasAuthRoles()) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            if (!authorizer.isAuthorized(model.authRoles())) {
+                log.warn("Access denied to model '{}'. Required roles: {}, user roles: {}",
+                        model.name(), model.authRoles(), authorizer.getCurrentRoles());
+                throw new AccessDeniedException(
+                        "ACCESS_DENIED",
+                        "Access denied to model '" + model.name() + "'. Required roles: " + model.authRoles()
+                );
+            }
+        }
 
         String pkField = model.primaryKeyFields().isEmpty() ? "id" : model.primaryKeyFields().getFirst();
         FieldMetadata pkFieldMeta = model.findField(pkField).orElse(null);

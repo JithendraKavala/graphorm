@@ -1,5 +1,6 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.query.OrderByClause;
@@ -27,13 +28,12 @@ import java.util.Objects;
 /**
  * Generic GraphQL {@link DataFetcher} for querying a list of regular models (e.g. {@code Query.students}).
  * Handles selective column projection, hidden dependency foreign key injection (TASK-11.2, TASK-11.3),
- * field-level security verification (TASK-15.2), dynamic filtering (where), sorting (orderBy), and pagination (limit, offset).
+ * model authorization, field-level security verification (TASK-15.2), dynamic filtering (where), sorting (orderBy), and pagination (limit, offset).
  * Enforces a default maximum page size limit for unbounded list queries (PERF-02).
  */
 public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object>>> {
 
     private static final Logger log = LoggerFactory.getLogger(ModelListDataFetcher.class);
-
     public static final int DEFAULT_MAX_PAGE_SIZE = 100;
 
     private final ModelMetadata model;
@@ -72,6 +72,18 @@ public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object
     @Override
     public List<Map<String, Object>> get(DataFetchingEnvironment env) {
         log.debug("Executing ModelListDataFetcher for model: {}", model.name());
+
+        if (model.hasAuthRoles()) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            if (!authorizer.isAuthorized(model.authRoles())) {
+                log.warn("Access denied to model '{}'. Required roles: {}, user roles: {}",
+                        model.name(), model.authRoles(), authorizer.getCurrentRoles());
+                throw new AccessDeniedException(
+                        "ACCESS_DENIED",
+                        "Access denied to model '" + model.name() + "'. Required roles: " + model.authRoles()
+                );
+            }
+        }
 
         AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, model, registry);
 
@@ -112,14 +124,14 @@ public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object
 
         SelectQuery query = builder.build();
         List<Map<String, Object>> rows = executor.queryForList(query);
-        List<Map<String, Object>> normalized = rows.stream()
-                .map(row -> EntityRowNormalizer.normalize(row, model))
+        List<Map<String, Object>> normalizedRows = rows.stream()
+                .map(r -> EntityRowNormalizer.normalize(r, model))
                 .toList();
 
         if (analyzed != null && analyzed.requestedRelations().isEmpty() && !analyzed.hiddenDependencyFields().isEmpty()) {
-            return ResponseAssembler.stripHidden(normalized, analyzed.hiddenDependencyFields());
+            return ResponseAssembler.stripHiddenList(normalizedRows, analyzed.hiddenDependencyFields());
         }
-        return normalized;
+        return normalizedRows;
     }
 
     public ModelMetadata model() {

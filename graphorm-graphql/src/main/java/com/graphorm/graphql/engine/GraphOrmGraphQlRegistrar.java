@@ -285,20 +285,12 @@ public class GraphOrmGraphQlRegistrar {
                     dialect,
                     binding.idArgumentName()
             );
-            case VIEW_LIST_QUERY -> new ViewListDataFetcher(
-                    (ViewModelMetadata) binding.entity(),
-                    modelRegistry,
-                    executor,
-                    argumentBinder,
-                    dialect
-            );
-            case VIEW_SINGLE_QUERY -> new ViewSingleDataFetcher(
-                    (ViewModelMetadata) binding.entity(),
-                    modelRegistry,
-                    executor,
-                    dialect,
-                    binding.idArgumentName()
-            );
+            case VIEW_LIST_QUERY -> binding.entity() instanceof ViewModelMetadata vm
+                    ? new ViewListDataFetcher(vm, modelRegistry, executor, argumentBinder, dialect)
+                    : new ModelListDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executor, argumentBinder, dialect);
+            case VIEW_SINGLE_QUERY -> binding.entity() instanceof ViewModelMetadata vm
+                    ? new ViewSingleDataFetcher(vm, modelRegistry, executor, dialect, binding.idArgumentName())
+                    : new ModelSingleDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executor, dialect, binding.idArgumentName());
             case VIEW_MUTATION_REJECTED -> throw new ReadOnlyViewException(
                     binding.entity().name(),
                     "Attempted to register write mutation '" + binding.fieldName()

@@ -13,7 +13,7 @@ import java.util.Optional;
  * @param position   source coordinate
  * @param name       declared view model name (e.g. "StudentDashboard")
  * @param fields     list of field declarations
- * @param attributes list of block attributes (e.g. @@view, @@map, @@from, @@leftJoin, @@groupBy, @@query)
+ * @param attributes list of block attributes (e.g. @@view, @@map, @@from, @@leftJoin, @@groupBy, @@query, @@auth)
  */
 public record ViewModelNode(
         SourcePosition position,
@@ -73,6 +73,47 @@ public record ViewModelNode(
 
     public Optional<BlockAttributeNode> queryAttribute() {
         return findAttribute("query");
+    }
+
+    public Optional<BlockAttributeNode> authAttribute() {
+        return findAttribute("auth");
+    }
+
+    /**
+     * Extracts declared authorization roles from {@code @@auth(roles: [...])} or {@code @@auth("ADMIN")}.
+     *
+     * @return list of role strings (e.g. ["ADMIN", "MANAGER"]) or empty list if not present
+     */
+    public List<String> authRoles() {
+        Optional<BlockAttributeNode> authOpt = authAttribute();
+        if (authOpt.isEmpty()) {
+            return List.of();
+        }
+        BlockAttributeNode auth = authOpt.get();
+        Optional<ExpressionNode> rolesArg = auth.getArgumentValue("roles")
+                .or(() -> auth.getPositionalArgumentValue(0));
+
+        if (rolesArg.isEmpty()) {
+            return List.of();
+        }
+
+        ExpressionNode expr = rolesArg.get();
+        if (expr instanceof ArrayLiteralNode array) {
+            List<String> roles = new ArrayList<>();
+            for (ExpressionNode elem : array.elements()) {
+                String val = extractStringOrIdent(elem);
+                if (val != null && !val.isBlank()) {
+                    roles.add(val.trim());
+                }
+            }
+            return List.copyOf(roles);
+        } else {
+            String val = extractStringOrIdent(expr);
+            if (val != null && !val.isBlank()) {
+                return List.of(val.trim());
+            }
+        }
+        return List.of();
     }
 
     public List<BlockAttributeNode> joinAttributes() {

@@ -1,5 +1,6 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.ViewModelMetadata;
@@ -27,7 +28,7 @@ import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a single view model by unique key (e.g. {@code Query.studentDashboard(studentId: Int!)}).
- * Translates queries via {@link ViewQueryPlanner} with selective projection, join pruning, and field-level authorization (TASK-15.2).
+ * Translates queries via {@link ViewQueryPlanner} with selective projection, join pruning, view authorization, and field-level authorization (TASK-15.2).
  */
 public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -47,7 +48,7 @@ public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
             String idArgumentName
     ) {
         this.view = Objects.requireNonNull(view, "ViewModelMetadata must not be null");
-        this.registry = Objects.requireNonNull(registry, "ModelRegistry must not be null");
+        this.registry = registry;
         this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
         this.dialect = dialect != null ? dialect : executor.dialect();
         this.idArgumentName = idArgumentName != null ? idArgumentName : "id";
@@ -60,6 +61,18 @@ public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
     @Override
     public Map<String, Object> get(DataFetchingEnvironment env) {
         log.debug("Executing ViewSingleDataFetcher for view: {}", view.name());
+
+        if (view.hasAuthRoles()) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            if (!authorizer.isAuthorized(view.authRoles())) {
+                log.warn("Access denied to view '{}'. Required roles: {}, user roles: {}",
+                        view.name(), view.authRoles(), authorizer.getCurrentRoles());
+                throw new AccessDeniedException(
+                        "ACCESS_DENIED",
+                        "Access denied to view '" + view.name() + "'. Required roles: " + view.authRoles()
+                );
+            }
+        }
 
         String pkField = resolvePkField(view, idArgumentName);
         FieldMetadata pkFieldMeta = view.findField(pkField).orElse(null);

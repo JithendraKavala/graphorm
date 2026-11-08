@@ -67,6 +67,7 @@ public final class InputDtoGenerator {
         List<FieldMetadata> createFields = model.fields().stream()
                 .filter(f -> !f.isRelation())
                 .filter(f -> !f.isGenerated())
+                .filter(f -> !f.isInjected())
                 .toList();
 
         TypeSpec.Builder classBuilder = TypeSpec.classBuilder(className)
@@ -176,6 +177,7 @@ public final class InputDtoGenerator {
                 .filter(f -> !f.isRelation())
                 .filter(f -> !pkNames.contains(f.name()))
                 .filter(f -> !f.isPrimaryKey())
+                .filter(f -> !f.isInjected())
                 .toList();
 
         TypeSpec.Builder classBuilder = TypeSpec.classBuilder(className)

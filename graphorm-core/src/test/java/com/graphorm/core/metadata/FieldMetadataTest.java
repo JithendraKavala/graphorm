@@ -41,6 +41,8 @@ class FieldMetadataTest {
         assertThat(field.relationName()).isNull();
         assertThat(field.hasAuthRoles()).isFalse();
         assertThat(field.authRoles()).isEmpty();
+        assertThat(field.isInjected()).isFalse();
+        assertThat(field.injectedFrom()).isNull();
     }
 
     @Test
@@ -121,6 +123,74 @@ class FieldMetadataTest {
         assertThat(openField.hasAuthRoles()).isFalse();
         assertThat(openField.isAuthorized(List.of())).isTrue();
         assertThat(openField.isAuthorized(null)).isTrue();
+    }
+
+    @Test
+    @DisplayName("Should configure and verify backend-injected field")
+    void shouldConfigureBackendInjectedField() {
+        FieldMetadata tenantField = FieldMetadata.builder("tenantId", String.class)
+                .injected("tenantId")
+                .build();
+
+        assertThat(tenantField.isInjected()).isTrue();
+        assertThat(tenantField.injectedFrom()).isEqualTo("tenantId");
+
+        FieldMetadata createdByField = FieldMetadata.builder("createdBy", String.class)
+                .injected(true, "auth.username")
+                .build();
+
+        assertThat(createdByField.isInjected()).isTrue();
+        assertThat(createdByField.injectedFrom()).isEqualTo("auth.username");
+
+        FieldMetadata standardField = FieldMetadata.builder("description", String.class).build();
+        assertThat(standardField.isInjected()).isFalse();
+        assertThat(standardField.injectedFrom()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should support backward-compatible FieldMetadata constructors")
+    void shouldSupportBackwardCompatibleConstructors() {
+        FieldMetadata f14 = new FieldMetadata(
+                "title",
+                String.class,
+                "String",
+                "title",
+                false,
+                false,
+                false,
+                false,
+                null,
+                false,
+                null,
+                null,
+                false,
+                null
+        );
+        assertThat(f14.isInjected()).isFalse();
+        assertThat(f14.injectedFrom()).isNull();
+        assertThat(f14.hasAuthRoles()).isFalse();
+
+        FieldMetadata f15 = new FieldMetadata(
+                "title2",
+                String.class,
+                "String",
+                "title2",
+                false,
+                false,
+                false,
+                false,
+                null,
+                false,
+                null,
+                null,
+                false,
+                null,
+                List.of("ADMIN")
+        );
+        assertThat(f15.isInjected()).isFalse();
+        assertThat(f15.injectedFrom()).isNull();
+        assertThat(f15.hasAuthRoles()).isTrue();
+        assertThat(f15.authRoles()).containsExactly("ADMIN");
     }
 
     @Test

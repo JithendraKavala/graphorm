@@ -425,4 +425,112 @@ class SchemaValidatorTest {
                 .isInstanceOf(SchemaValidationException.class)
                 .hasMessageContaining("Model 'Bad' must define a primary key");
     }
+
+    @Test
+    @DisplayName("Should pass validation for @@auth, @injected, and @@readonly")
+    void shouldPassValidationForNewFeatures() {
+        String schema = """
+                model SecureLog {
+                    id        Int    @id @default(autoincrement())
+                    message   String
+                    tenantId  String @injected(from: "tenantId")
+                    author    String @injected("auth.username")
+
+                    @@auth(roles: ["ADMIN", "AUDITOR"])
+                    @@readonly
+                }
+
+                view SecureLogView {
+                    id      Int    @map("l.id")
+                    message String @map("l.message")
+
+                    @@from(SecureLog, as: "l")
+                    @@auth("AUDITOR")
+                }
+                """;
+
+        SchemaDocument doc = GraphOrmParserFacade.parse(schema);
+        ValidationResult result = SchemaValidator.validate(doc);
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(result.hasErrors()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Should reject invalid @@auth: empty arguments, empty array, or blank role")
+    void shouldRejectInvalidAuth() {
+        String schemaEmptyArgs = """
+                model Log1 {
+                    id Int @id
+                    @@auth()
+                }
+                """;
+        ValidationResult r1 = SchemaValidator.validate(GraphOrmParserFacade.parse(schemaEmptyArgs));
+        assertThat(r1.hasErrors()).isTrue();
+        assertThat(r1.getErrors()).anyMatch(d -> d.message().contains("@@auth on 'Log1' must specify at least one role"));
+
+        String schemaEmptyArray = """
+                model Log2 {
+                    id Int @id
+                    @@auth(roles: [])
+                }
+                """;
+        ValidationResult r2 = SchemaValidator.validate(GraphOrmParserFacade.parse(schemaEmptyArray));
+        assertThat(r2.hasErrors()).isTrue();
+        assertThat(r2.getErrors()).anyMatch(d -> d.message().contains("roles array cannot be empty"));
+
+        String schemaBlankRole = """
+                model Log3 {
+                    id Int @id
+                    @@auth(roles: [" "])
+                }
+                """;
+        ValidationResult r3 = SchemaValidator.validate(GraphOrmParserFacade.parse(schemaBlankRole));
+        assertThat(r3.hasErrors()).isTrue();
+        assertThat(r3.getErrors()).anyMatch(d -> d.message().contains("Invalid role value"));
+
+        String schemaBadArg = """
+                model Log4 {
+                    id Int @id
+                    @@auth(unknownArg: "ADMIN")
+                }
+                """;
+        ValidationResult r4 = SchemaValidator.validate(GraphOrmParserFacade.parse(schemaBadArg));
+        assertThat(r4.hasErrors()).isTrue();
+        assertThat(r4.getErrors()).anyMatch(d -> d.message().contains("Unknown argument 'unknownArg' in @@auth"));
+    }
+
+    @Test
+    @DisplayName("Should reject invalid @injected: missing from, blank from, or unknown argument")
+    void shouldRejectInvalidInjected() {
+        String schemaEmpty = """
+                model Doc1 {
+                    id  Int    @id
+                    val String @injected()
+                }
+                """;
+        ValidationResult r1 = SchemaValidator.validate(GraphOrmParserFacade.parse(schemaEmpty));
+        assertThat(r1.hasErrors()).isTrue();
+        assertThat(r1.getErrors()).anyMatch(d -> d.message().contains("Directive @injected on field 'val' in 'Doc1' must specify a non-blank 'from' string"));
+
+        String schemaBlank = """
+                model Doc2 {
+                    id  Int    @id
+                    val String @injected(from: "   ")
+                }
+                """;
+        ValidationResult r2 = SchemaValidator.validate(GraphOrmParserFacade.parse(schemaBlank));
+        assertThat(r2.hasErrors()).isTrue();
+        assertThat(r2.getErrors()).anyMatch(d -> d.message().contains("must specify a non-blank 'from' string"));
+
+        String schemaBadArg = """
+                model Doc3 {
+                    id  Int    @id
+                    val String @injected(wrong: "tenant")
+                }
+                """;
+        ValidationResult r3 = SchemaValidator.validate(GraphOrmParserFacade.parse(schemaBadArg));
+        assertThat(r3.hasErrors()).isTrue();
+        assertThat(r3.getErrors()).anyMatch(d -> d.message().contains("Unknown argument 'wrong' in @injected"));
+    }
 }

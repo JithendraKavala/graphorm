@@ -5,6 +5,7 @@ import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
 import com.graphorm.core.query.ProjectedColumn;
+import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.UpdateQuery;
 import com.graphorm.core.query.WherePredicate;
@@ -102,6 +103,7 @@ public class StudentClient implements ModelAccessor<Student, StudentFilter, Stud
 
     @Override
     public Student create(StudentCreateInput createInput) {
+        QueryGuards.ensureWritable(metadata, "INSERT");
         Objects.requireNonNull(createInput, "createInput must not be null");
         Map<String, Object> values = createInput.toMap();
         InsertQuery insertQuery = InsertQuery.into(metadata.tableName()).values(values).build();
@@ -118,6 +120,7 @@ public class StudentClient implements ModelAccessor<Student, StudentFilter, Stud
 
     @Override
     public Student update(Object id, StudentUpdateInput updateInput) {
+        QueryGuards.ensureWritable(metadata, "UPDATE");
         Objects.requireNonNull(id, "id must not be null");
         Objects.requireNonNull(updateInput, "updateInput must not be null");
         Map<String, Object> values = updateInput.toMap();
@@ -128,6 +131,7 @@ public class StudentClient implements ModelAccessor<Student, StudentFilter, Stud
 
     @Override
     public boolean delete(Object id) {
+        QueryGuards.ensureWritable(metadata, "DELETE");
         Objects.requireNonNull(id, "id must not be null");
         DeleteQuery deleteQuery = DeleteQuery.from(metadata.tableName()).where(WherePredicate.eq("id", id)).build();
         return executor.executeUpdate(deleteQuery) > 0;
@@ -135,6 +139,7 @@ public class StudentClient implements ModelAccessor<Student, StudentFilter, Stud
 
     @Override
     public long deleteMany(Consumer<QuerySpec<StudentFilter>> specConsumer) {
+        QueryGuards.ensureWritable(metadata, "DELETE");
         QuerySpec<StudentFilter> spec = new QuerySpec<StudentFilter>(() -> StudentFilter.INSTANCE);
         specConsumer.accept(spec);
         WherePredicate predicate = spec.getPredicate() == null ? WherePredicate.raw("1=1") : spec.getPredicate();

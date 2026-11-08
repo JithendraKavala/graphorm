@@ -1,11 +1,16 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
+import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.UpdateQuery;
 import com.graphorm.core.query.WherePredicate;
+import com.graphorm.graphql.security.FieldAuthorizer;
+import com.graphorm.graphql.security.FieldAuthorizerContext;
+import com.graphorm.graphql.security.InjectedValueResolver;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.builder.UpdateBuilder;
 import com.graphorm.jdbc.dialect.SqlDialect;
@@ -23,6 +28,7 @@ import java.util.Optional;
 
 /**
  * Generic GraphQL {@link DataFetcher} for updating a model entity (e.g. {@code Mutation.updateStudent(id: ID!, input: StudentInput!)}).
+ * Enforces writability, model authorization, and hydrates backend-injected fields from context.
  */
 public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -60,6 +66,20 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
     public Map<String, Object> get(DataFetchingEnvironment env) {
         log.debug("Executing ModelUpdateDataFetcher for model: {}", model.name());
 
+        QueryGuards.ensureWritable(model, "UPDATE");
+
+        if (model.hasAuthRoles()) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            if (!authorizer.isAuthorized(model.authRoles())) {
+                log.warn("Access denied to model '{}'. Required roles: {}, user roles: {}",
+                        model.name(), model.authRoles(), authorizer.getCurrentRoles());
+                throw new AccessDeniedException(
+                        "ACCESS_DENIED",
+                        "Access denied to model '" + model.name() + "'. Required roles: " + model.authRoles()
+                );
+            }
+        }
+
         String pkField = model.primaryKeyFields().isEmpty() ? "id" : model.primaryKeyFields().getFirst();
         FieldMetadata pkFieldMeta = model.findField(pkField).orElse(null);
         String pkColumn = pkFieldMeta != null ? pkFieldMeta.dbColumnName() : pkField;
@@ -80,7 +100,7 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
 
         Map<String, Object> dbValues = new LinkedHashMap<>();
         for (FieldMetadata field : model.fields()) {
-            if (field.isRelation()) {
+            if (field.isRelation() || field.isInjected()) {
                 continue;
             }
             // Do not update primary key column
@@ -93,6 +113,17 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
             } else if (inputMap.containsKey(field.dbColumnName())) {
                 Object coerced = EntityRowNormalizer.coerceToFieldType(inputMap.get(field.dbColumnName()), field);
                 dbValues.put(field.dbColumnName(), coerced);
+            }
+        }
+
+        // Hydrate backend-injected fields from context
+        for (FieldMetadata field : model.fields()) {
+            if (field.isRelation() || field.name().equals(pkField) || field.dbColumnName().equals(pkColumn) || !field.isInjected()) {
+                continue;
+            }
+            Object injectedValue = InjectedValueResolver.resolve(field, env);
+            if (injectedValue != null) {
+                dbValues.put(field.dbColumnName(), EntityRowNormalizer.coerceToFieldType(injectedValue, field));
             }
         }
 

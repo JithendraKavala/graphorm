@@ -65,6 +65,27 @@ model Enrollment {
   @@map("enrollments")
 }
 
+model GradeScale {
+  id       Int    @id @default(autoincrement())
+  letter   String @unique
+  minScore Float  @map("min_score")
+  gpaPoint Float  @map("gpa_point")
+
+  @@map("grade_scales")
+  @@readonly
+}
+
+model AuditLog {
+  id          Int     @id @default(autoincrement())
+  action      String
+  details     String?
+  tenantId    String  @map("tenant_id") @injected(from: "tenantId")
+  performedBy String  @map("performed_by") @injected(from: "auth.username")
+
+  @@map("audit_logs")
+  @@auth(roles: ["ADMIN"])
+}
+
 view DepartmentStats {
   id             Int    @id
   departmentName String @map("department_name")
@@ -86,4 +107,14 @@ view StudentDashboard {
   @@leftJoin(Department, as: "d", on: "s.departmentId == d.id")
   @@leftJoin(Enrollment, as: "e", on: "s.id == e.studentId")
   @@groupBy(["s.id", "s.name", "d.dept_name"])
+}
+
+view AuditSummary {
+  id          Int    @map("a.id")
+  action      String @map("a.action")
+  tenantId    String @map("a.tenant_id")
+  performedBy String @map("a.performed_by")
+
+  @@from(AuditLog, as: "a")
+  @@auth(roles: ["ADMIN"])
 }

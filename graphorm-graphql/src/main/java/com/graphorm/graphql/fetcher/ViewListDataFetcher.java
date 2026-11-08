@@ -1,5 +1,6 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.ViewModelMetadata;
 import com.graphorm.core.query.OrderByClause;
@@ -28,8 +29,7 @@ import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a list of view models (e.g. {@code Query.studentDashboards}).
- * Strictly read-only; delegates to {@link ViewQueryPlanner} for unified query execution.
- * Enforces field-level authorization (TASK-15.2).
+ * Translates queries via {@link ViewQueryPlanner} with selective projection, join pruning, view authorization, and field-level authorization (TASK-15.2).
  */
 public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>>> {
 
@@ -62,6 +62,18 @@ public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>
     @Override
     public List<Map<String, Object>> get(DataFetchingEnvironment env) {
         log.debug("Executing ViewListDataFetcher for view: {}", view.name());
+
+        if (view.hasAuthRoles()) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            if (!authorizer.isAuthorized(view.authRoles())) {
+                log.warn("Access denied to view '{}'. Required roles: {}, user roles: {}",
+                        view.name(), view.authRoles(), authorizer.getCurrentRoles());
+                throw new AccessDeniedException(
+                        "ACCESS_DENIED",
+                        "Access denied to view '" + view.name() + "'. Required roles: " + view.authRoles()
+                );
+            }
+        }
 
         AnalyzedSelectionSet analyzed = SelectionSetAnalyzer.analyze(env, view, registry);
 
@@ -100,14 +112,14 @@ public class ViewListDataFetcher implements DataFetcher<List<Map<String, Object>
 
         SelectQuery query = builder.build();
         List<Map<String, Object>> rows = executor.queryForList(query);
-        List<Map<String, Object>> normalized = rows.stream()
-                .map(row -> EntityRowNormalizer.normalize(row, view))
+        List<Map<String, Object>> normalizedRows = rows.stream()
+                .map(r -> EntityRowNormalizer.normalize(r, view))
                 .toList();
 
         if (analyzed != null && !analyzed.hiddenDependencyFields().isEmpty()) {
-            return ResponseAssembler.stripHidden(normalized, analyzed.hiddenDependencyFields());
+            return ResponseAssembler.stripHiddenList(normalizedRows, analyzed.hiddenDependencyFields());
         }
-        return normalized;
+        return normalizedRows;
     }
 
     public ViewModelMetadata view() {

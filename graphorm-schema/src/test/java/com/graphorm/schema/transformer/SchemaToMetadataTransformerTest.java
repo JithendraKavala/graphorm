@@ -264,4 +264,48 @@ class SchemaToMetadataTransformerTest {
         assertThat(notes.hasAuthRoles()).isTrue();
         assertThat(notes.authRoles()).containsExactly("MANAGER");
     }
+
+    @Test
+    @DisplayName("Should transform model-level and view-level @@auth, @@readonly, and field @injected")
+    void shouldTransformModelViewAuthReadOnlyAndInjected() {
+        String schema = """
+                model AuditLog {
+                    id        Int    @id @default(autoincrement())
+                    message   String
+                    tenantId  String @injected(from: "tenantId")
+                    author    String @injected("auth.username")
+
+                    @@auth(roles: ["ADMIN", "AUDITOR"])
+                    @@readonly
+                }
+
+                view AuditSummary {
+                    id      Int    @map("a.id")
+                    message String @map("a.message")
+
+                    @@from(AuditLog, as: "a")
+                    @@auth("AUDITOR")
+                }
+                """;
+
+        ModelRegistry registry = SchemaToMetadataTransformer.transform(schema);
+
+        ModelMetadata logModel = registry.getModel("AuditLog");
+        assertThat(logModel.isReadOnly()).isTrue();
+        assertThat(logModel.hasAuthRoles()).isTrue();
+        assertThat(logModel.authRoles()).containsExactly("ADMIN", "AUDITOR");
+
+        FieldMetadata tenantId = logModel.getField("tenantId");
+        assertThat(tenantId.isInjected()).isTrue();
+        assertThat(tenantId.injectedFrom()).isEqualTo("tenantId");
+
+        FieldMetadata author = logModel.getField("author");
+        assertThat(author.isInjected()).isTrue();
+        assertThat(author.injectedFrom()).isEqualTo("auth.username");
+
+        ViewModelMetadata summaryView = registry.getViewModel("AuditSummary");
+        assertThat(summaryView.isReadOnly()).isTrue();
+        assertThat(summaryView.hasAuthRoles()).isTrue();
+        assertThat(summaryView.authRoles()).containsExactly("AUDITOR");
+    }
 }

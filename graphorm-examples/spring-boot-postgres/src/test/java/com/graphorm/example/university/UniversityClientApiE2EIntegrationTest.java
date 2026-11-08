@@ -1,9 +1,14 @@
 package com.graphorm.example.university;
 
+import com.graphorm.core.exception.ReadOnlyViewException;
 import com.graphorm.example.university.generated.client.GraphOrmClient;
+import com.graphorm.example.university.generated.input.GradeScaleCreateInput;
 import com.graphorm.example.university.generated.input.StudentCreateInput;
 import com.graphorm.example.university.generated.input.StudentUpdateInput;
+import com.graphorm.example.university.generated.model.AuditLog;
+import com.graphorm.example.university.generated.model.AuditSummary;
 import com.graphorm.example.university.generated.model.DepartmentStats;
+import com.graphorm.example.university.generated.model.GradeScale;
 import com.graphorm.example.university.generated.model.Student;
 import com.graphorm.example.university.generated.model.StudentDashboard;
 import com.graphorm.jdbc.transaction.TransactionManager;
@@ -27,6 +32,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * End-to-end integration tests for code-generated Java 21 Client APIs (TASK-16.2).
@@ -37,6 +43,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *     <li>Database-backed physical view queries via generated ViewClient</li>
  *     <li>Virtual aggregated view queries via generated ViewClient</li>
  *     <li>Transaction commit and rollback semantics</li>
+ *     <li>Read-only physical models (@@readonly) and mutation prohibition</li>
+ *     <li>Model and view querying for audit entities</li>
  * </ul>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -230,5 +238,40 @@ class UniversityClientApiE2EIntegrationTest {
         // Verify count rolled back to original
         assertThat(db.student().count()).isEqualTo(initialCount);
         assertThat(db.student().findFirst(q -> q.where(f -> f.email().eq("temp@test.edu")))).isEmpty();
+    }
+
+    @Test
+    @Order(8)
+    @DisplayName("Verify read-only physical model GradeScale enforces read-only guards")
+    void testReadOnlyModelGradeScaleEnforcement() {
+        List<GradeScale> scales = db.gradeScale().findMany();
+        assertThat(scales).hasSize(5);
+
+        GradeScaleCreateInput attemptCreate = GradeScaleCreateInput.builder()
+                .letter("A+")
+                .minScore(98.0)
+                .gpaPoint(4.0)
+                .build();
+
+        assertThatThrownBy(() -> db.gradeScale().create(attemptCreate))
+                .isInstanceOf(ReadOnlyViewException.class)
+                .hasMessageContaining("Cannot perform INSERT on read-only view 'GradeScale'");
+
+        assertThatThrownBy(() -> db.gradeScale().delete(1))
+                .isInstanceOf(ReadOnlyViewException.class)
+                .hasMessageContaining("Cannot perform DELETE on read-only view 'GradeScale'");
+    }
+
+    @Test
+    @Order(9)
+    @DisplayName("Query audit logs and audit summary view via generated client")
+    void testAuditLogAndSummaryClient() {
+        List<AuditLog> logs = db.auditLog().findMany();
+        assertThat(logs).hasSizeGreaterThanOrEqualTo(2);
+
+        List<AuditSummary> summaries = db.auditSummary().findMany();
+        assertThat(summaries).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(summaries).extracting(AuditSummary::performedBy)
+                .contains("system");
     }
 }

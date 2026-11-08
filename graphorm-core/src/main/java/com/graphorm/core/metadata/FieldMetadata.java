@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /**
  * Immutable metadata record representing a scalar field, calculated expression,
- * aggregation, or relational field on an entity.
+ * aggregation, relational field, or backend-injected field on an entity.
  *
  * @param name              the logical field name in the schema
  * @param javaType          the Java class type of this field (may be null if typeName is set)
@@ -24,6 +24,8 @@ import java.util.Objects;
  * @param isRelation        whether this field is a navigation relation field
  * @param relationName      the associated relation name if isRelation is true
  * @param authRoles         the required security roles defined via {@code @auth(roles: [...])}
+ * @param isInjected        whether this field is backend-injected from security or execution context (via @injected)
+ * @param injectedFrom      the context source key or provider identifier (e.g. "tenantId", "auth.username", "auth.role")
  */
 public record FieldMetadata(
         String name,
@@ -40,7 +42,9 @@ public record FieldMetadata(
         String expression,
         boolean isRelation,
         String relationName,
-        List<String> authRoles
+        List<String> authRoles,
+        boolean isInjected,
+        String injectedFrom
 ) {
 
     /**
@@ -58,10 +62,57 @@ public record FieldMetadata(
             typeName = javaType != null ? javaType.getSimpleName() : "Object";
         }
         authRoles = authRoles == null ? List.of() : List.copyOf(authRoles);
+        if (injectedFrom != null && injectedFrom.isBlank()) {
+            injectedFrom = null;
+        }
+        if (injectedFrom != null) {
+            isInjected = true;
+        }
     }
 
     /**
-     * Constructor without explicit authRoles for backward compatibility.
+     * Backward-compatible constructor without isInjected and injectedFrom.
+     */
+    public FieldMetadata(
+            String name,
+            Class<?> javaType,
+            String typeName,
+            String dbColumnName,
+            boolean isPrimaryKey,
+            boolean isNullable,
+            boolean isUnique,
+            boolean isGenerated,
+            String defaultValue,
+            boolean isAggregate,
+            String aggregateFunction,
+            String expression,
+            boolean isRelation,
+            String relationName,
+            List<String> authRoles
+    ) {
+        this(
+                name,
+                javaType,
+                typeName,
+                dbColumnName,
+                isPrimaryKey,
+                isNullable,
+                isUnique,
+                isGenerated,
+                defaultValue,
+                isAggregate,
+                aggregateFunction,
+                expression,
+                isRelation,
+                relationName,
+                authRoles,
+                false,
+                null
+        );
+    }
+
+    /**
+     * Constructor without explicit authRoles and injection flags for backward compatibility.
      */
     public FieldMetadata(
             String name,
@@ -94,7 +145,9 @@ public record FieldMetadata(
                 expression,
                 isRelation,
                 relationName,
-                List.of()
+                List.of(),
+                false,
+                null
         );
     }
 
@@ -135,7 +188,9 @@ public record FieldMetadata(
                 null,
                 false,
                 null,
-                List.of()
+                List.of(),
+                false,
+                null
         );
     }
 
@@ -222,6 +277,8 @@ public record FieldMetadata(
         private boolean isRelation;
         private String relationName;
         private final List<String> authRoles = new ArrayList<>();
+        private boolean isInjected;
+        private String injectedFrom;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Field name must not be null");
@@ -311,6 +368,18 @@ public record FieldMetadata(
             return this;
         }
 
+        public Builder injected(String injectedFrom) {
+            this.isInjected = true;
+            this.injectedFrom = injectedFrom;
+            return this;
+        }
+
+        public Builder injected(boolean isInjected, String injectedFrom) {
+            this.isInjected = isInjected;
+            this.injectedFrom = injectedFrom;
+            return this;
+        }
+
         public FieldMetadata build() {
             return new FieldMetadata(
                     name,
@@ -327,7 +396,9 @@ public record FieldMetadata(
                     expression,
                     isRelation,
                     relationName,
-                    List.copyOf(authRoles)
+                    List.copyOf(authRoles),
+                    isInjected,
+                    injectedFrom
             );
         }
     }

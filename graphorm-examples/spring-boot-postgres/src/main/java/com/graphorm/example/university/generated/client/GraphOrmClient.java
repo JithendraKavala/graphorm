@@ -32,17 +32,24 @@ public class GraphOrmClient {
     }
 
     /**
-     * Accessor for {@link Department} model operations.
-     */
-    public DepartmentClient department() {
-        return new DepartmentClient(executor, registry, dialect);
-    }
-
-    /**
      * Accessor for {@link Instructor} model operations.
      */
     public InstructorClient instructor() {
         return new InstructorClient(executor, registry, dialect);
+    }
+
+    /**
+     * Accessor for {@link AuditLog} model operations.
+     */
+    public AuditLogClient auditLog() {
+        return new AuditLogClient(executor, registry, dialect);
+    }
+
+    /**
+     * Accessor for {@link GradeScale} model operations.
+     */
+    public GradeScaleClient gradeScale() {
+        return new GradeScaleClient(executor, registry, dialect);
     }
 
     /**
@@ -60,10 +67,24 @@ public class GraphOrmClient {
     }
 
     /**
+     * Accessor for {@link Department} model operations.
+     */
+    public DepartmentClient department() {
+        return new DepartmentClient(executor, registry, dialect);
+    }
+
+    /**
      * Accessor for {@link Enrollment} model operations.
      */
     public EnrollmentClient enrollment() {
         return new EnrollmentClient(executor, registry, dialect);
+    }
+
+    /**
+     * Read-only accessor for {@link AuditSummary} view operations.
+     */
+    public AuditSummaryClient auditSummary() {
+        return new AuditSummaryClient(executor, registry, dialect);
     }
 
     /**

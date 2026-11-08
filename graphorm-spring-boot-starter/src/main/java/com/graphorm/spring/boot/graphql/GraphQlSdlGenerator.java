@@ -18,7 +18,9 @@ public final class GraphQlSdlGenerator {
 
     /**
      * Generates a complete GraphQL SDL schema string matching models and views in the registry.
-     * View models are strictly generated as read-only types and query fields (no mutations).
+     * View models and read-only physical models are strictly generated as read-only types and query fields (no mutations).
+     * Excludes backend-injected fields (@injected) from input types.
+     * Annotates operations with @auth(roles: [...]) when model, view, or field specifies authRoles.
      *
      * @param registry the runtime ModelRegistry
      * @return SDL schema string
@@ -62,37 +64,42 @@ public final class GraphQlSdlGenerator {
             }
             sb.append("}\n\n");
 
-            // Input types
-            sb.append("input ").append(modelName).append("CreateInput {\n");
-            for (FieldMetadata field : model.fields()) {
-                if (field.isRelation() || field.isGenerated()) {
-                    continue;
-                }
-                sb.append("  ").append(field.name()).append(": ")
-                        .append(mapInputScalarType(field)).append("\n");
-            }
-            sb.append("}\n\n");
+            String modelAuth = formatAuthDirective(model.authRoles());
 
-            sb.append("input ").append(modelName).append("UpdateInput {\n");
-            for (FieldMetadata field : model.fields()) {
-                if (field.isRelation() || field.isGenerated() || field.isPrimaryKey()) {
-                    continue;
+            // If model is NOT read-only, generate input types and mutations
+            if (!model.isReadOnly()) {
+                // Input types
+                sb.append("input ").append(modelName).append("CreateInput {\n");
+                for (FieldMetadata field : model.fields()) {
+                    if (field.isRelation() || field.isGenerated() || field.isInjected()) {
+                        continue;
+                    }
+                    sb.append("  ").append(field.name()).append(": ")
+                            .append(mapInputScalarType(field)).append("\n");
                 }
-                sb.append("  ").append(field.name()).append(": ")
-                        .append(mapNullableScalarType(field)).append("\n");
+                sb.append("}\n\n");
+
+                sb.append("input ").append(modelName).append("UpdateInput {\n");
+                for (FieldMetadata field : model.fields()) {
+                    if (field.isRelation() || field.isGenerated() || field.isPrimaryKey() || field.isInjected()) {
+                        continue;
+                    }
+                    sb.append("  ").append(field.name()).append(": ")
+                            .append(mapNullableScalarType(field)).append("\n");
+                }
+                sb.append("}\n\n");
+
+                // Mutations
+                mutationFields.add("create" + modelName + "(input: " + modelName + "CreateInput!): " + modelName + "!" + modelAuth);
+                mutationFields.add("update" + modelName + "(id: ID!, input: " + modelName + "UpdateInput!): " + modelName + "!" + modelAuth);
+                mutationFields.add("delete" + modelName + "(id: ID!): Boolean!" + modelAuth);
             }
-            sb.append("}\n\n");
 
             // Queries
             String plural = toLowerCamel(modelName) + "s";
             String singular = toLowerCamel(modelName);
-            queryFields.add(plural + ": [" + modelName + "!]!");
-            queryFields.add(singular + "(id: ID!): " + modelName);
-
-            // Mutations
-            mutationFields.add("create" + modelName + "(input: " + modelName + "CreateInput!): " + modelName + "!");
-            mutationFields.add("update" + modelName + "(id: ID!, input: " + modelName + "UpdateInput!): " + modelName + "!");
-            mutationFields.add("delete" + modelName + "(id: ID!): Boolean!");
+            queryFields.add(plural + ": [" + modelName + "!]!" + modelAuth);
+            queryFields.add(singular + "(id: ID!): " + modelName + modelAuth);
         }
 
         // 2. View Models (Strictly Read-Only!)
@@ -108,10 +115,11 @@ public final class GraphQlSdlGenerator {
             sb.append("}\n\n");
 
             // Strictly ONLY Queries, NEVER any Mutations!
+            String viewAuth = formatAuthDirective(view.authRoles());
             String plural = toLowerCamel(viewName) + "s";
             String singular = toLowerCamel(viewName);
-            queryFields.add(plural + ": [" + viewName + "!]!");
-            queryFields.add(singular + "(id: ID!): " + viewName);
+            queryFields.add(plural + ": [" + viewName + "!]!" + viewAuth);
+            queryFields.add(singular + "(id: ID!): " + viewName + viewAuth);
         }
 
         // Query Type
@@ -137,16 +145,23 @@ public final class GraphQlSdlGenerator {
 
     private static void appendAuthDirective(StringBuilder sb, FieldMetadata field) {
         if (field != null && field.hasAuthRoles()) {
-            sb.append(" @auth(roles: [");
-            List<String> roles = field.authRoles();
-            for (int i = 0; i < roles.size(); i++) {
-                if (i > 0) {
-                    sb.append(", ");
-                }
-                sb.append("\"").append(roles.get(i)).append("\"");
-            }
-            sb.append("])");
+            sb.append(formatAuthDirective(field.authRoles()));
         }
+    }
+
+    private static String formatAuthDirective(List<String> roles) {
+        if (roles == null || roles.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(" @auth(roles: [");
+        for (int i = 0; i < roles.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append("\"").append(roles.get(i)).append("\"");
+        }
+        sb.append("])");
+        return sb.toString();
     }
 
     private static String mapScalarType(FieldMetadata field) {

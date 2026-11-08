@@ -22,6 +22,7 @@ import java.util.Objects;
  * @param isDatabaseBacked  true if mapped to a physical database view (Strategy A)
  * @param isMaterialized    true if the physical database view is materialized
  * @param rawQuery          for raw query views: raw SQL SELECT/WITH query (Strategy C, @@query)
+ * @param authRoles         the authorization roles required to access this view (declared via @@auth)
  */
 public record ViewModelMetadata(
         String name,
@@ -33,7 +34,8 @@ public record ViewModelMetadata(
         List<String> groupByColumns,
         boolean isDatabaseBacked,
         boolean isMaterialized,
-        String rawQuery
+        String rawQuery,
+        List<String> authRoles
 ) implements EntityMetadata {
 
     /**
@@ -51,10 +53,29 @@ public record ViewModelMetadata(
         fields = fields == null ? List.of() : List.copyOf(fields);
         joinDefinitions = joinDefinitions == null ? List.of() : List.copyOf(joinDefinitions);
         groupByColumns = groupByColumns == null ? List.of() : List.copyOf(groupByColumns);
+        authRoles = authRoles == null ? List.of() : List.copyOf(authRoles);
     }
 
     /**
-     * Backward-compatible constructor without {@code rawQuery}.
+     * Backward-compatible constructor without authRoles.
+     */
+    public ViewModelMetadata(
+            String name,
+            String viewName,
+            List<FieldMetadata> fields,
+            String sourceModelName,
+            String sourceAlias,
+            List<ViewJoinMetadata> joinDefinitions,
+            List<String> groupByColumns,
+            boolean isDatabaseBacked,
+            boolean isMaterialized,
+            String rawQuery
+    ) {
+        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns, isDatabaseBacked, isMaterialized, rawQuery, List.of());
+    }
+
+    /**
+     * Backward-compatible constructor without rawQuery and authRoles.
      */
     public ViewModelMetadata(
             String name,
@@ -67,7 +88,7 @@ public record ViewModelMetadata(
             boolean isDatabaseBacked,
             boolean isMaterialized
     ) {
-        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns, isDatabaseBacked, isMaterialized, null);
+        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns, isDatabaseBacked, isMaterialized, null, List.of());
     }
 
     @Override
@@ -83,6 +104,16 @@ public record ViewModelMetadata(
     @Override
     public boolean isReadOnly() {
         return true;
+    }
+
+    @Override
+    public List<String> authRoles() {
+        return authRoles;
+    }
+
+    @Override
+    public boolean hasAuthRoles() {
+        return authRoles != null && !authRoles.isEmpty();
     }
 
     /**
@@ -127,6 +158,7 @@ public record ViewModelMetadata(
         private boolean isDatabaseBacked;
         private boolean isMaterialized;
         private String rawQuery;
+        private final List<String> authRoles = new ArrayList<>();
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "View model name must not be null");
@@ -208,6 +240,33 @@ public record ViewModelMetadata(
             return this;
         }
 
+        public Builder authRoles(List<String> roles) {
+            this.authRoles.clear();
+            if (roles != null) {
+                this.authRoles.addAll(roles);
+            }
+            return this;
+        }
+
+        public Builder authRoles(String... roles) {
+            this.authRoles.clear();
+            if (roles != null) {
+                for (String r : roles) {
+                    if (r != null && !r.isBlank()) {
+                        this.authRoles.add(r.trim());
+                    }
+                }
+            }
+            return this;
+        }
+
+        public Builder addAuthRole(String role) {
+            if (role != null && !role.isBlank()) {
+                this.authRoles.add(role.trim());
+            }
+            return this;
+        }
+
         public ViewModelMetadata build() {
             return new ViewModelMetadata(
                     name,
@@ -219,7 +278,8 @@ public record ViewModelMetadata(
                     groupByColumns,
                     isDatabaseBacked,
                     isMaterialized,
-                    rawQuery
+                    rawQuery,
+                    List.copyOf(authRoles)
             );
         }
     }

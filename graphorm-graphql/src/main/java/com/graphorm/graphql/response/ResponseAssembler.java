@@ -71,6 +71,13 @@ public final class ResponseAssembler {
     }
 
     /**
+     * Alias for {@link #stripHidden(List, Set)}.
+     */
+    public static List<Map<String, Object>> stripHiddenList(List<Map<String, Object>> rows, Set<String> hiddenFields) {
+        return stripHidden(rows, hiddenFields);
+    }
+
+    /**
      * Strips all columns marked as {@code isHiddenDependency = true} in the projected column list.
      *
      * @param row     the entity row map

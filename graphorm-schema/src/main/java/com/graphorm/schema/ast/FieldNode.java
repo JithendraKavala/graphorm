@@ -51,6 +51,10 @@ public record FieldNode(
         return hasAttribute("expression");
     }
 
+    public boolean isInjected() {
+        return hasAttribute("injected");
+    }
+
     public boolean hasAttribute(String attributeName) {
         return findAttribute(attributeName).isPresent();
     }
@@ -86,6 +90,26 @@ public record FieldNode(
 
     public Optional<FieldAttributeNode> authAttribute() {
         return findAttribute("auth");
+    }
+
+    public Optional<FieldAttributeNode> injectedAttribute() {
+        return findAttribute("injected");
+    }
+
+    /**
+     * Extracts the backend injection source string declared via {@code @injected(from: "...")} or {@code @injected("...")}.
+     *
+     * @return the non-blank source key/expression, or empty if not present
+     */
+    public Optional<String> injectedFrom() {
+        Optional<FieldAttributeNode> injectedOpt = injectedAttribute();
+        if (injectedOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        FieldAttributeNode injected = injectedOpt.get();
+        Optional<ExpressionNode> fromArg = injected.getArgumentValue("from")
+                .or(() -> injected.getPositionalArgumentValue(0));
+        return fromArg.map(FieldNode::extractString).filter(s -> !s.isBlank());
     }
 
     /**

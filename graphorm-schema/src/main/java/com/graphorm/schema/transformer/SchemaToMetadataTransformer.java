@@ -156,6 +156,8 @@ public final class SchemaToMetadataTransformer {
                 .primaryKeyFields(new ArrayList<>(pkFieldSet))
                 .uniqueConstraints(uniqueConstraints)
                 .relations(relations)
+                .readOnly(modelNode.isReadOnly())
+                .authRoles(modelNode.authRoles())
                 .build();
     }
 
@@ -301,6 +303,7 @@ public final class SchemaToMetadataTransformer {
                 .groupBy(groupBy)
                 .databaseBacked(isDbBacked)
                 .rawQuery(vmNode.queryClause().orElse(null))
+                .authRoles(vmNode.authRoles())
                 .build();
     }
 
@@ -379,6 +382,8 @@ public final class SchemaToMetadataTransformer {
         }
 
         List<String> authRoles = field.authRoles();
+        boolean isInjected = field.isInjected();
+        String injectedFrom = field.injectedFrom().orElse(null);
 
         return new FieldMetadata(
                 name,
@@ -395,7 +400,9 @@ public final class SchemaToMetadataTransformer {
                 expression,
                 isRelation,
                 relName,
-                authRoles
+                authRoles,
+                isInjected,
+                injectedFrom
         );
     }
 

@@ -44,6 +44,8 @@ class ModelMetadataTest {
         assertThat(model.tableName()).isEqualTo("students");
         assertThat(model.entityType()).isEqualTo(EntityType.MODEL);
         assertThat(model.isReadOnly()).isFalse();
+        assertThat(model.authRoles()).isEmpty();
+        assertThat(model.hasAuthRoles()).isFalse();
         assertThat(model.fields()).hasSize(2);
         assertThat(model.primaryKeyFields()).containsExactly("id");
         assertThat(model.isPrimaryKey("id")).isTrue();
@@ -114,6 +116,56 @@ class ModelMetadataTest {
     void shouldDefaultTableName() {
         ModelMetadata model = ModelMetadata.builder("Department").build();
         assertThat(model.tableName()).isEqualTo("department");
+    }
+
+    @Test
+    @DisplayName("Should configure read-only physical model and authRoles")
+    void shouldConfigureReadOnlyAndAuthRoles() {
+        ModelMetadata readOnlyModel = ModelMetadata.builder("AuditLog")
+                .readOnly(true)
+                .authRoles("ADMIN", "AUDITOR")
+                .build();
+
+        assertThat(readOnlyModel.isReadOnly()).isTrue();
+        assertThat(readOnlyModel.hasAuthRoles()).isTrue();
+        assertThat(readOnlyModel.authRoles()).containsExactly("ADMIN", "AUDITOR");
+
+        ModelMetadata modelWithList = ModelMetadata.builder("SecureConfig")
+                .isReadOnly(false)
+                .authRoles(List.of("SUPERADMIN"))
+                .build();
+        assertThat(modelWithList.isReadOnly()).isFalse();
+        assertThat(modelWithList.hasAuthRoles()).isTrue();
+        assertThat(modelWithList.authRoles()).containsExactly("SUPERADMIN");
+    }
+
+    @Test
+    @DisplayName("Should support backward-compatible constructors")
+    void shouldSupportBackwardCompatibleConstructors() {
+        ModelMetadata legacy6 = new ModelMetadata(
+                "Legacy",
+                "legacy_table",
+                List.of(),
+                List.of("id"),
+                List.of(),
+                List.of()
+        );
+        assertThat(legacy6.isReadOnly()).isFalse();
+        assertThat(legacy6.hasAuthRoles()).isFalse();
+        assertThat(legacy6.authRoles()).isEmpty();
+
+        ModelMetadata legacy7 = new ModelMetadata(
+                "Legacy7",
+                "legacy7_table",
+                List.of(),
+                List.of("id"),
+                List.of(),
+                List.of(),
+                true
+        );
+        assertThat(legacy7.isReadOnly()).isTrue();
+        assertThat(legacy7.hasAuthRoles()).isFalse();
+        assertThat(legacy7.authRoles()).isEmpty();
     }
 
     @Test

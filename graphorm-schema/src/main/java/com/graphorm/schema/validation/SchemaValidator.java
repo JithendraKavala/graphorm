@@ -1,7 +1,9 @@
 package com.graphorm.schema.validation;
 
 import com.graphorm.schema.ast.AggregateAttributeNode;
+import com.graphorm.schema.ast.ArgumentNode;
 import com.graphorm.schema.ast.ArrayLiteralNode;
+import com.graphorm.schema.ast.AstNode;
 import com.graphorm.schema.ast.BlockAttributeNode;
 import com.graphorm.schema.ast.CompositeTypeNode;
 import com.graphorm.schema.ast.EnumNode;
@@ -70,10 +72,10 @@ public final class SchemaValidator {
         // 3. Validate Composite Types
         validateCompositeTypes(document, diagnostics);
 
-        // 4. Validate Models (PK, unique, relations, @id, @unique)
+        // 4. Validate Models (PK, unique, relations, @id, @unique, @@auth, @@readonly)
         validateModels(document, diagnostics);
 
-        // 5. Validate Views (read-only invariant, strategy exclusivity, dependencies)
+        // 5. Validate Views (read-only invariant, strategy exclusivity, dependencies, @@auth)
         validateViews(document, diagnostics);
 
         // 6. View dependency cycle detection
@@ -151,6 +153,9 @@ public final class SchemaValidator {
                         model.findAttribute("groupBy").get().position()
                 ));
             }
+
+            // Validate model-level @@auth
+            validateAuthAttribute(model.name(), model.authAttribute(), diagnostics, true);
 
             // Field uniqueness and type resolution
             validateFieldList(model.name(), model.fields(), document, diagnostics, true);
@@ -304,6 +309,9 @@ public final class SchemaValidator {
 
     private static void validateViews(SchemaDocument document, List<Diagnostic> diagnostics) {
         for (ViewModelNode vm : document.viewModels()) {
+            // Validate view-level @@auth
+            validateAuthAttribute(vm.name(), vm.authAttribute(), diagnostics, true);
+
             // Field uniqueness and type resolution
             validateFieldList(vm.name(), vm.fields(), document, diagnostics, false);
 
@@ -670,6 +678,12 @@ public final class SchemaValidator {
                 }
             }
 
+            // Validate @auth if present on field
+            validateAuthAttribute(containerName + "." + field.name(), field.authAttribute(), diagnostics, false);
+
+            // Validate @injected if present on field
+            validateInjectedAttribute(containerName, field, diagnostics);
+
             // Check field type resolution
             String typeName = field.type().name();
             if (!BUILT_IN_SCALARS.contains(typeName)
@@ -682,6 +696,143 @@ public final class SchemaValidator {
                         field.type().position()
                 ));
             }
+        }
+    }
+
+    private static void validateAuthAttribute(
+            String targetName,
+            Optional<? extends AstNode> authOpt,
+            List<Diagnostic> diagnostics,
+            boolean isBlock
+    ) {
+        if (authOpt.isEmpty()) {
+            return;
+        }
+        AstNode node = authOpt.get();
+        List<ArgumentNode> arguments = (node instanceof BlockAttributeNode b)
+                ? b.arguments()
+                : (node instanceof FieldAttributeNode f) ? f.arguments() : List.of();
+
+        String prefix = isBlock ? "@@auth" : "@auth";
+        SourcePosition pos = node.position();
+
+        if (arguments.isEmpty()) {
+            diagnostics.add(Diagnostic.error(
+                    prefix + " on '" + targetName + "' must specify at least one role, e.g. " + prefix + "(roles: [\"ADMIN\"])",
+                    pos
+            ));
+            return;
+        }
+
+        Optional<ExpressionNode> rolesArg = Optional.empty();
+        for (ArgumentNode arg : arguments) {
+            if (arg.isNamed()) {
+                if ("roles".equals(arg.name())) {
+                    rolesArg = Optional.of(arg.value());
+                } else {
+                    diagnostics.add(Diagnostic.error(
+                            "Unknown argument '" + arg.name() + "' in " + prefix + " on '" + targetName + "'. Expected 'roles'",
+                            arg.position()
+                    ));
+                    return;
+                }
+            } else if (rolesArg.isEmpty()) {
+                rolesArg = Optional.of(arg.value());
+            }
+        }
+
+        if (rolesArg.isEmpty()) {
+            diagnostics.add(Diagnostic.error(
+                    prefix + " on '" + targetName + "' must specify roles, e.g. " + prefix + "(roles: [\"ADMIN\"])",
+                    pos
+            ));
+            return;
+        }
+
+        ExpressionNode expr = rolesArg.get();
+        if (expr instanceof ArrayLiteralNode array) {
+            if (array.elements().isEmpty()) {
+                diagnostics.add(Diagnostic.error(
+                        prefix + " on '" + targetName + "' roles array cannot be empty",
+                        expr.position()
+                ));
+                return;
+            }
+            for (ExpressionNode elem : array.elements()) {
+                String val = extractIdentifierOrString(elem);
+                if (val == null || val.isBlank()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Invalid role value in " + prefix + " on '" + targetName + "'. Roles must be non-blank strings or identifiers.",
+                            elem.position()
+                    ));
+                }
+            }
+        } else {
+            String val = extractIdentifierOrString(expr);
+            if (val == null || val.isBlank()) {
+                diagnostics.add(Diagnostic.error(
+                        "Invalid role value in " + prefix + " on '" + targetName + "'. Roles must be non-blank strings or identifiers.",
+                        expr.position()
+                ));
+            }
+        }
+    }
+
+    private static void validateInjectedAttribute(
+            String containerName,
+            FieldNode field,
+            List<Diagnostic> diagnostics
+    ) {
+        Optional<FieldAttributeNode> injectedOpt = field.injectedAttribute();
+        if (injectedOpt.isEmpty()) {
+            return;
+        }
+        FieldAttributeNode injected = injectedOpt.get();
+        SourcePosition pos = injected.position();
+
+        if (injected.arguments().isEmpty()) {
+            diagnostics.add(Diagnostic.error(
+                    "Directive @injected on field '" + field.name() + "' in '" + containerName
+                            + "' must specify a non-blank 'from' string, e.g. @injected(from: \"tenantId\")",
+                    pos
+            ));
+            return;
+        }
+
+        Optional<ExpressionNode> fromArg = Optional.empty();
+        for (ArgumentNode arg : injected.arguments()) {
+            if (arg.isNamed()) {
+                if ("from".equals(arg.name())) {
+                    fromArg = Optional.of(arg.value());
+                } else {
+                    diagnostics.add(Diagnostic.error(
+                            "Unknown argument '" + arg.name() + "' in @injected on field '" + field.name()
+                                    + "'. Expected 'from'",
+                            arg.position()
+                    ));
+                    return;
+                }
+            } else if (fromArg.isEmpty()) {
+                fromArg = Optional.of(arg.value());
+            }
+        }
+
+        if (fromArg.isEmpty()) {
+            diagnostics.add(Diagnostic.error(
+                    "Directive @injected on field '" + field.name() + "' in '" + containerName
+                            + "' must specify a non-blank 'from' string, e.g. @injected(from: \"tenantId\")",
+                    pos
+            ));
+            return;
+        }
+
+        String fromVal = extractIdentifierOrString(fromArg.get());
+        if (fromVal == null || fromVal.isBlank()) {
+            diagnostics.add(Diagnostic.error(
+                    "Directive @injected on field '" + field.name() + "' in '" + containerName
+                            + "' must specify a non-blank 'from' string (got empty or non-string)",
+                    fromArg.get().position()
+            ));
         }
     }
 

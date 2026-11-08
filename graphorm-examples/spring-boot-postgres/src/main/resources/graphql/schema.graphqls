@@ -52,6 +52,21 @@ type Enrollment {
   enrollmentDate: String!
 }
 
+type GradeScale {
+  id: ID!
+  letter: String!
+  minScore: Float!
+  gpaPoint: Float!
+}
+
+type AuditLog {
+  id: ID!
+  action: String!
+  details: String
+  tenantId: String!
+  performedBy: String!
+}
+
 type DepartmentStats {
   id: ID!
   departmentName: String!
@@ -65,6 +80,13 @@ type StudentDashboard {
   departmentName: String
   enrolledCourses: Int!
   avgGradePoints: Float
+}
+
+type AuditSummary {
+  id: ID!
+  action: String!
+  tenantId: String!
+  performedBy: String!
 }
 
 input StudentInput {
@@ -87,6 +109,11 @@ input DepartmentInput {
   code: String!
 }
 
+input AuditLogInput {
+  action: String!
+  details: String
+}
+
 type Query {
   students: [Student!]!
   student(id: ID!): Student
@@ -98,13 +125,20 @@ type Query {
   instructor(id: ID!): Instructor
   enrollments: [Enrollment!]!
   enrollment(id: ID!): Enrollment
+  gradeScales: [GradeScale!]!
+  gradeScale(id: ID!): GradeScale
+  auditLogs: [AuditLog!]! @auth(roles: ["ADMIN"])
+  auditLog(id: ID!): AuditLog @auth(roles: ["ADMIN"])
   departmentStats: [DepartmentStats!]!
   studentDashboards: [StudentDashboard!]!
   studentDashboard(id: ID!): StudentDashboard
+  auditSummaries: [AuditSummary!]! @auth(roles: ["ADMIN"])
+  auditSummary(id: ID!): AuditSummary @auth(roles: ["ADMIN"])
 }
 
 type Mutation {
   createStudent(input: StudentInput!): Student!
   createCourse(input: CourseInput!): Course!
   createDepartment(input: DepartmentInput!): Department!
+  createAuditLog(input: AuditLogInput!): AuditLog! @auth(roles: ["ADMIN"])
 }
