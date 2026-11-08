@@ -140,6 +140,69 @@ public final class SchemaToMetadataTransformer {
             }
         }
 
+        // Indexes
+        List<IndexMetadata> indexes = new ArrayList<>();
+        for (FieldNode f : modelNode.fields()) {
+            if (f.hasAttribute("index")) {
+                String idxName = "idx_" + tableName + "_" + f.name();
+                indexes.add(IndexMetadata.builder(idxName)
+                        .addField(f.name())
+                        .build());
+            }
+        }
+        for (BlockAttributeNode idxBlock : modelNode.indexBlockAttributes()) {
+            Optional<ExpressionNode> fieldsArg = idxBlock.getArgumentValue("fields")
+                    .or(() -> idxBlock.getPositionalArgumentValue(0));
+            List<String> idxFields = new ArrayList<>();
+            if (fieldsArg.isPresent()) {
+                idxFields.addAll(extractStringList(fieldsArg.get()));
+            }
+            if (!idxFields.isEmpty()) {
+                String idxName = idxBlock.getArgumentValue("name")
+                        .map(SchemaToMetadataTransformer::extractStringValue)
+                        .orElseGet(() -> "idx_" + tableName + "_" + String.join("_", idxFields));
+
+                boolean isUnique = idxBlock.getArgumentValue("unique")
+                        .map(expr -> "true".equalsIgnoreCase(extractStringValue(expr)))
+                        .orElse(false);
+
+                IndexType indexType = idxBlock.getArgumentValue("type")
+                        .map(SchemaToMetadataTransformer::extractStringValue)
+                        .map(IndexType::from)
+                        .orElse(IndexType.BTREE);
+
+                indexes.add(IndexMetadata.builder(idxName)
+                        .fields(idxFields)
+                        .unique(isUnique)
+                        .type(indexType)
+                        .build());
+            }
+        }
+
+        // Check constraints
+        List<CheckConstraintMetadata> checkConstraints = new ArrayList<>();
+        int chkCounter = 1;
+        for (BlockAttributeNode chkBlock : modelNode.checkBlockAttributes()) {
+            Optional<ExpressionNode> exprArg = chkBlock.getPositionalArgumentValue(0)
+                    .or(() -> chkBlock.getArgumentValue("expression"))
+                    .or(() -> chkBlock.getArgumentValue("expr"));
+            if (exprArg.isPresent()) {
+                String expr = extractStringValue(exprArg.get());
+                String chkName = chkBlock.getArgumentValue("name")
+                        .map(SchemaToMetadataTransformer::extractStringValue)
+                        .orElse("chk_" + tableName + "_" + (chkCounter++));
+                if (expr != null && !expr.isBlank()) {
+                    checkConstraints.add(new CheckConstraintMetadata(chkName, expr));
+                }
+            }
+        }
+
+        // Schema namespace
+        String schemaName = modelNode.schemaAttribute()
+                .flatMap(attr -> attr.getPositionalArgumentValue(0).or(() -> attr.getArgumentValue("name")))
+                .map(SchemaToMetadataTransformer::extractStringValue)
+                .orElse(null);
+
         // Relations
         List<RelationMetadata> relations = new ArrayList<>();
         for (FieldNode f : modelNode.fields()) {
@@ -158,6 +221,9 @@ public final class SchemaToMetadataTransformer {
                 .relations(relations)
                 .readOnly(modelNode.isReadOnly())
                 .authRoles(modelNode.authRoles())
+                .indexes(indexes)
+                .checkConstraints(checkConstraints)
+                .schemaName(schemaName)
                 .build();
     }
 
@@ -168,6 +234,8 @@ public final class SchemaToMetadataTransformer {
         String relName = field.name();
         List<String> fkFields = List.of();
         List<String> refFields = List.of();
+        ReferentialAction onDelete = ReferentialAction.NO_ACTION;
+        ReferentialAction onUpdate = ReferentialAction.NO_ACTION;
 
         if (relationAttr.isPresent()) {
             FieldAttributeNode attr = relationAttr.get();
@@ -188,6 +256,16 @@ public final class SchemaToMetadataTransformer {
             if (referencesArg.isPresent()) {
                 refFields = extractStringList(referencesArg.get());
             }
+
+            Optional<ExpressionNode> onDeleteArg = attr.getArgumentValue("onDelete");
+            if (onDeleteArg.isPresent()) {
+                onDelete = ReferentialAction.from(extractStringValue(onDeleteArg.get()));
+            }
+
+            Optional<ExpressionNode> onUpdateArg = attr.getArgumentValue("onUpdate");
+            if (onUpdateArg.isPresent()) {
+                onUpdate = ReferentialAction.from(extractStringValue(onUpdateArg.get()));
+            }
         }
 
         // Determine relation type
@@ -199,6 +277,8 @@ public final class SchemaToMetadataTransformer {
                 .targetModel(targetModelName)
                 .foreignKeyFields(fkFields)
                 .referenceFields(refFields)
+                .onDelete(onDelete)
+                .onUpdate(onUpdate)
                 .build();
     }
 
@@ -348,12 +428,12 @@ public final class SchemaToMetadataTransformer {
             isAggregate = true;
             Optional<AggregateAttributeNode> aggClause = field.aggregateClause();
             if (aggClause.isPresent()) {
-                aggregateFunc = aggClause.get().function().toUpperCase();
+                aggregateFunc = aggClause.get().function().toUpperCase(Locale.ROOT);
                 expression = aggClause.get().expression();
             } else {
                 for (ArgumentNode arg : aggAttr.get().arguments()) {
                     if (arg.isNamed()) {
-                        aggregateFunc = arg.name().toUpperCase();
+                        aggregateFunc = arg.name().toUpperCase(Locale.ROOT);
                         expression = extractStringValue(arg.value());
                         break;
                     }
@@ -409,35 +489,27 @@ public final class SchemaToMetadataTransformer {
     private static String extractStringValue(ExpressionNode expr) {
         if (expr instanceof StringLiteralNode str) {
             return str.value();
-        } else if (expr instanceof IdentifierNode id) {
-            return id.name();
+        } else if (expr instanceof IdentifierNode ident) {
+            return ident.name();
         } else if (expr instanceof QualifiedIdentifierNode qid) {
             return qid.asQualifiedString();
-        } else if (expr instanceof IntLiteralNode i) {
-            return String.valueOf(i.value());
-        } else if (expr instanceof FloatLiteralNode f) {
-            return String.valueOf(f.value());
-        } else if (expr instanceof BooleanLiteralNode b) {
-            return String.valueOf(b.value());
-        } else if (expr instanceof FunctionCallNode func) {
-            return func.functionName() + "()";
         }
-        return null;
+        return expr != null ? expr.toString() : null;
     }
 
     private static List<String> extractStringList(ExpressionNode expr) {
-        if (expr instanceof ArrayLiteralNode array) {
+        if (expr instanceof ArrayLiteralNode arr) {
             List<String> list = new ArrayList<>();
-            for (ExpressionNode elem : array.elements()) {
-                String s = extractStringValue(elem);
-                if (s != null) {
-                    list.add(s);
+            for (ExpressionNode elem : arr.elements()) {
+                String val = extractStringValue(elem);
+                if (val != null) {
+                    list.add(val);
                 }
             }
             return list;
         } else {
-            String s = extractStringValue(expr);
-            return s != null ? List.of(s) : List.of();
+            String val = extractStringValue(expr);
+            return val != null ? List.of(val) : List.of();
         }
     }
 }

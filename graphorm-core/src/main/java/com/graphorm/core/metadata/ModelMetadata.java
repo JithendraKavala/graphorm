@@ -18,6 +18,9 @@ import java.util.Optional;
  * @param relations         the declared relationships originating from this model
  * @param isReadOnly        whether this physical model is read-only (declared via @@readonly)
  * @param authRoles         the authorization roles required to access this model (declared via @@auth)
+ * @param indexes           the database index metadata (declared via @@index or @index)
+ * @param checkConstraints  the check constraint metadata (declared via @@check)
+ * @param schemaName        the database schema/namespace (e.g. "public", "tenant_a")
  */
 public record ModelMetadata(
         String name,
@@ -27,7 +30,10 @@ public record ModelMetadata(
         List<List<String>> uniqueConstraints,
         List<RelationMetadata> relations,
         boolean isReadOnly,
-        List<String> authRoles
+        List<String> authRoles,
+        List<IndexMetadata> indexes,
+        List<CheckConstraintMetadata> checkConstraints,
+        String schemaName
 ) implements EntityMetadata {
 
     /**
@@ -49,6 +55,28 @@ public record ModelMetadata(
                 : List.copyOf(uniqueConstraints.stream().map(List::copyOf).toList());
         relations = relations == null ? List.of() : List.copyOf(relations);
         authRoles = authRoles == null ? List.of() : List.copyOf(authRoles);
+        indexes = indexes == null ? List.of() : List.copyOf(indexes);
+        checkConstraints = checkConstraints == null ? List.of() : List.copyOf(checkConstraints);
+        if (schemaName != null && schemaName.isBlank()) {
+            schemaName = null;
+        }
+    }
+
+    /**
+     * Constructor without indexes, check constraints, and schemaName.
+     */
+    public ModelMetadata(
+            String name,
+            String tableName,
+            List<FieldMetadata> fields,
+            List<String> primaryKeyFields,
+            List<List<String>> uniqueConstraints,
+            List<RelationMetadata> relations,
+            boolean isReadOnly,
+            List<String> authRoles
+    ) {
+        this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
+                List.of(), List.of(), null);
     }
 
     /**
@@ -114,6 +142,36 @@ public record ModelMetadata(
     }
 
     /**
+     * Looks up an index by its index name.
+     *
+     * @param indexName the name of the index
+     * @return an {@link Optional} containing the index metadata if found
+     */
+    public Optional<IndexMetadata> findIndex(String indexName) {
+        if (indexName == null) {
+            return Optional.empty();
+        }
+        return indexes.stream()
+                .filter(idx -> idx.name().equals(indexName))
+                .findFirst();
+    }
+
+    /**
+     * Looks up a check constraint by its name.
+     *
+     * @param constraintName the name of the check constraint
+     * @return an {@link Optional} containing the constraint metadata if found
+     */
+    public Optional<CheckConstraintMetadata> findCheckConstraint(String constraintName) {
+        if (constraintName == null) {
+            return Optional.empty();
+        }
+        return checkConstraints.stream()
+                .filter(chk -> chk.name().equals(constraintName))
+                .findFirst();
+    }
+
+    /**
      * Looks up a relation by its relation name.
      *
      * @param relationName the name of the relation
@@ -173,6 +231,9 @@ public record ModelMetadata(
         private final List<RelationMetadata> relations = new ArrayList<>();
         private boolean isReadOnly = false;
         private final List<String> authRoles = new ArrayList<>();
+        private final List<IndexMetadata> indexes = new ArrayList<>();
+        private final List<CheckConstraintMetadata> checkConstraints = new ArrayList<>();
+        private String schemaName;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Model name must not be null");
@@ -281,6 +342,37 @@ public record ModelMetadata(
             return this;
         }
 
+        public Builder addIndex(IndexMetadata index) {
+            this.indexes.add(Objects.requireNonNull(index, "Index must not be null"));
+            return this;
+        }
+
+        public Builder indexes(List<IndexMetadata> indexes) {
+            this.indexes.clear();
+            if (indexes != null) {
+                this.indexes.addAll(indexes);
+            }
+            return this;
+        }
+
+        public Builder addCheckConstraint(CheckConstraintMetadata checkConstraint) {
+            this.checkConstraints.add(Objects.requireNonNull(checkConstraint, "Check constraint must not be null"));
+            return this;
+        }
+
+        public Builder checkConstraints(List<CheckConstraintMetadata> checkConstraints) {
+            this.checkConstraints.clear();
+            if (checkConstraints != null) {
+                this.checkConstraints.addAll(checkConstraints);
+            }
+            return this;
+        }
+
+        public Builder schemaName(String schemaName) {
+            this.schemaName = schemaName;
+            return this;
+        }
+
         public ModelMetadata build() {
             return new ModelMetadata(
                     name,
@@ -290,7 +382,10 @@ public record ModelMetadata(
                     uniqueConstraints,
                     relations,
                     isReadOnly,
-                    List.copyOf(authRoles)
+                    authRoles,
+                    indexes,
+                    checkConstraints,
+                    schemaName
             );
         }
     }

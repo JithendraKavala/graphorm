@@ -1,17 +1,22 @@
 package com.graphorm.jdbc.dialect;
 
+import com.graphorm.core.metadata.CheckConstraintMetadata;
 import com.graphorm.core.metadata.FieldMetadata;
+import com.graphorm.core.metadata.IndexMetadata;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.UpdateQuery;
+import com.graphorm.jdbc.ddl.ColumnDefinition;
+import com.graphorm.jdbc.ddl.ForeignKeyDefinition;
+import com.graphorm.jdbc.ddl.TableDefinition;
 import com.graphorm.jdbc.executor.BoundSql;
 
 import java.util.List;
 
 /**
  * Abstraction isolating database-specific SQL dialect formatting, identifier quoting,
- * pagination, aggregation functions, type conversions, and CRUD query building.
+ * pagination, aggregation functions, type conversions, CRUD query building, and DDL schema generation.
  */
 public interface SqlDialect {
 
@@ -52,12 +57,6 @@ public interface SqlDialect {
      */
     BoundSql buildSelectSql(SelectQuery query);
 
-    /**
-     * Alias for {@link #buildSelectSql(SelectQuery)}.
-     *
-     * @param query the select query AST
-     * @return the parameterized BoundSql
-     */
     default BoundSql buildSelect(SelectQuery query) {
         return buildSelectSql(query);
     }
@@ -70,12 +69,6 @@ public interface SqlDialect {
      */
     BoundSql buildInsertSql(InsertQuery query);
 
-    /**
-     * Alias for {@link #buildInsertSql(InsertQuery)}.
-     *
-     * @param query the insert query AST
-     * @return the parameterized BoundSql
-     */
     default BoundSql buildInsert(InsertQuery query) {
         return buildInsertSql(query);
     }
@@ -88,12 +81,6 @@ public interface SqlDialect {
      */
     BoundSql buildUpdateSql(UpdateQuery query);
 
-    /**
-     * Alias for {@link #buildUpdateSql(UpdateQuery)}.
-     *
-     * @param query the update query AST
-     * @return the parameterized BoundSql
-     */
     default BoundSql buildUpdate(UpdateQuery query) {
         return buildUpdateSql(query);
     }
@@ -106,12 +93,6 @@ public interface SqlDialect {
      */
     BoundSql buildDeleteSql(DeleteQuery query);
 
-    /**
-     * Alias for {@link #buildDeleteSql(DeleteQuery)}.
-     *
-     * @param query the delete query AST
-     * @return the parameterized BoundSql
-     */
     default BoundSql buildDelete(DeleteQuery query) {
         return buildDeleteSql(query);
     }
@@ -125,13 +106,6 @@ public interface SqlDialect {
      */
     String buildAggregateSql(AggregateType type, String expression);
 
-    /**
-     * Alias for {@link #buildAggregateSql(AggregateType, String)}.
-     *
-     * @param type       the aggregation type
-     * @param expression the column or SQL expression
-     * @return the formatted aggregation SQL expression
-     */
     default String aggregateFunction(AggregateType type, String expression) {
         return buildAggregateSql(type, expression);
     }
@@ -168,4 +142,123 @@ public interface SqlDialect {
      * @return the formatted RETURNING clause snippet
      */
     String renderReturningClause(List<String> columns);
+
+    // =========================================================================
+    // DDL Operations
+    // =========================================================================
+
+    /**
+     * Generates a CREATE TABLE SQL statement for the specified table definition.
+     */
+    String buildCreateTableSql(TableDefinition table);
+
+    /**
+     * Generates a DROP TABLE SQL statement.
+     */
+    String buildDropTableSql(String tableName, boolean ifExists, boolean cascade);
+
+    default String buildDropTableSql(String tableName) {
+        return buildDropTableSql(tableName, true, true);
+    }
+
+    /**
+     * Generates an ALTER TABLE ... ADD COLUMN SQL statement.
+     */
+    String buildAddColumnSql(String tableName, ColumnDefinition column);
+
+    /**
+     * Generates an ALTER TABLE ... DROP COLUMN SQL statement.
+     */
+    String buildDropColumnSql(String tableName, String columnName, boolean ifExists);
+
+    default String buildDropColumnSql(String tableName, String columnName) {
+        return buildDropColumnSql(tableName, columnName, true);
+    }
+
+    /**
+     * Generates an ALTER TABLE ... ALTER COLUMN ... TYPE SQL statement.
+     */
+    String buildAlterColumnTypeSql(String tableName, String columnName, String newType);
+
+    /**
+     * Generates an ALTER TABLE ... ALTER COLUMN ... [SET NOT NULL | DROP NOT NULL] SQL statement.
+     */
+    String buildAlterColumnNullabilitySql(String tableName, String columnName, boolean nullable);
+
+    /**
+     * Generates an ALTER TABLE ... ALTER COLUMN ... SET DEFAULT SQL statement.
+     */
+    String buildAlterColumnDefaultSql(String tableName, String columnName, String defaultValue);
+
+    /**
+     * Generates an ALTER TABLE ... ALTER COLUMN ... DROP DEFAULT SQL statement.
+     */
+    String buildDropColumnDefaultSql(String tableName, String columnName);
+
+    /**
+     * Generates a CREATE INDEX SQL statement.
+     */
+    String buildCreateIndexSql(IndexMetadata index, String tableName);
+
+    /**
+     * Generates a DROP INDEX SQL statement.
+     */
+    String buildDropIndexSql(String indexName, boolean ifExists);
+
+    default String buildDropIndexSql(String indexName) {
+        return buildDropIndexSql(indexName, true);
+    }
+
+    /**
+     * Generates an ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY statement.
+     */
+    String buildAddForeignKeySql(ForeignKeyDefinition fk);
+
+    /**
+     * Generates an ALTER TABLE ... DROP CONSTRAINT statement.
+     */
+    String buildDropConstraintSql(String tableName, String constraintName, boolean ifExists);
+
+    default String buildDropConstraintSql(String tableName, String constraintName) {
+        return buildDropConstraintSql(tableName, constraintName, true);
+    }
+
+    /**
+     * Generates an ALTER TABLE ... ADD CONSTRAINT ... UNIQUE statement.
+     */
+    String buildAddUniqueConstraintSql(String tableName, String constraintName, List<String> columns);
+
+    /**
+     * Generates an ALTER TABLE ... ADD CONSTRAINT ... CHECK statement.
+     */
+    String buildAddCheckConstraintSql(String tableName, CheckConstraintMetadata check);
+
+    /**
+     * Generates a CREATE TYPE ... AS ENUM statement.
+     */
+    String buildCreateEnumSql(String enumName, List<String> values);
+
+    /**
+     * Generates an ALTER TYPE ... ADD VALUE statement.
+     */
+    String buildAddEnumValueSql(String enumName, String value);
+
+    /**
+     * Generates a DROP TYPE statement.
+     */
+    String buildDropEnumSql(String enumName, boolean ifExists);
+
+    default String buildDropEnumSql(String enumName) {
+        return buildDropEnumSql(enumName, true);
+    }
+
+    /**
+     * Builds the SQL for acquiring an advisory lock.
+     */
+    String buildAdvisoryLockSql(long lockKey);
+
+    /**
+     * Builds the SQL for releasing an advisory lock.
+     */
+    String buildAdvisoryUnlockSql(long lockKey);
 }

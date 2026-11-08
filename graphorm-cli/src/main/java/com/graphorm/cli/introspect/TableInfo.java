@@ -13,6 +13,8 @@ public final class TableInfo {
     private final List<String> primaryKeyColumns = new ArrayList<>();
     private final Set<String> uniqueColumns = new LinkedHashSet<>();
     private final List<ForeignKeyInfo> foreignKeys = new ArrayList<>();
+    private final List<IndexInfo> indexes = new ArrayList<>();
+    private final List<CheckConstraintInfo> checkConstraints = new ArrayList<>();
 
     public TableInfo(String tableName, boolean isView) {
         this.tableName = Objects.requireNonNull(tableName, "tableName must not be null");
@@ -59,5 +61,21 @@ public final class TableInfo {
 
     public void addForeignKey(ForeignKeyInfo fk) {
         this.foreignKeys.add(Objects.requireNonNull(fk));
+    }
+
+    public List<IndexInfo> indexes() {
+        return Collections.unmodifiableList(indexes);
+    }
+
+    public void addIndex(IndexInfo index) {
+        this.indexes.add(Objects.requireNonNull(index));
+    }
+
+    public List<CheckConstraintInfo> checkConstraints() {
+        return Collections.unmodifiableList(checkConstraints);
+    }
+
+    public void addCheckConstraint(CheckConstraintInfo check) {
+        this.checkConstraints.add(Objects.requireNonNull(check));
     }
 }

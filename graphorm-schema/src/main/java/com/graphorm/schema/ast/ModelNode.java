@@ -12,7 +12,7 @@ import java.util.Optional;
  * @param position   source coordinate
  * @param name       declared model name (e.g. "Student")
  * @param fields     list of field declarations
- * @param attributes list of block attributes (e.g. @@id, @@map, @@unique, @@index, @@auth, @@readonly)
+ * @param attributes list of block attributes (e.g. @@id, @@map, @@unique, @@index, @@check, @@schema, @@auth, @@readonly)
  */
 public record ModelNode(
         SourcePosition position,
@@ -128,6 +128,10 @@ public record ModelNode(
         return findAttribute("map");
     }
 
+    public Optional<BlockAttributeNode> schemaAttribute() {
+        return findAttribute("schema");
+    }
+
     public List<BlockAttributeNode> uniqueBlockAttributes() {
         return attributes.stream()
                 .filter(a -> "unique".equals(a.name()))
@@ -137,6 +141,12 @@ public record ModelNode(
     public List<BlockAttributeNode> indexBlockAttributes() {
         return attributes.stream()
                 .filter(a -> "index".equals(a.name()))
+                .toList();
+    }
+
+    public List<BlockAttributeNode> checkBlockAttributes() {
+        return attributes.stream()
+                .filter(a -> "check".equals(a.name()))
                 .toList();
     }
 

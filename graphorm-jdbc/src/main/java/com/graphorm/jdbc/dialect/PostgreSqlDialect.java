@@ -1,6 +1,9 @@
 package com.graphorm.jdbc.dialect;
 
+import com.graphorm.core.metadata.CheckConstraintMetadata;
 import com.graphorm.core.metadata.FieldMetadata;
+import com.graphorm.core.metadata.IndexMetadata;
+import com.graphorm.core.metadata.ReferentialAction;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
 import com.graphorm.core.query.SelectQuery;
@@ -9,6 +12,9 @@ import com.graphorm.jdbc.builder.DeleteBuilder;
 import com.graphorm.jdbc.builder.InsertBuilder;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.builder.UpdateBuilder;
+import com.graphorm.jdbc.ddl.ColumnDefinition;
+import com.graphorm.jdbc.ddl.ForeignKeyDefinition;
+import com.graphorm.jdbc.ddl.TableDefinition;
 import com.graphorm.jdbc.executor.BoundSql;
 
 import java.math.BigDecimal;
@@ -22,6 +28,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -31,7 +38,8 @@ import java.util.stream.Collectors;
 
 /**
  * PostgreSQL dialect implementation supporting double-quoted identifiers, positional '?'
- * placeholders, LIMIT/OFFSET pagination, RETURNING clauses, and standard aggregation functions.
+ * placeholders, LIMIT/OFFSET pagination, RETURNING clauses, standard aggregation functions,
+ * and complete DDL schema generation.
  */
 public class PostgreSqlDialect implements SqlDialect {
 
@@ -256,5 +264,223 @@ public class PostgreSqlDialect implements SqlDialect {
         }
 
         return dbValue;
+    }
+
+    // =========================================================================
+    // DDL Operations
+    // =========================================================================
+
+    @Override
+    public String buildCreateTableSql(TableDefinition table) {
+        String fullTableName = table.schemaName() != null
+                ? quoteIdentifier(table.schemaName()) + "." + quoteIdentifier(table.name())
+                : quoteIdentifier(table.name());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("CREATE TABLE IF NOT EXISTS ").append(fullTableName).append(" (\n");
+
+        List<String> definitions = new ArrayList<>();
+        boolean singlePk = table.primaryKeyColumns().size() == 1;
+
+        for (ColumnDefinition col : table.columns()) {
+            StringBuilder colSb = new StringBuilder();
+            colSb.append("  ").append(quoteIdentifier(col.name())).append(" ");
+            if (col.isGenerated()) {
+                if (col.type().equalsIgnoreCase("BIGINT")) {
+                    colSb.append("BIGSERIAL");
+                } else {
+                    colSb.append("SERIAL");
+                }
+            } else {
+                colSb.append(col.type());
+            }
+
+            if (!col.isNullable() && !(singlePk && col.isPrimaryKey())) {
+                colSb.append(" NOT NULL");
+            }
+
+            if (col.defaultValue() != null && !col.isGenerated() && !col.defaultValue().isBlank()) {
+                colSb.append(" DEFAULT ").append(col.defaultValue());
+            }
+
+            if (singlePk && col.isPrimaryKey()) {
+                colSb.append(" PRIMARY KEY");
+            } else if (col.isUnique() && !col.isPrimaryKey()) {
+                colSb.append(" UNIQUE");
+            }
+            definitions.add(colSb.toString());
+        }
+
+        // Composite PK
+        if (table.primaryKeyColumns().size() > 1) {
+            String pkCols = table.primaryKeyColumns().stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
+            String pkName = "pk_" + table.name();
+            definitions.add("  CONSTRAINT " + quoteIdentifier(pkName) + " PRIMARY KEY (" + pkCols + ")");
+        }
+
+        // Compound unique constraints
+        for (List<String> uqCols : table.uniqueConstraints()) {
+            String cols = uqCols.stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
+            String uqName = "uq_" + table.name() + "_" + String.join("_", uqCols);
+            definitions.add("  CONSTRAINT " + quoteIdentifier(uqName) + " UNIQUE (" + cols + ")");
+        }
+
+        // Check constraints
+        for (CheckConstraintMetadata chk : table.checkConstraints()) {
+            definitions.add("  CONSTRAINT " + quoteIdentifier(chk.name()) + " CHECK (" + chk.expression() + ")");
+        }
+
+        sb.append(String.join(",\n", definitions));
+        sb.append("\n);");
+        return sb.toString();
+    }
+
+    @Override
+    public String buildDropTableSql(String tableName, boolean ifExists, boolean cascade) {
+        return "DROP TABLE " + (ifExists ? "IF EXISTS " : "") + quoteIdentifier(tableName)
+                + (cascade ? " CASCADE;" : ";");
+    }
+
+    @Override
+    public String buildAddColumnSql(String tableName, ColumnDefinition column) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("ALTER TABLE ").append(quoteIdentifier(tableName)).append(" ADD COLUMN ");
+        sb.append(quoteIdentifier(column.name())).append(" ");
+        if (column.isGenerated()) {
+            sb.append(column.type().equalsIgnoreCase("BIGINT") ? "BIGSERIAL" : "SERIAL");
+        } else {
+            sb.append(column.type());
+        }
+        if (!column.isNullable()) {
+            sb.append(" NOT NULL");
+        }
+        if (column.defaultValue() != null && !column.isGenerated() && !column.defaultValue().isBlank()) {
+            sb.append(" DEFAULT ").append(column.defaultValue());
+        }
+        if (column.isUnique()) {
+            sb.append(" UNIQUE");
+        }
+        sb.append(";");
+        return sb.toString();
+    }
+
+    @Override
+    public String buildDropColumnSql(String tableName, String columnName, boolean ifExists) {
+        return "ALTER TABLE " + quoteIdentifier(tableName) + " DROP COLUMN "
+                + (ifExists ? "IF EXISTS " : "") + quoteIdentifier(columnName) + " CASCADE;";
+    }
+
+    @Override
+    public String buildAlterColumnTypeSql(String tableName, String columnName, String newType) {
+        return "ALTER TABLE " + quoteIdentifier(tableName) + " ALTER COLUMN "
+                + quoteIdentifier(columnName) + " TYPE " + newType + ";";
+    }
+
+    @Override
+    public String buildAlterColumnNullabilitySql(String tableName, String columnName, boolean nullable) {
+        return "ALTER TABLE " + quoteIdentifier(tableName) + " ALTER COLUMN "
+                + quoteIdentifier(columnName) + (nullable ? " DROP NOT NULL;" : " SET NOT NULL;");
+    }
+
+    @Override
+    public String buildAlterColumnDefaultSql(String tableName, String columnName, String defaultValue) {
+        return "ALTER TABLE " + quoteIdentifier(tableName) + " ALTER COLUMN "
+                + quoteIdentifier(columnName) + " SET DEFAULT " + defaultValue + ";";
+    }
+
+    @Override
+    public String buildDropColumnDefaultSql(String tableName, String columnName) {
+        return "ALTER TABLE " + quoteIdentifier(tableName) + " ALTER COLUMN "
+                + quoteIdentifier(columnName) + " DROP DEFAULT;";
+    }
+
+    @Override
+    public String buildCreateIndexSql(IndexMetadata index, String tableName) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("CREATE ");
+        if (index.isUnique()) {
+            sb.append("UNIQUE ");
+        }
+        sb.append("INDEX IF NOT EXISTS ").append(quoteIdentifier(index.name()));
+        sb.append(" ON ").append(quoteIdentifier(tableName));
+        if (index.type() != null) {
+            sb.append(" USING ").append(index.type().toSql().toLowerCase());
+        }
+        String cols = index.fields().stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
+        sb.append(" (").append(cols).append(");");
+        return sb.toString();
+    }
+
+    @Override
+    public String buildDropIndexSql(String indexName, boolean ifExists) {
+        return "DROP INDEX " + (ifExists ? "IF EXISTS " : "") + quoteIdentifier(indexName) + " CASCADE;";
+    }
+
+    @Override
+    public String buildAddForeignKeySql(ForeignKeyDefinition fk) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("ALTER TABLE ").append(quoteIdentifier(fk.sourceTable()));
+        sb.append(" ADD CONSTRAINT ").append(quoteIdentifier(fk.name()));
+        sb.append(" FOREIGN KEY (")
+                .append(fk.sourceColumns().stream().map(this::quoteIdentifier).collect(Collectors.joining(", ")))
+                .append(")");
+        sb.append(" REFERENCES ").append(quoteIdentifier(fk.targetTable()));
+        sb.append(" (")
+                .append(fk.targetColumns().stream().map(this::quoteIdentifier).collect(Collectors.joining(", ")))
+                .append(")");
+
+        if (fk.onDelete() != null && fk.onDelete() != ReferentialAction.NO_ACTION) {
+            sb.append(" ON DELETE ").append(fk.onDelete().toSql());
+        }
+        if (fk.onUpdate() != null && fk.onUpdate() != ReferentialAction.NO_ACTION) {
+            sb.append(" ON UPDATE ").append(fk.onUpdate().toSql());
+        }
+        sb.append(";");
+        return sb.toString();
+    }
+
+    @Override
+    public String buildDropConstraintSql(String tableName, String constraintName, boolean ifExists) {
+        return "ALTER TABLE " + quoteIdentifier(tableName) + " DROP CONSTRAINT "
+                + (ifExists ? "IF EXISTS " : "") + quoteIdentifier(constraintName) + " CASCADE;";
+    }
+
+    @Override
+    public String buildAddUniqueConstraintSql(String tableName, String constraintName, List<String> columns) {
+        String cols = columns.stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
+        return "ALTER TABLE " + quoteIdentifier(tableName) + " ADD CONSTRAINT "
+                + quoteIdentifier(constraintName) + " UNIQUE (" + cols + ");";
+    }
+
+    @Override
+    public String buildAddCheckConstraintSql(String tableName, CheckConstraintMetadata check) {
+        return "ALTER TABLE " + quoteIdentifier(tableName) + " ADD CONSTRAINT "
+                + quoteIdentifier(check.name()) + " CHECK (" + check.expression() + ");";
+    }
+
+    @Override
+    public String buildCreateEnumSql(String enumName, List<String> values) {
+        String vals = values.stream().map(v -> "'" + v.replace("'", "''") + "'").collect(Collectors.joining(", "));
+        return "DO $$ BEGIN\n  CREATE TYPE " + quoteIdentifier(enumName) + " AS ENUM (" + vals + ");\nEXCEPTION WHEN duplicate_object THEN null;\nEND $$;";
+    }
+
+    @Override
+    public String buildAddEnumValueSql(String enumName, String value) {
+        return "ALTER TYPE " + quoteIdentifier(enumName) + " ADD VALUE '" + value.replace("'", "''") + "';";
+    }
+
+    @Override
+    public String buildDropEnumSql(String enumName, boolean ifExists) {
+        return "DROP TYPE " + (ifExists ? "IF EXISTS " : "") + quoteIdentifier(enumName) + " CASCADE;";
+    }
+
+    @Override
+    public String buildAdvisoryLockSql(long lockKey) {
+        return "SELECT pg_advisory_lock(" + lockKey + ");";
+    }
+
+    @Override
+    public String buildAdvisoryUnlockSql(long lockKey) {
+        return "SELECT pg_advisory_unlock(" + lockKey + ");";
     }
 }

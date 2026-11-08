@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -33,7 +34,7 @@ import java.util.regex.Pattern;
 /**
  * Semantic validation engine for GraphORM schema documents.
  * Verifies naming uniqueness, primary keys, relationships, circular dependencies,
- * and view model read-only invariants.
+ * indexes, constraints, and view model read-only invariants.
  */
 public final class SchemaValidator {
 
@@ -44,6 +45,14 @@ public final class SchemaValidator {
 
     private static final Set<String> SUPPORTED_AGGREGATES = Set.of(
             "count", "sum", "avg", "min", "max"
+    );
+
+    private static final Set<String> VALID_REFERENTIAL_ACTIONS = Set.of(
+            "CASCADE", "RESTRICT", "SETNULL", "SET_NULL", "SETDEFAULT", "SET_DEFAULT", "NOACTION", "NO_ACTION"
+    );
+
+    private static final Set<String> VALID_INDEX_TYPES = Set.of(
+            "BTREE", "B_TREE", "HASH", "GIN", "GIST"
     );
 
     private static final Pattern FORBIDDEN_SQL = Pattern.compile(
@@ -72,7 +81,7 @@ public final class SchemaValidator {
         // 3. Validate Composite Types
         validateCompositeTypes(document, diagnostics);
 
-        // 4. Validate Models (PK, unique, relations, @id, @unique, @@auth, @@readonly)
+        // 4. Validate Models (PK, unique, indexes, relations, @@check, @@auth, @@readonly)
         validateModels(document, diagnostics);
 
         // 5. Validate Views (read-only invariant, strategy exclusivity, dependencies, @@auth)
@@ -163,6 +172,15 @@ public final class SchemaValidator {
             // Primary key validation
             validateModelPrimaryKey(model, diagnostics);
 
+            // Unique constraints validation
+            validateModelUniqueConstraints(model, diagnostics);
+
+            // Index validation
+            validateModelIndexes(model, diagnostics);
+
+            // Check constraints validation
+            validateModelCheckConstraints(model, diagnostics);
+
             // Relation validation
             validateModelRelations(model, document, diagnostics);
         }
@@ -247,6 +265,127 @@ public final class SchemaValidator {
         }
     }
 
+    private static void validateModelUniqueConstraints(ModelNode model, List<Diagnostic> diagnostics) {
+        for (BlockAttributeNode uqBlock : model.uniqueBlockAttributes()) {
+            Optional<ExpressionNode> argVal = uqBlock.getPositionalArgumentValue(0);
+            if (argVal.isEmpty()) {
+                argVal = uqBlock.getArgumentValue("fields");
+            }
+
+            if (argVal.isEmpty() || !(argVal.get() instanceof ArrayLiteralNode arrayNode)) {
+                diagnostics.add(Diagnostic.error(
+                        "Block @@unique in model '" + model.name() + "' must specify an array of field names, e.g. @@unique([field1, field2])",
+                        uqBlock.position()
+                ));
+            } else if (arrayNode.elements().isEmpty()) {
+                diagnostics.add(Diagnostic.error(
+                        "Block @@unique in model '" + model.name() + "' cannot be empty",
+                        uqBlock.position()
+                ));
+            } else {
+                for (ExpressionNode elem : arrayNode.elements()) {
+                    String fieldName = extractIdentifierOrString(elem);
+                    if (fieldName == null) {
+                        diagnostics.add(Diagnostic.error(
+                                "Invalid field name in @@unique in model '" + model.name() + "'",
+                                elem.position()
+                        ));
+                    } else if (!model.hasField(fieldName)) {
+                        diagnostics.add(Diagnostic.error(
+                                "Field '" + fieldName + "' specified in @@unique does not exist on model '" + model.name() + "'",
+                                elem.position()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    private static void validateModelIndexes(ModelNode model, List<Diagnostic> diagnostics) {
+        for (BlockAttributeNode idxBlock : model.indexBlockAttributes()) {
+            Optional<ExpressionNode> fieldsArg = idxBlock.getArgumentValue("fields")
+                    .or(() -> idxBlock.getPositionalArgumentValue(0));
+
+            if (fieldsArg.isEmpty()) {
+                diagnostics.add(Diagnostic.error(
+                        "Block @@index in model '" + model.name() + "' must specify fields, e.g. @@index([field1, field2])",
+                        idxBlock.position()
+                ));
+            } else {
+                ExpressionNode expr = fieldsArg.get();
+                List<String> fieldNames = new ArrayList<>();
+                if (expr instanceof ArrayLiteralNode arrayNode) {
+                    if (arrayNode.elements().isEmpty()) {
+                        diagnostics.add(Diagnostic.error(
+                                "Block @@index in model '" + model.name() + "' cannot specify empty fields list",
+                                idxBlock.position()
+                        ));
+                    } else {
+                        for (ExpressionNode elem : arrayNode.elements()) {
+                            String fName = extractIdentifierOrString(elem);
+                            if (fName == null || fName.isBlank()) {
+                                diagnostics.add(Diagnostic.error(
+                                        "Invalid field in @@index in model '" + model.name() + "'",
+                                        elem.position()
+                                ));
+                            } else {
+                                fieldNames.add(fName);
+                            }
+                        }
+                    }
+                } else {
+                    String fName = extractIdentifierOrString(expr);
+                    if (fName != null && !fName.isBlank()) {
+                        fieldNames.add(fName);
+                    }
+                }
+
+                for (String fName : fieldNames) {
+                    if (!model.hasField(fName)) {
+                        diagnostics.add(Diagnostic.error(
+                                "Field '" + fName + "' specified in @@index does not exist on model '" + model.name() + "'",
+                                fieldsArg.get().position()
+                        ));
+                    }
+                }
+            }
+
+            Optional<ExpressionNode> typeArg = idxBlock.getArgumentValue("type");
+            if (typeArg.isPresent()) {
+                String typeStr = extractIdentifierOrString(typeArg.get());
+                if (typeStr == null || !VALID_INDEX_TYPES.contains(typeStr.toUpperCase(Locale.ROOT))) {
+                    diagnostics.add(Diagnostic.error(
+                            "Invalid index type '" + typeStr + "' in @@index on model '" + model.name() + "'. Supported types: " + String.join(", ", VALID_INDEX_TYPES),
+                            typeArg.get().position()
+                    ));
+                }
+            }
+        }
+    }
+
+    private static void validateModelCheckConstraints(ModelNode model, List<Diagnostic> diagnostics) {
+        for (BlockAttributeNode chkBlock : model.checkBlockAttributes()) {
+            Optional<ExpressionNode> exprArg = chkBlock.getPositionalArgumentValue(0)
+                    .or(() -> chkBlock.getArgumentValue("expression"))
+                    .or(() -> chkBlock.getArgumentValue("expr"));
+
+            if (exprArg.isEmpty()) {
+                diagnostics.add(Diagnostic.error(
+                        "Block @@check in model '" + model.name() + "' must specify a check expression, e.g. @@check(\"age >= 18\")",
+                        chkBlock.position()
+                ));
+            } else {
+                String expr = extractIdentifierOrString(exprArg.get());
+                if (expr == null || expr.isBlank()) {
+                    diagnostics.add(Diagnostic.error(
+                            "Block @@check in model '" + model.name() + "' cannot specify an empty expression",
+                            exprArg.get().position()
+                    ));
+                }
+            }
+        }
+    }
+
     private static void validateModelRelations(ModelNode model, SchemaDocument document, List<Diagnostic> diagnostics) {
         for (FieldNode field : model.fields()) {
             String targetTypeName = field.type().name();
@@ -300,6 +439,29 @@ public final class SchemaValidator {
                                     ));
                                 }
                             }
+                        }
+                    }
+
+                    // Validate optional onDelete and onUpdate
+                    Optional<ExpressionNode> onDeleteArg = rel.getArgumentValue("onDelete");
+                    if (onDeleteArg.isPresent()) {
+                        String actionStr = extractIdentifierOrString(onDeleteArg.get());
+                        if (actionStr == null || !VALID_REFERENTIAL_ACTIONS.contains(actionStr.toUpperCase(Locale.ROOT).replace(" ", "_"))) {
+                            diagnostics.add(Diagnostic.error(
+                                    "Invalid onDelete action '" + actionStr + "' in @relation on field '" + field.name() + "' in model '" + model.name() + "'. Supported actions: Cascade, Restrict, SetNull, SetDefault, NoAction",
+                                    onDeleteArg.get().position()
+                            ));
+                        }
+                    }
+
+                    Optional<ExpressionNode> onUpdateArg = rel.getArgumentValue("onUpdate");
+                    if (onUpdateArg.isPresent()) {
+                        String actionStr = extractIdentifierOrString(onUpdateArg.get());
+                        if (actionStr == null || !VALID_REFERENTIAL_ACTIONS.contains(actionStr.toUpperCase(Locale.ROOT).replace(" ", "_"))) {
+                            diagnostics.add(Diagnostic.error(
+                                    "Invalid onUpdate action '" + actionStr + "' in @relation on field '" + field.name() + "' in model '" + model.name() + "'. Supported actions: Cascade, Restrict, SetNull, SetDefault, NoAction",
+                                    onUpdateArg.get().position()
+                            ));
                         }
                     }
                 }
@@ -402,7 +564,7 @@ public final class SchemaValidator {
                 }
                 if (vm.queryAttribute().isPresent()) {
                     diagnostics.add(Diagnostic.error(
-                            "Database-backed view '" + vm.name() + "' with @@view cannot declare @@query",
+                            "Database-backed view '" + vm.name() + "' with @@query cannot declare @@query",
                             vm.queryAttribute().get().position()
                     ));
                 }

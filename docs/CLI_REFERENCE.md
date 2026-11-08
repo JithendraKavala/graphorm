@@ -46,6 +46,7 @@ GraphORM CLI 0.1.0 (Java 21)
 | [`validate`](#4-graphorm-validate) | Validates schema syntax, types, relations, and view invariants |
 | [`generate`](#5-graphorm-generate) | Generates Java 21 records, DTOs, criteria filters, and client APIs |
 | [`introspect`](#6-graphorm-introspect) | Reverse-engineers a PostgreSQL database into `schema.graphorm` |
+| [`migrate`](#7-graphorm-migrate) | Schema lifecycle, versioned migrations, status, drift verification, and diff |
 
 ---
 
@@ -155,3 +156,55 @@ graphorm introspect --url <jdbc-url> --user <user> [--password <pwd>] [-o, --out
 - Discovers primary keys and marks them with `@id`.
 - Discovers foreign keys and translates them to `@relation(fields: [...], references: [...])`.
 - Discovers physical views in PostgreSQL and translates them into `view <Name> { ... @@view @@map("<view_name>") }`.
+
+---
+
+## 7. `graphorm migrate`
+
+Provides end-to-end schema lifecycle and migration management, including differential DDL generation, versioned migration ledgers with SHA-256 tamper verification, PostgreSQL advisory locking, live drift detection, and corrective SQL diff generation.
+
+### Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `migrate create <name>` | Compares `schema.graphorm` against the live database and generates a timestamped migration script |
+| `migrate apply` | Applies all pending migrations within transactional boundaries under advisory lock |
+| `migrate status` | Displays the status of applied, pending, and tampered migrations |
+| `migrate verify` | Compares live database schema against `schema.graphorm` to verify zero drift |
+| `migrate diff` | Computes and prints corrective SQL DDL without generating migration files |
+
+### Global Options for Migrate Commands
+- `-d, --migrations-dir <dir>`: Directory storing migration files (default: `migrations`).
+- `-s, --schema <file>`: Path to GraphORM schema file (default: `schema.graphorm`).
+- `--url <jdbc-url>`: Database JDBC URL (or defaults to `DATABASE_URL` environment variable).
+- `-u, --user <username>`: Database user (default: `postgres`).
+- `-p, --password <password>`: Database password (default: empty).
+- `--db-schema <schema>`: Database schema name (default: `public`).
+
+### Examples
+
+#### 1. Create a migration from schema changes
+```bash
+graphorm migrate create add_user_profiles -s schema.graphorm
+```
+
+#### 2. Inspect migration status and checksum integrity
+```bash
+graphorm migrate status
+```
+
+#### 3. Apply pending migrations
+```bash
+graphorm migrate apply
+```
+
+#### 4. Verify zero schema drift in CI/CD pipeline
+```bash
+graphorm migrate verify -s schema.graphorm
+```
+*Returns exit code 0 if in sync, exit code 2 if schema drift is detected.*
+
+#### 5. Generate corrective diff DDL
+```bash
+graphorm migrate diff -s schema.graphorm
+```

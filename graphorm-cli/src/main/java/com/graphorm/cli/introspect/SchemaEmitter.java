@@ -154,7 +154,7 @@ public final class SchemaEmitter {
                     // Generate clean relation field name, e.g. "departmentId" -> "department"
                     String relName;
                     if (localFieldName.toLowerCase().endsWith("id") && localFieldName.length() > 2) {
-                        relName = localFieldName.substring(0, localFieldName.length() - (localFieldName.endsWith("Id") ? 2 : 2));
+                        relName = localFieldName.substring(0, localFieldName.length() - 2);
                         if (relName.isEmpty()) {
                             relName = toCamelCase(targetModel);
                         }
@@ -173,8 +173,16 @@ public final class SchemaEmitter {
                     boolean isFkNullable = sourceCol != null && sourceCol.isNullable();
                     String relType = isFkNullable ? targetModel + "?" : targetModel;
 
-                    String relAttr = String.format("@relation(fields: [%s], references: [%s])", localFieldName, targetFieldName);
-                    relationLines.add(new ColumnLine(relName, relType, relAttr));
+                    StringBuilder relAttr = new StringBuilder(String.format("@relation(fields: [%s], references: [%s]", localFieldName, targetFieldName));
+                    if (fk.onDelete() != null && !fk.onDelete().isBlank() && !fk.onDelete().equalsIgnoreCase("NO ACTION")) {
+                        relAttr.append(", onDelete: ").append(toPascalCase(fk.onDelete()));
+                    }
+                    if (fk.onUpdate() != null && !fk.onUpdate().isBlank() && !fk.onUpdate().equalsIgnoreCase("NO ACTION")) {
+                        relAttr.append(", onUpdate: ").append(toPascalCase(fk.onUpdate()));
+                    }
+                    relAttr.append(")");
+
+                    relationLines.add(new ColumnLine(relName, relType, relAttr.toString()));
                 }
             }
 
@@ -228,6 +236,24 @@ public final class SchemaEmitter {
                 }
                 if (!entityName.equals(t.tableName())) {
                     blockAttrs.add("@@map(\"" + t.tableName() + "\")");
+                }
+
+                // Indexes
+                for (IndexInfo idx : t.indexes()) {
+                    List<String> idxFields = idx.columns().stream()
+                            .map(c -> colToFieldName.getOrDefault(c, toCamelCase(c)))
+                            .toList();
+                    StringBuilder idxAttr = new StringBuilder("@@index([" + String.join(", ", idxFields) + "]");
+                    if (idx.type() != null && !idx.type().equalsIgnoreCase("BTREE")) {
+                        idxAttr.append(", type: ").append(toPascalCase(idx.type()));
+                    }
+                    idxAttr.append(")");
+                    blockAttrs.add(idxAttr.toString());
+                }
+
+                // Check constraints
+                for (CheckConstraintInfo chk : t.checkConstraints()) {
+                    blockAttrs.add("@@check(\"" + chk.expression().replace("\"", "\\\"") + "\")");
                 }
             }
 
