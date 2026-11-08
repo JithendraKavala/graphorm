@@ -36,8 +36,11 @@ public final class PostgresDatabaseIntrospector {
      * @throws SQLException if a database access error occurs
      */
     public String introspect() throws SQLException {
-        List<TableInfo> tables = introspectTables();
-        return SchemaEmitter.emit(tables, "postgresql");
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password)) {
+            List<EnumInfo> enums = queryEnums(conn);
+            List<TableInfo> tables = introspectTables(conn);
+            return SchemaEmitter.emit(tables, enums, "postgresql");
+        }
     }
 
     /**
@@ -45,16 +48,58 @@ public final class PostgresDatabaseIntrospector {
      */
     public List<TableInfo> introspectTables() throws SQLException {
         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password)) {
-            Map<String, TableInfo> tableMap = queryTablesAndViews(conn);
-            queryColumns(conn, tableMap);
-            queryPrimaryKeys(conn, tableMap);
-            queryUniqueConstraints(conn, tableMap);
-            queryForeignKeys(conn, tableMap);
-            queryIndexes(conn, tableMap);
-            queryCheckConstraints(conn, tableMap);
-
-            return new ArrayList<>(tableMap.values());
+            return introspectTables(conn);
         }
+    }
+
+    /**
+     * Queries database catalog for PostgreSQL enum types.
+     */
+    public List<EnumInfo> introspectEnums() throws SQLException {
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password)) {
+            return queryEnums(conn);
+        }
+    }
+
+    private List<TableInfo> introspectTables(Connection conn) throws SQLException {
+        Map<String, TableInfo> tableMap = queryTablesAndViews(conn);
+        queryColumns(conn, tableMap);
+        queryPrimaryKeys(conn, tableMap);
+        queryUniqueConstraints(conn, tableMap);
+        queryForeignKeys(conn, tableMap);
+        queryIndexes(conn, tableMap);
+        queryCheckConstraints(conn, tableMap);
+
+        return new ArrayList<>(tableMap.values());
+    }
+
+    private List<EnumInfo> queryEnums(Connection conn) throws SQLException {
+        String sql = """
+                SELECT t.typname AS enum_name, e.enumlabel AS enum_value
+                FROM pg_type t
+                JOIN pg_enum e ON t.oid = e.enumtypid
+                JOIN pg_namespace n ON n.oid = t.typnamespace
+                WHERE n.nspname = ?
+                ORDER BY t.typname, e.enumsortorder
+                """;
+
+        Map<String, List<String>> enumMap = new LinkedHashMap<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String enumName = rs.getString("enum_name");
+                    String enumVal = rs.getString("enum_value");
+                    enumMap.computeIfAbsent(enumName, k -> new ArrayList<>()).add(enumVal);
+                }
+            }
+        }
+
+        List<EnumInfo> result = new ArrayList<>();
+        for (Map.Entry<String, List<String>> entry : enumMap.entrySet()) {
+            result.add(new EnumInfo(entry.getKey(), entry.getValue()));
+        }
+        return result;
     }
 
     private Map<String, TableInfo> queryTablesAndViews(Connection conn) throws SQLException {
@@ -83,7 +128,8 @@ public final class PostgresDatabaseIntrospector {
 
     private void queryColumns(Connection conn, Map<String, TableInfo> tableMap) throws SQLException {
         String sql = """
-                SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default, ordinal_position
+                SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default, ordinal_position,
+                       character_maximum_length, numeric_precision, numeric_scale
                 FROM information_schema.columns
                 WHERE table_schema = ?
                 ORDER BY table_name, ordinal_position
@@ -102,8 +148,11 @@ public final class PostgresDatabaseIntrospector {
                         boolean isNullable = "YES".equalsIgnoreCase(rs.getString("is_nullable"));
                         String colDefault = rs.getString("column_default");
                         int ordinal = rs.getInt("ordinal_position");
+                        Integer charMaxLen = rs.getObject("character_maximum_length") != null ? rs.getInt("character_maximum_length") : null;
+                        Integer numPrec = rs.getObject("numeric_precision") != null ? rs.getInt("numeric_precision") : null;
+                        Integer numScale = rs.getObject("numeric_scale") != null ? rs.getInt("numeric_scale") : null;
 
-                        table.addColumn(new ColumnInfo(tableName, colName, dataType, udtName, isNullable, colDefault, ordinal));
+                        table.addColumn(new ColumnInfo(tableName, colName, dataType, udtName, isNullable, colDefault, ordinal, charMaxLen, numPrec, numScale));
                     }
                 }
             }
@@ -138,25 +187,37 @@ public final class PostgresDatabaseIntrospector {
 
     private void queryUniqueConstraints(Connection conn, Map<String, TableInfo> tableMap) throws SQLException {
         String sql = """
-                SELECT tc.table_name, kcu.column_name
+                SELECT tc.table_name, tc.constraint_name, kcu.column_name
                 FROM information_schema.table_constraints tc
                 JOIN information_schema.key_column_usage kcu
                   ON tc.constraint_name = kcu.constraint_name
                  AND tc.table_schema = kcu.table_schema
                 WHERE tc.table_schema = ?
                   AND tc.constraint_type = 'UNIQUE'
-                ORDER BY tc.table_name, kcu.ordinal_position
+                ORDER BY tc.table_name, tc.constraint_name, kcu.ordinal_position
                 """;
 
+        Map<String, Map<String, List<String>>> tableConstraints = new LinkedHashMap<>();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String tableName = rs.getString("table_name");
-                    TableInfo table = tableMap.get(tableName);
-                    if (table != null) {
-                        table.addUniqueColumn(rs.getString("column_name"));
-                    }
+                    String constraintName = rs.getString("constraint_name");
+                    String colName = rs.getString("column_name");
+
+                    tableConstraints.computeIfAbsent(tableName, k -> new LinkedHashMap<>())
+                            .computeIfAbsent(constraintName, k -> new ArrayList<>())
+                            .add(colName);
+                }
+            }
+        }
+
+        for (Map.Entry<String, Map<String, List<String>>> tableEntry : tableConstraints.entrySet()) {
+            TableInfo table = tableMap.get(tableEntry.getKey());
+            if (table != null) {
+                for (List<String> cols : tableEntry.getValue().values()) {
+                    table.addUniqueConstraint(cols);
                 }
             }
         }

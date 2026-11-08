@@ -1,40 +1,30 @@
 package com.graphorm.jdbc.exception;
 
-import com.graphorm.core.exception.GraphOrmException;
+import com.graphorm.core.exception.DataAccessException;
 
 import java.io.Serial;
 
 /**
  * Exception thrown when a database query execution or JDBC resource operation fails.
  */
-public class QueryExecutionException extends GraphOrmException {
+public class QueryExecutionException extends DataAccessException {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private final String sql;
-
     public QueryExecutionException(String message) {
         super(message);
-        this.sql = null;
     }
 
     public QueryExecutionException(String message, Throwable cause) {
         super(message, cause);
-        this.sql = null;
     }
 
     public QueryExecutionException(String message, String sql, Throwable cause) {
-        super(message, cause);
-        this.sql = sql;
+        super(message, sql, cause);
     }
 
-    /**
-     * Returns the SQL statement that caused the failure, if available.
-     *
-     * @return the SQL string, or null
-     */
-    public String sql() {
-        return sql;
+    public QueryExecutionException(String message, String sql, String sqlState, Throwable cause) {
+        super(message, sql, sqlState, cause);
     }
 }

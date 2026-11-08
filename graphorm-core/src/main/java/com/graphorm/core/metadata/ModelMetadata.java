@@ -169,6 +169,22 @@ public record ModelMetadata(
     }
 
     /**
+     * Looks up the optimistic locking version field on this model, if declared.
+     */
+    public Optional<FieldMetadata> versionField() {
+        return fields.stream()
+                .filter(FieldMetadata::isVersion)
+                .findFirst();
+    }
+
+    /**
+     * Indicates whether this model has an optimistic locking version field.
+     */
+    public boolean hasVersionField() {
+        return versionField().isPresent();
+    }
+
+    /**
      * Checks if the given field name is part of the primary key.
      *
      * @param fieldName the field name to check

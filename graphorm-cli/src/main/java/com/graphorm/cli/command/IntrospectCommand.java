@@ -1,5 +1,6 @@
 package com.graphorm.cli.command;
 
+import com.graphorm.cli.introspect.EnumInfo;
 import com.graphorm.cli.introspect.PostgresDatabaseIntrospector;
 import com.graphorm.cli.introspect.TableInfo;
 import com.graphorm.cli.introspect.SchemaEmitter;
@@ -115,7 +116,8 @@ public class IntrospectCommand implements Callable<Integer> {
             );
 
             List<TableInfo> tables = introspector.introspectTables();
-            String schemaContent = SchemaEmitter.emit(tables, "postgresql");
+            List<EnumInfo> enums = introspector.introspectEnums();
+            String schemaContent = SchemaEmitter.emit(tables, enums, "postgresql");
 
             Path parentDir = outputPath.getParent();
             if (parentDir != null && !Files.exists(parentDir)) {
@@ -129,6 +131,9 @@ public class IntrospectCommand implements Callable<Integer> {
 
             out.println("Successfully introspected database into '" + outputPath + "'!");
             out.printf("  Found %d model(s) and %d view(s).%n", modelCount, viewCount);
+            if (enums != null && !enums.isEmpty()) {
+                out.printf("  Found %d enum(s).%n", enums.size());
+            }
             out.println();
             out.println("Next steps:");
             out.println("  1. Review and refine " + outputPath);

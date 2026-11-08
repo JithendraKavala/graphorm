@@ -48,7 +48,7 @@ public final class MigrationPlan {
             }
         }
 
-        // 3. Create new Tables
+        // 3. Create new Tables and secondary indexes
         for (TableDefinition table : diff.createdTables()) {
             statements.add(dialect.buildCreateTableSql(table));
 
@@ -56,8 +56,10 @@ public final class MigrationPlan {
             for (IndexMetadata index : table.indexes()) {
                 statements.add(dialect.buildCreateIndexSql(index, table.name()));
             }
+        }
 
-            // Foreign keys on newly created table
+        // Foreign keys on newly created tables (emitted after ALL tables are created to prevent ordering issues)
+        for (TableDefinition table : diff.createdTables()) {
             for (ForeignKeyDefinition fk : table.foreignKeys()) {
                 statements.add(dialect.buildAddForeignKeySql(fk));
             }

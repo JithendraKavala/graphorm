@@ -1,7 +1,9 @@
 package com.graphorm.jdbc.builder;
 
+import com.graphorm.core.exception.OptimisticLockException;
 import com.graphorm.core.exception.ReadOnlyViewException;
 import com.graphorm.core.metadata.EntityMetadata;
+import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SourceTable;
@@ -9,7 +11,10 @@ import com.graphorm.core.query.UpdateQuery;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.BoundSql;
+import com.graphorm.jdbc.executor.JdbcExecutor;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,7 +22,9 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Builds parameterized {@link BoundSql} for UPDATE operations.\n * Enforces the architectural read-only invariant by rejecting any view targets.
+ * Builds parameterized {@link BoundSql} for UPDATE operations.
+ * Enforces the architectural read-only invariant by rejecting any view targets,
+ * and transparently coordinates optimistic locking via version column tracking.
  */
 public final class UpdateBuilder {
 
@@ -27,6 +34,14 @@ public final class UpdateBuilder {
     private WherePredicate where;
     private final List<String> returningColumns = new ArrayList<>();
     private boolean returningAll = false;
+
+    // Optimistic locking fields
+    private String entityName;
+    private String versionColumn;
+    private Object expectedVersion;
+    private boolean optimisticLocking = false;
+    private String idColumn = "id";
+    private Object idValue;
 
     public UpdateBuilder(SqlDialect dialect) {
         this.dialect = Objects.requireNonNull(dialect, "SqlDialect must not be null");
@@ -49,8 +64,8 @@ public final class UpdateBuilder {
     }
 
     /**
-     * Initializes the target table from entity metadata, throwing {@link ReadOnlyViewException}
-     * if the entity is a read-only view.
+     * Initializes the target table and optimistic locking metadata from entity metadata,
+     * throwing {@link ReadOnlyViewException} if the entity is a read-only view.
      *
      * @param entity the entity metadata
      * @return this builder
@@ -59,8 +74,20 @@ public final class UpdateBuilder {
     public UpdateBuilder forEntity(EntityMetadata entity) {
         Objects.requireNonNull(entity, "Entity metadata must not be null");
         QueryGuards.assertWritable(entity, "UPDATE");
-        String tableName = entity instanceof ModelMetadata model ? model.tableName() : entity.name().toLowerCase();
-        this.table = SourceTable.table(tableName);
+        this.entityName = entity.name();
+        if (entity instanceof ModelMetadata model) {
+            this.table = SourceTable.table(model.tableName());
+            if (model.hasVersionField()) {
+                FieldMetadata vf = model.versionField().get();
+                this.versionColumn = vf.dbColumnName();
+            }
+            if (!model.primaryKeyFields().isEmpty()) {
+                String pk = model.primaryKeyFields().getFirst();
+                this.idColumn = model.findField(pk).map(FieldMetadata::dbColumnName).orElse(pk);
+            }
+        } else {
+            this.table = SourceTable.table(entity.name().toLowerCase());
+        }
         return this;
     }
 
@@ -102,6 +129,51 @@ public final class UpdateBuilder {
     public UpdateBuilder where(WherePredicate where) {
         this.where = where;
         return this;
+    }
+
+    public UpdateBuilder id(Object idValue) {
+        this.idValue = idValue;
+        return this;
+    }
+
+    public UpdateBuilder id(String idColumn, Object idValue) {
+        this.idColumn = Objects.requireNonNull(idColumn, "idColumn must not be null");
+        this.idValue = idValue;
+        return this;
+    }
+
+    public UpdateBuilder versionColumn(String versionColumn) {
+        this.versionColumn = versionColumn;
+        return this;
+    }
+
+    public UpdateBuilder expectedVersion(Object expectedVersion) {
+        this.expectedVersion = expectedVersion;
+        this.optimisticLocking = true;
+        return this;
+    }
+
+    public UpdateBuilder optimisticLock(String versionColumn, Object expectedVersion) {
+        this.versionColumn = Objects.requireNonNull(versionColumn, "versionColumn must not be null");
+        this.expectedVersion = expectedVersion;
+        this.optimisticLocking = true;
+        return this;
+    }
+
+    public boolean isOptimisticLockingEnabled() {
+        return optimisticLocking;
+    }
+
+    public String getVersionColumn() {
+        return versionColumn;
+    }
+
+    public Object getExpectedVersion() {
+        return expectedVersion;
+    }
+
+    public String getTableName() {
+        return table != null ? table.tableName() : entityName;
     }
 
     public UpdateBuilder returningAll() {
@@ -158,6 +230,7 @@ public final class UpdateBuilder {
 
     /**
      * Builds the parameterized {@link BoundSql}.
+     * Automatically coordinates version increment and WHERE predicates when optimistic locking is active.
      *
      * @return the parameterized BoundSql
      */
@@ -165,6 +238,37 @@ public final class UpdateBuilder {
         if (table == null) {
             throw new IllegalStateException("Target table must be specified for UPDATE");
         }
+
+        // Auto-detect version field from values if set
+        if (versionColumn != null && expectedVersion == null && values.containsKey(versionColumn)) {
+            this.expectedVersion = values.get(versionColumn);
+            this.optimisticLocking = true;
+        }
+
+        // Apply optimistic locking version increment and WHERE condition
+        if (optimisticLocking && versionColumn != null && expectedVersion != null) {
+            Object nextVersion = computeNextVersion(expectedVersion);
+            values.put(versionColumn, nextVersion);
+
+            WherePredicate verPredicate = WherePredicate.eq(versionColumn, expectedVersion);
+            if (where == null) {
+                if (idValue != null) {
+                    where = WherePredicate.eq(idColumn, idValue).and(verPredicate);
+                } else {
+                    where = verPredicate;
+                }
+            } else {
+                if (idValue != null) {
+                    where = where.and(WherePredicate.eq(idColumn, idValue)).and(verPredicate);
+                } else {
+                    where = where.and(verPredicate);
+                }
+            }
+        } else if (idValue != null) {
+            WherePredicate idPredicate = WherePredicate.eq(idColumn, idValue);
+            where = (where == null) ? idPredicate : where.and(idPredicate);
+        }
+
         if (values.isEmpty()) {
             throw new IllegalStateException("At least one column value must be specified for UPDATE");
         }
@@ -199,5 +303,54 @@ public final class UpdateBuilder {
         }
 
         return new BoundSql(sql.toString(), parameters);
+    }
+
+    private static Object computeNextVersion(Object currentVersion) {
+        if (currentVersion instanceof Number num) {
+            if (currentVersion instanceof Long) {
+                return num.longValue() + 1;
+            }
+            return num.intValue() + 1;
+        } else if (currentVersion instanceof Instant) {
+            return Instant.now();
+        } else if (currentVersion instanceof Timestamp) {
+            return new Timestamp(System.currentTimeMillis());
+        }
+        return currentVersion;
+    }
+
+    /**
+     * Checks the affected row count against optimistic locking requirements.
+     * Throws {@link OptimisticLockException} if optimistic locking is enabled and 0 rows were updated.
+     *
+     * @param affectedRows the number of rows modified by the UPDATE statement
+     * @throws OptimisticLockException if 0 rows were updated under optimistic locking
+     */
+    public void verifyOptimisticLock(int affectedRows) {
+        if (optimisticLocking && affectedRows == 0) {
+            throw new OptimisticLockException(
+                    "Optimistic lock failure: record in '" + (entityName != null ? entityName : getTableName()) +
+                            "' with identifier '" + idValue + "' was modified or deleted by another transaction (expected version: " +
+                            expectedVersion + ")",
+                    null,
+                    entityName != null ? entityName : getTableName(),
+                    idValue,
+                    expectedVersion,
+                    null
+            );
+        }
+    }
+
+    /**
+     * Builds and executes this UPDATE query using the supplied {@link JdbcExecutor},
+     * automatically verifying optimistic locking concurrency control.
+     *
+     * @param executor the JdbcExecutor to use
+     * @return the number of updated rows
+     * @throws OptimisticLockException if optimistic locking is enabled and 0 rows are affected
+     */
+    public int execute(JdbcExecutor executor) {
+        Objects.requireNonNull(executor, "JdbcExecutor must not be null");
+        return executor.executeUpdate(this);
     }
 }

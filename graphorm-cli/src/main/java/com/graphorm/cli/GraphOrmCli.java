@@ -1,9 +1,6 @@
 package com.graphorm.cli;
 
-import com.graphorm.cli.command.GenerateCommand;
-import com.graphorm.cli.command.InitCommand;
-import com.graphorm.cli.command.IntrospectCommand;
-import com.graphorm.cli.command.ValidateCommand;
+import com.graphorm.cli.command.*;
 import com.graphorm.cli.command.migrate.MigrateCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -21,6 +18,8 @@ import java.util.concurrent.Callable;
  * <ul>
  *     <li>{@code validate} - Validates schema file and outputs formatted diagnostics</li>
  *     <li>{@code generate} - Generates Java models, views, input DTOs, and client API</li>
+ *     <li>{@code fmt} / {@code format} - Canonical schema formatter</li>
+ *     <li>{@code lint} - Schema linter for conventions and missing foreign key indexes</li>
  *     <li>{@code init} - Scaffolds a new starter project with sample schema</li>
  *     <li>{@code introspect} - Reverse-engineers PostgreSQL database schema into schema.graphorm</li>
  *     <li>{@code migrate} - Manages database migrations (create, apply, status, verify, diff)</li>
@@ -44,6 +43,8 @@ import java.util.concurrent.Callable;
         subcommands = {
                 ValidateCommand.class,
                 GenerateCommand.class,
+                FormatCommand.class,
+                LintCommand.class,
                 InitCommand.class,
                 IntrospectCommand.class,
                 MigrateCommand.class,
@@ -99,7 +100,7 @@ public class GraphOrmCli implements Callable<Integer> {
     }
 
     /**
-     * Executes the CLI with custom output writers and returns the exit code.
+     * Executes the CLI with custom output/error streams and returns the exit code without terminating the JVM.
      */
     public static int execute(PrintWriter out, PrintWriter err, String... args) {
         CommandLine cmd = createCommandLine(out, err);

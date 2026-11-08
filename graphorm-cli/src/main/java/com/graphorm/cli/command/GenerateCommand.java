@@ -71,13 +71,24 @@ public class GenerateCommand implements Callable<Integer> {
     )
     private boolean clean = false;
 
+    @Option(
+            names = {"--check", "--verify"},
+            description = "Verify that generated files are up to date with schema without overwriting (exit 0 if up to date, 1 if stale)"
+    )
+    private boolean check = false;
+
     public GenerateCommand() {}
 
     public GenerateCommand(Path schemaPath, Path outputDir, String basePackage, boolean clean) {
+        this(schemaPath, outputDir, basePackage, clean, false);
+    }
+
+    public GenerateCommand(Path schemaPath, Path outputDir, String basePackage, boolean clean, boolean check) {
         this.schemaPath = schemaPath;
         this.outputDir = outputDir;
         this.basePackage = basePackage;
         this.clean = clean;
+        this.check = check;
     }
 
     public void setSchemaPath(Path schemaPath) {
@@ -94,6 +105,10 @@ public class GenerateCommand implements Callable<Integer> {
 
     public void setClean(boolean clean) {
         this.clean = clean;
+    }
+
+    public void setCheck(boolean check) {
+        this.check = check;
     }
 
     @Override
@@ -151,8 +166,8 @@ public class GenerateCommand implements Callable<Integer> {
 
         Path normalizedOutputDir = outputDir.toAbsolutePath().normalize();
 
-        // Clean output directory if requested
-        if (clean && Files.exists(normalizedOutputDir)) {
+        // Clean output directory if requested (only if not running check)
+        if (!check && clean && Files.exists(normalizedOutputDir)) {
             try {
                 cleanDirectory(normalizedOutputDir);
             } catch (IOException e) {
@@ -162,12 +177,50 @@ public class GenerateCommand implements Callable<Integer> {
         }
 
         try {
-            long startTime = System.currentTimeMillis();
-
             ModelRegistry registry = SchemaToMetadataTransformer.transform(document);
             GeneratorConfig config = GeneratorConfig.of(effectivePackage);
             CodeGeneratorEngine engine = CodeGeneratorEngine.create(config);
 
+            if (check) {
+                boolean stale = false;
+                int missingCount = 0;
+                int outdatedCount = 0;
+
+                List<GeneratedSourceFile> expectedFiles = engine.generateAll(registry);
+                for (GeneratedSourceFile file : expectedFiles) {
+                    Path targetPath = normalizedOutputDir.resolve(file.relativePath());
+                    if (!Files.exists(targetPath)) {
+                        err.println("Missing generated file: " + targetPath);
+                        stale = true;
+                        missingCount++;
+                    } else {
+                        try {
+                            String current = Files.readString(targetPath, StandardCharsets.UTF_8);
+                            String normCurrent = current.replace("\r\n", "\n").stripTrailing();
+                            String normExpected = file.content().replace("\r\n", "\n").stripTrailing();
+                            if (!normCurrent.equals(normExpected)) {
+                                err.println("Outdated generated file: " + targetPath);
+                                stale = true;
+                                outdatedCount++;
+                            }
+                        } catch (IOException e) {
+                            err.println("Error reading generated file " + targetPath + ": " + e.getMessage());
+                            stale = true;
+                        }
+                    }
+                }
+
+                if (stale) {
+                    err.printf("Generated code is stale (%d missing, %d outdated). Run 'graphorm generate' to regenerate.%n",
+                            missingCount, outdatedCount);
+                    return 1;
+                } else {
+                    out.println("Generated code is up to date with schema (" + normalizedOutputDir + ")");
+                    return 0;
+                }
+            }
+
+            long startTime = System.currentTimeMillis();
             List<Path> writtenFiles = engine.writeAll(registry, normalizedOutputDir);
             long elapsed = System.currentTimeMillis() - startTime;
 

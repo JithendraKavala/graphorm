@@ -331,4 +331,11 @@ public interface SqlDialect {
      * Builds the SQL for releasing an advisory lock.
      */
     String buildAdvisoryUnlockSql(long lockKey);
+
+    /**
+     * Returns the error translator for mapping SQLExceptions to typed GraphORM DataAccessExceptions.
+     */
+    default SqlErrorTranslator errorTranslator() {
+        return new PostgreSqlErrorTranslator();
+    }
 }

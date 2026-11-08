@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /**
  * Immutable metadata record representing a scalar field, calculated expression,
- * aggregation, relational field, or backend-injected field on an entity.
+ * aggregation, relational field, backend-injected field, or optimistic lock version on an entity.
  *
  * @param name              the logical field name in the schema
  * @param javaType          the Java class type of this field (may be null if typeName is set)
@@ -26,6 +26,7 @@ import java.util.Objects;
  * @param authRoles         the required security roles defined via {@code @auth(roles: [...])}
  * @param isInjected        whether this field is backend-injected from security or execution context (via @injected)
  * @param injectedFrom      the context source key or provider identifier (e.g. "tenantId", "auth.username", "auth.role")
+ * @param isVersion         whether this field is used for optimistic locking concurrency control (via @version)
  */
 public record FieldMetadata(
         String name,
@@ -44,7 +45,8 @@ public record FieldMetadata(
         String relationName,
         List<String> authRoles,
         boolean isInjected,
-        String injectedFrom
+        String injectedFrom,
+        boolean isVersion
 ) {
 
     /**
@@ -68,6 +70,50 @@ public record FieldMetadata(
         if (injectedFrom != null) {
             isInjected = true;
         }
+    }
+
+    /**
+     * Backward-compatible constructor without isVersion.
+     */
+    public FieldMetadata(
+            String name,
+            Class<?> javaType,
+            String typeName,
+            String dbColumnName,
+            boolean isPrimaryKey,
+            boolean isNullable,
+            boolean isUnique,
+            boolean isGenerated,
+            String defaultValue,
+            boolean isAggregate,
+            String aggregateFunction,
+            String expression,
+            boolean isRelation,
+            String relationName,
+            List<String> authRoles,
+            boolean isInjected,
+            String injectedFrom
+    ) {
+        this(
+                name,
+                javaType,
+                typeName,
+                dbColumnName,
+                isPrimaryKey,
+                isNullable,
+                isUnique,
+                isGenerated,
+                defaultValue,
+                isAggregate,
+                aggregateFunction,
+                expression,
+                isRelation,
+                relationName,
+                authRoles,
+                isInjected,
+                injectedFrom,
+                false
+        );
     }
 
     /**
@@ -107,7 +153,8 @@ public record FieldMetadata(
                 relationName,
                 authRoles,
                 false,
-                null
+                null,
+                false
         );
     }
 
@@ -147,21 +194,13 @@ public record FieldMetadata(
                 relationName,
                 List.of(),
                 false,
-                null
+                null,
+                false
         );
     }
 
     /**
      * Standard constructor matching the core specification.
-     *
-     * @param name         field name
-     * @param javaType     Java class type
-     * @param dbColumnName mapped database column name
-     * @param isPrimaryKey primary key flag
-     * @param isNullable   nullability flag
-     * @param isUnique     uniqueness flag
-     * @param isGenerated  database-generated flag
-     * @param defaultValue default value literal or expression
      */
     public FieldMetadata(
             String name,
@@ -190,14 +229,13 @@ public record FieldMetadata(
                 null,
                 List.of(),
                 false,
-                null
+                null,
+                false
         );
     }
 
     /**
      * Indicates whether this field has required security roles defined.
-     *
-     * @return true if authorization roles are specified
      */
     public boolean hasAuthRoles() {
         return authRoles != null && !authRoles.isEmpty();
@@ -205,9 +243,6 @@ public record FieldMetadata(
 
     /**
      * Checks whether the specified user roles satisfy this field's required roles.
-     *
-     * @param userRoles the roles held by the caller
-     * @return true if authorized or if no roles are required
      */
     public boolean isAuthorized(Collection<String> userRoles) {
         if (!hasAuthRoles()) {
@@ -239,9 +274,6 @@ public record FieldMetadata(
 
     /**
      * Creates a new builder for {@link FieldMetadata}.
-     *
-     * @param name the logical field name
-     * @return a new Builder instance
      */
     public static Builder builder(String name) {
         return new Builder(name);
@@ -249,10 +281,6 @@ public record FieldMetadata(
 
     /**
      * Creates a new builder for {@link FieldMetadata} with a name and Java type.
-     *
-     * @param name     the logical field name
-     * @param javaType the Java class type
-     * @return a new Builder instance
      */
     public static Builder builder(String name, Class<?> javaType) {
         return new Builder(name).javaType(javaType);
@@ -279,6 +307,7 @@ public record FieldMetadata(
         private final List<String> authRoles = new ArrayList<>();
         private boolean isInjected;
         private String injectedFrom;
+        private boolean isVersion;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Field name must not be null");
@@ -380,6 +409,16 @@ public record FieldMetadata(
             return this;
         }
 
+        public Builder version(boolean isVersion) {
+            this.isVersion = isVersion;
+            return this;
+        }
+
+        public Builder version() {
+            this.isVersion = true;
+            return this;
+        }
+
         public FieldMetadata build() {
             return new FieldMetadata(
                     name,
@@ -398,7 +437,8 @@ public record FieldMetadata(
                     relationName,
                     List.copyOf(authRoles),
                     isInjected,
-                    injectedFrom
+                    injectedFrom,
+                    isVersion
             );
         }
     }

@@ -12,6 +12,7 @@ public final class TableInfo {
     private final List<ColumnInfo> columns = new ArrayList<>();
     private final List<String> primaryKeyColumns = new ArrayList<>();
     private final Set<String> uniqueColumns = new LinkedHashSet<>();
+    private final List<List<String>> uniqueConstraints = new ArrayList<>();
     private final List<ForeignKeyInfo> foreignKeys = new ArrayList<>();
     private final List<IndexInfo> indexes = new ArrayList<>();
     private final List<CheckConstraintInfo> checkConstraints = new ArrayList<>();
@@ -53,6 +54,19 @@ public final class TableInfo {
 
     public void addUniqueColumn(String col) {
         this.uniqueColumns.add(col);
+    }
+
+    public List<List<String>> uniqueConstraints() {
+        return Collections.unmodifiableList(uniqueConstraints);
+    }
+
+    public void addUniqueConstraint(List<String> constraint) {
+        if (constraint != null && !constraint.isEmpty()) {
+            this.uniqueConstraints.add(List.copyOf(constraint));
+            if (constraint.size() == 1) {
+                this.uniqueColumns.add(constraint.getFirst());
+            }
+        }
     }
 
     public List<ForeignKeyInfo> foreignKeys() {

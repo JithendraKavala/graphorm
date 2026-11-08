@@ -235,6 +235,8 @@ public final class WhereClauseBuilder {
         sql.append(")");
     }
 
+    public static final int MAX_IN_CHUNK_SIZE = 1000;
+
     private static void renderIn(
             WherePredicate.InPredicate in,
             SqlDialect dialect,
@@ -247,8 +249,38 @@ public final class WhereClauseBuilder {
             sql.append(in.isNotIn() ? "1 = 1" : "1 = 0");
             return;
         }
-        sql.append(quotedCol)
-                .append(in.isNotIn() ? " NOT IN (" : " IN (");
+
+        if (values.size() <= MAX_IN_CHUNK_SIZE) {
+            renderSingleIn(quotedCol, in.isNotIn(), values, sql, parameters);
+        } else {
+            // Partition large IN / NOT IN lists into chunks of MAX_IN_CHUNK_SIZE
+            // For IN: (col IN (chunk1) OR col IN (chunk2))
+            // For NOT IN: (col NOT IN (chunk1) AND col NOT IN (chunk2))
+            boolean isNotIn = in.isNotIn();
+            sql.append("(");
+            int total = values.size();
+            int chunkCount = (total + MAX_IN_CHUNK_SIZE - 1) / MAX_IN_CHUNK_SIZE;
+            for (int c = 0; c < chunkCount; c++) {
+                if (c > 0) {
+                    sql.append(isNotIn ? " AND " : " OR ");
+                }
+                int from = c * MAX_IN_CHUNK_SIZE;
+                int to = Math.min(from + MAX_IN_CHUNK_SIZE, total);
+                List<Object> chunk = values.subList(from, to);
+                renderSingleIn(quotedCol, isNotIn, chunk, sql, parameters);
+            }
+            sql.append(")");
+        }
+    }
+
+    private static void renderSingleIn(
+            String quotedCol,
+            boolean isNotIn,
+            List<Object> values,
+            StringBuilder sql,
+            List<Object> parameters
+    ) {
+        sql.append(quotedCol).append(isNotIn ? " NOT IN (" : " IN (");
         for (int i = 0; i < values.size(); i++) {
             if (i > 0) {
                 sql.append(", ");

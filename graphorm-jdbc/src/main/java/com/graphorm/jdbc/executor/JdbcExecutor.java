@@ -11,8 +11,13 @@ import com.graphorm.core.query.UpsertQuery;
 import com.graphorm.jdbc.builder.BatchInsertBuilder;
 import com.graphorm.jdbc.builder.UpsertBuilder;
 import com.graphorm.jdbc.builder.InsertBuilder;
+import com.graphorm.jdbc.builder.UpdateBuilder;
+import com.graphorm.jdbc.cursor.Cursor;
+import com.graphorm.jdbc.cursor.DefaultCursor;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+import com.graphorm.jdbc.dialect.PostgreSqlErrorTranslator;
 import com.graphorm.jdbc.dialect.SqlDialect;
+import com.graphorm.jdbc.dialect.SqlErrorTranslator;
 import com.graphorm.jdbc.exception.QueryExecutionException;
 import com.graphorm.jdbc.mapper.DynamicRowMapper;
 import com.graphorm.jdbc.mapper.RowMapper;
@@ -43,6 +48,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 
 /**
  * Core JDBC query execution engine managing database connections, prepared statement binding,
@@ -53,6 +59,10 @@ public class JdbcExecutor {
     private static final Logger log = LoggerFactory.getLogger(JdbcExecutor.class);
 
     public static final String LOG_PARAMETERS_PROPERTY = "graphorm.jdbc.log-parameters";
+    public static final int DEFAULT_FETCH_SIZE = 100;
+    public static final int MAX_BATCH_INSERT_ROWS = 1000;
+    public static final int MAX_BATCH_INSERT_PARAMS = 5000;
+
     private static volatile boolean globalLogParameters = Boolean.getBoolean(LOG_PARAMETERS_PROPERTY);
 
     private volatile boolean logParameters = globalLogParameters;
@@ -90,12 +100,14 @@ public class JdbcExecutor {
     private final DataSource dataSource;
     private final SqlDialect dialect;
     private final ConnectionProvider connectionProvider;
+    private final SqlErrorTranslator errorTranslator;
     private final List<StatementInterceptor> interceptors = new CopyOnWriteArrayList<>();
 
     public JdbcExecutor(DataSource dataSource, SqlDialect dialect, ConnectionProvider connectionProvider, StatementInterceptor... interceptors) {
         this.dataSource = Objects.requireNonNull(dataSource, "DataSource must not be null");
         this.dialect = Objects.requireNonNull(dialect, "SqlDialect must not be null");
         this.connectionProvider = connectionProvider != null ? connectionProvider : DEFAULT_CONNECTION_PROVIDER;
+        this.errorTranslator = dialect.errorTranslator() != null ? dialect.errorTranslator() : new PostgreSqlErrorTranslator();
         if (interceptors != null) {
             for (StatementInterceptor i : interceptors) {
                 if (i != null) {
@@ -127,6 +139,10 @@ public class JdbcExecutor {
 
     public ConnectionProvider connectionProvider() {
         return connectionProvider;
+    }
+
+    public SqlErrorTranslator errorTranslator() {
+        return errorTranslator;
     }
 
     public final void addInterceptor(StatementInterceptor interceptor) {
@@ -228,7 +244,7 @@ public class JdbcExecutor {
                 }
             }
         } catch (SQLException e) {
-            throw new QueryExecutionException("Query execution failed: " + e.getMessage(), boundSql.sql(), e);
+            throw errorTranslator.translate("Query execution", boundSql.sql(), e);
         } finally {
             try {
                 if (conn != null) {
@@ -282,6 +298,107 @@ public class JdbcExecutor {
         return Optional.ofNullable(list.getFirst());
     }
 
+    // --- Streaming Operations ---
+
+    /**
+     * Executes a streaming query using server-side cursor and JDBC fetch size,
+     * returning a closable {@link Cursor}.
+     *
+     * @param boundSql  the parameterized query
+     * @param rowMapper mapping strategy
+     * @param fetchSize JDBC fetch size
+     * @param <T>       the entity or record type
+     * @return an open, streaming Cursor
+     */
+    public <T> Cursor<T> stream(BoundSql boundSql, RowMapper<T> rowMapper, int fetchSize) {
+        Objects.requireNonNull(boundSql, "BoundSql must not be null");
+        Objects.requireNonNull(rowMapper, "RowMapper must not be null");
+
+        log.debug("Opening streaming cursor for: {} with fetchSize={}", boundSql.sql(), fetchSize);
+
+        Connection conn = null;
+        try {
+            conn = connectionProvider.getConnection(dataSource);
+            boolean wasAutoCommit = conn.getAutoCommit();
+            if (wasAutoCommit) {
+                conn.setAutoCommit(false);
+            }
+            PreparedStatement ps = conn.prepareStatement(boundSql.sql(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+            ps.setFetchSize(fetchSize > 0 ? fetchSize : DEFAULT_FETCH_SIZE);
+            bindParameters(ps, boundSql.parameters());
+
+            ResultSet rs = ps.executeQuery();
+            return new DefaultCursor<>(conn, ps, rs, rowMapper, connectionProvider, dataSource, wasAutoCommit, errorTranslator, boundSql.sql());
+        } catch (SQLException e) {
+            if (conn != null) {
+                try {
+                    connectionProvider.releaseConnection(conn, dataSource);
+                } catch (SQLException ignored) {}
+            }
+            throw errorTranslator.translate("Streaming query execution", boundSql.sql(), e);
+        }
+    }
+
+    public <T> Cursor<T> stream(BoundSql boundSql, RowMapper<T> rowMapper) {
+        return stream(boundSql, rowMapper, DEFAULT_FETCH_SIZE);
+    }
+
+    public <T> Cursor<T> stream(SelectQuery query, RowMapper<T> rowMapper, int fetchSize) {
+        return stream(dialect.buildSelectSql(query), rowMapper, fetchSize);
+    }
+
+    public <T> Cursor<T> stream(SelectQuery query, RowMapper<T> rowMapper) {
+        return stream(query, rowMapper, DEFAULT_FETCH_SIZE);
+    }
+
+    public <T> Cursor<T> stream(SelectQuery query, Class<T> recordClass, int fetchSize) {
+        return stream(dialect.buildSelectSql(query), DynamicRowMapper.mapToRecord(recordClass), fetchSize);
+    }
+
+    public <T> Cursor<T> stream(SelectQuery query, Class<T> recordClass) {
+        return stream(query, recordClass, DEFAULT_FETCH_SIZE);
+    }
+
+    public <T> Cursor<T> stream(BoundSql boundSql, Class<T> recordClass, int fetchSize) {
+        return stream(boundSql, DynamicRowMapper.mapToRecord(recordClass), fetchSize);
+    }
+
+    public <T> Cursor<T> stream(BoundSql boundSql, Class<T> recordClass) {
+        return stream(boundSql, recordClass, DEFAULT_FETCH_SIZE);
+    }
+
+    public <T> Stream<T> queryForStream(BoundSql boundSql, RowMapper<T> rowMapper, int fetchSize) {
+        return stream(boundSql, rowMapper, fetchSize).stream();
+    }
+
+    public <T> Stream<T> queryForStream(BoundSql boundSql, RowMapper<T> rowMapper) {
+        return stream(boundSql, rowMapper).stream();
+    }
+
+    public <T> Stream<T> queryForStream(SelectQuery query, RowMapper<T> rowMapper, int fetchSize) {
+        return stream(query, rowMapper, fetchSize).stream();
+    }
+
+    public <T> Stream<T> queryForStream(SelectQuery query, RowMapper<T> rowMapper) {
+        return stream(query, rowMapper).stream();
+    }
+
+    public <T> Stream<T> queryForStream(SelectQuery query, Class<T> recordClass, int fetchSize) {
+        return stream(query, recordClass, fetchSize).stream();
+    }
+
+    public <T> Stream<T> queryForStream(SelectQuery query, Class<T> recordClass) {
+        return stream(query, recordClass).stream();
+    }
+
+    public <T> Stream<T> queryForStream(BoundSql boundSql, Class<T> recordClass, int fetchSize) {
+        return stream(boundSql, recordClass, fetchSize).stream();
+    }
+
+    public <T> Stream<T> queryForStream(BoundSql boundSql, Class<T> recordClass) {
+        return stream(boundSql, recordClass).stream();
+    }
+
     // --- Mutation Operations ---
     public int executeUpdate(BoundSql boundSql) {
         Objects.requireNonNull(boundSql, "BoundSql must not be null");
@@ -304,7 +421,7 @@ public class JdbcExecutor {
                 return ps.executeUpdate();
             }
         } catch (SQLException e) {
-            throw new QueryExecutionException("Update execution failed: " + e.getMessage(), boundSql.sql(), e);
+            throw errorTranslator.translate("Update execution", boundSql.sql(), e);
         } finally {
             try {
                 if (conn != null) {
@@ -335,6 +452,18 @@ public class JdbcExecutor {
         return executeUpdate(dialect.buildUpdateSql(query));
     }
 
+    /**
+     * Executes an update configured via {@link UpdateBuilder}, automatically verifying
+     * optimistic locking concurrency control if enabled.
+     */
+    public int executeUpdate(UpdateBuilder updateBuilder) {
+        Objects.requireNonNull(updateBuilder, "UpdateBuilder must not be null");
+        BoundSql boundSql = updateBuilder.build();
+        int affected = executeUpdate(boundSql);
+        updateBuilder.verifyOptimisticLock(affected);
+        return affected;
+    }
+
     public int executeUpdate(DeleteQuery query) {
         return executeUpdate(dialect.buildDeleteSql(query));
     }
@@ -359,11 +488,60 @@ public class JdbcExecutor {
         return executeUpsertAndReturn(query).map(map -> DynamicRowMapper.mapMapToRecord(map, targetClass));
     }
 
+    /**
+     * Executes a batch INSERT query, transparently partitioning large row sets into
+     * chunks to safeguard against PostgreSQL's 65,535 bind parameter limit.
+     */
     public int executeBatchInsert(BatchInsertQuery query) {
+        Objects.requireNonNull(query, "BatchInsertQuery must not be null");
+        int rowCount = query.rows().size();
+        int colCount = query.columns().size();
+        int totalParams = rowCount * colCount;
+
+        if (rowCount > MAX_BATCH_INSERT_ROWS || totalParams > MAX_BATCH_INSERT_PARAMS) {
+            int totalInserted = 0;
+            int chunkSize = Math.max(1, Math.min(MAX_BATCH_INSERT_ROWS, MAX_BATCH_INSERT_PARAMS / Math.max(1, colCount)));
+            for (int i = 0; i < rowCount; i += chunkSize) {
+                int end = Math.min(i + chunkSize, rowCount);
+                List<List<Object>> chunkRows = query.rows().subList(i, end);
+                BatchInsertQuery chunkQuery = BatchInsertQuery.into(query.table())
+                        .columns(query.columns())
+                        .rows(chunkRows)
+                        .returning(query.returningColumns())
+                        .build();
+                totalInserted += executeUpdate(dialect.buildBatchInsertSql(chunkQuery));
+            }
+            return totalInserted;
+        }
+
         return executeUpdate(dialect.buildBatchInsertSql(query));
     }
 
+    /**
+     * Executes a batch INSERT query with RETURNING clause, chunking large batches transparently.
+     */
     public List<Map<String, Object>> executeBatchInsertAndReturn(BatchInsertQuery query) {
+        Objects.requireNonNull(query, "BatchInsertQuery must not be null");
+        int rowCount = query.rows().size();
+        int colCount = query.columns().size();
+        int totalParams = rowCount * colCount;
+
+        if (rowCount > MAX_BATCH_INSERT_ROWS || totalParams > MAX_BATCH_INSERT_PARAMS) {
+            List<Map<String, Object>> allResults = new ArrayList<>();
+            int chunkSize = Math.max(1, Math.min(MAX_BATCH_INSERT_ROWS, MAX_BATCH_INSERT_PARAMS / Math.max(1, colCount)));
+            for (int i = 0; i < rowCount; i += chunkSize) {
+                int end = Math.min(i + chunkSize, rowCount);
+                List<List<Object>> chunkRows = query.rows().subList(i, end);
+                BatchInsertQuery chunkQuery = BatchInsertQuery.into(query.table())
+                        .columns(query.columns())
+                        .rows(chunkRows)
+                        .returning(query.returningColumns())
+                        .build();
+                allResults.addAll(executeBatchInsertAndReturn(chunkQuery));
+            }
+            return Collections.unmodifiableList(allResults);
+        }
+
         if (query.returning() != null && !query.returning().isEmpty()) {
             return queryForList(dialect.buildBatchInsertSql(query));
         }
@@ -412,7 +590,7 @@ public class JdbcExecutor {
                 return ps.executeBatch();
             }
         } catch (SQLException e) {
-            throw new QueryExecutionException("Batch execution failed: " + e.getMessage(), sql, e);
+            throw errorTranslator.translate("Batch execution", sql, e);
         } finally {
             try {
                 if (conn != null) {
@@ -553,7 +731,7 @@ public class JdbcExecutor {
                 return Optional.of(result);
             }
         } catch (SQLException e) {
-            throw new QueryExecutionException("Insert execution failed: " + e.getMessage(), boundSql.sql(), e);
+            throw errorTranslator.translate("Insert execution", boundSql.sql(), e);
         } finally {
             try {
                 if (conn != null) {

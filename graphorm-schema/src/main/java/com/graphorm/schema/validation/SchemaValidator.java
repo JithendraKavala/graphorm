@@ -176,6 +176,9 @@ public final class SchemaValidator {
             // Primary key validation
             validateModelPrimaryKey(model, diagnostics);
 
+            // Version validation
+            validateModelVersion(model, diagnostics);
+
             // Unique constraints validation
             validateModelUniqueConstraints(model, diagnostics);
 
@@ -187,6 +190,43 @@ public final class SchemaValidator {
 
             // Relation validation
             validateModelRelations(model, document, diagnostics);
+        }
+    }
+
+    private static void validateModelVersion(ModelNode model, List<Diagnostic> diagnostics) {
+        List<FieldNode> versionFields = model.fields().stream()
+                .filter(FieldNode::isVersion)
+                .toList();
+
+        if (versionFields.size() > 1) {
+            diagnostics.add(Diagnostic.error(
+                    "Model '" + model.name() + "' cannot have multiple @version fields",
+                    versionFields.get(1).position()
+            ));
+            return;
+        }
+
+        if (versionFields.size() == 1) {
+            FieldNode vf = versionFields.get(0);
+            if (vf.isPrimaryKey()) {
+                diagnostics.add(Diagnostic.error(
+                        "Primary key field '" + vf.name() + "' cannot be annotated with @version",
+                        vf.versionAttribute().get().position()
+                ));
+            }
+            if (vf.relationAttribute().isPresent()) {
+                diagnostics.add(Diagnostic.error(
+                        "Relation field '" + vf.name() + "' cannot be annotated with @version",
+                        vf.versionAttribute().get().position()
+                ));
+            }
+            String type = vf.type().name();
+            if (!List.of("Int", "BigInt", "DateTime", "Timestamp").contains(type)) {
+                diagnostics.add(Diagnostic.error(
+                        "Field '" + vf.name() + "' annotated with @version must be of type Int, BigInt, or DateTime, found '" + type + "'",
+                        vf.type().position()
+                ));
+            }
         }
     }
 

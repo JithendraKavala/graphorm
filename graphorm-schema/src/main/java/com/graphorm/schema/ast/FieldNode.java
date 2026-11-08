@@ -55,6 +55,10 @@ public record FieldNode(
         return hasAttribute("injected");
     }
 
+    public boolean isVersion() {
+        return hasAttribute("version");
+    }
+
     public boolean hasAttribute(String attributeName) {
         return findAttribute(attributeName).isPresent();
     }
@@ -86,6 +90,10 @@ public record FieldNode(
 
     public Optional<FieldAttributeNode> mapAttribute() {
         return findAttribute("map");
+    }
+
+    public Optional<FieldAttributeNode> versionAttribute() {
+        return findAttribute("version");
     }
 
     public Optional<FieldAttributeNode> authAttribute() {

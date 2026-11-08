@@ -3,7 +3,7 @@ package com.graphorm.cli.introspect;
 import java.util.*;
 
 /**
- * Emits GraphORM schema DSL from introspected database tables and views.
+ * Emits GraphORM schema DSL from introspected database tables, views, and enums.
  */
 public final class SchemaEmitter {
 
@@ -17,6 +17,18 @@ public final class SchemaEmitter {
      * @return formatted GraphORM schema string
      */
     public static String emit(List<TableInfo> tables, String databaseName) {
+        return emit(tables, List.of(), databaseName);
+    }
+
+    /**
+     * Emits a complete schema DSL string from introspected tables, views, and enum types.
+     *
+     * @param tables       list of introspected tables and views
+     * @param enums        list of introspected database enum types
+     * @param databaseName database or provider name (e.g. "postgresql")
+     * @return formatted GraphORM schema string
+     */
+    public static String emit(List<TableInfo> tables, List<EnumInfo> enums, String databaseName) {
         StringBuilder sb = new StringBuilder();
 
         // 1. Datasource block
@@ -31,6 +43,24 @@ public final class SchemaEmitter {
         sb.append("generator client {\n");
         sb.append("  provider = \"graphorm-client-java\"\n");
         sb.append("}\n\n");
+
+        // 3. Emit Enums
+        Map<String, String> enumNameToModelType = new LinkedHashMap<>();
+        if (enums != null && !enums.isEmpty()) {
+            for (EnumInfo e : enums) {
+                String enumPascal = toPascalCase(e.name());
+                enumNameToModelType.put(e.name().toLowerCase(), enumPascal);
+
+                sb.append("enum ").append(enumPascal).append(" {\n");
+                for (String val : e.values()) {
+                    sb.append("  ").append(val).append("\n");
+                }
+                if (!enumPascal.equals(e.name())) {
+                    sb.append("  @@map(\"").append(e.name()).append("\")\n");
+                }
+                sb.append("}\n\n");
+            }
+        }
 
         if (tables == null || tables.isEmpty()) {
             return sb.toString();
@@ -59,7 +89,7 @@ public final class SchemaEmitter {
             }
         }
 
-        // 3. Emit Models and Views
+        // 4. Emit Models and Views
         for (TableInfo t : tables) {
             String entityName = tableToModelName.get(t.tableName());
             boolean isView = t.isView();
@@ -107,7 +137,14 @@ public final class SchemaEmitter {
                 fieldNames.add(fieldName);
                 colToFieldName.put(c.columnName(), fieldName);
 
-                String baseType = mapPostgresType(c.dataType(), c.udtName());
+                String udtLower = c.udtName() != null ? c.udtName().toLowerCase() : "";
+                String baseType;
+                if (enumNameToModelType.containsKey(udtLower)) {
+                    baseType = enumNameToModelType.get(udtLower);
+                } else {
+                    baseType = mapPostgresType(c.dataType(), c.udtName());
+                }
+
                 boolean isPk = hasSinglePk && t.primaryKeyColumns().contains(c.columnName());
                 boolean isViewPk = isView && c.columnName().equals(viewPkColumn);
                 boolean isNullable = c.isNullable() && !isPk && !isViewPk;
@@ -133,6 +170,31 @@ public final class SchemaEmitter {
 
                 if (!isView && !isPk && t.uniqueColumns().contains(c.columnName())) {
                     attrs.add("@unique");
+                }
+
+                // Native types
+                if (!isView) {
+                    if ("varchar".equals(udtLower) || "character varying".equals(udtLower)) {
+                        if (c.characterMaximumLength() != null) {
+                            attrs.add("@db.VarChar(" + c.characterMaximumLength() + ")");
+                        }
+                    } else if ("bpchar".equals(udtLower) || "char".equals(udtLower) || "character".equals(udtLower)) {
+                        if (c.characterMaximumLength() != null) {
+                            attrs.add("@db.Char(" + c.characterMaximumLength() + ")");
+                        }
+                    } else if ("numeric".equals(udtLower) || "decimal".equals(udtLower)) {
+                        if (c.numericPrecision() != null) {
+                            if (c.numericScale() != null) {
+                                attrs.add("@db.Decimal(" + c.numericPrecision() + ", " + c.numericScale() + ")");
+                            } else {
+                                attrs.add("@db.Decimal(" + c.numericPrecision() + ")");
+                            }
+                        }
+                    } else if ("text".equals(udtLower)) {
+                        attrs.add("@db.Text");
+                    } else if ("uuid".equals(udtLower)) {
+                        attrs.add("@db.Uuid");
+                    }
                 }
 
                 if (!fieldName.equals(c.columnName())) {
@@ -238,17 +300,38 @@ public final class SchemaEmitter {
                     blockAttrs.add("@@map(\"" + t.tableName() + "\")");
                 }
 
+                // Multi-column unique constraints
+                Set<String> seenUniques = new HashSet<>();
+                for (List<String> uc : t.uniqueConstraints()) {
+                    if (uc.size() > 1) {
+                        List<String> uFields = uc.stream()
+                                .map(c -> colToFieldName.getOrDefault(c, toCamelCase(c)))
+                                .toList();
+                        String key = String.join(",", uFields);
+                        if (seenUniques.add(key)) {
+                            blockAttrs.add("@@unique([" + String.join(", ", uFields) + "])");
+                        }
+                    }
+                }
+
                 // Indexes
                 for (IndexInfo idx : t.indexes()) {
                     List<String> idxFields = idx.columns().stream()
                             .map(c -> colToFieldName.getOrDefault(c, toCamelCase(c)))
                             .toList();
-                    StringBuilder idxAttr = new StringBuilder("@@index([" + String.join(", ", idxFields) + "]");
-                    if (idx.type() != null && !idx.type().equalsIgnoreCase("BTREE")) {
-                        idxAttr.append(", type: ").append(toPascalCase(idx.type()));
+                    if (idx.isUnique()) {
+                        String key = String.join(",", idxFields);
+                        if (seenUniques.add(key)) {
+                            blockAttrs.add("@@unique([" + String.join(", ", idxFields) + "])");
+                        }
+                    } else {
+                        StringBuilder idxAttr = new StringBuilder("@@index([" + String.join(", ", idxFields) + "]");
+                        if (idx.type() != null && !idx.type().equalsIgnoreCase("BTREE")) {
+                            idxAttr.append(", type: ").append(toPascalCase(idx.type()));
+                        }
+                        idxAttr.append(")");
+                        blockAttrs.add(idxAttr.toString());
                     }
-                    idxAttr.append(")");
-                    blockAttrs.add(idxAttr.toString());
                 }
 
                 // Check constraints
@@ -322,7 +405,7 @@ public final class SchemaEmitter {
                 sb.append(Character.toUpperCase(c));
                 capitalize = false;
             } else {
-                sb.append(c);
+                sb.append(Character.toLowerCase(c));
             }
         }
         return sb.toString();

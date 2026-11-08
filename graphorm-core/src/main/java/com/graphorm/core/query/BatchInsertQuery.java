@@ -136,6 +136,14 @@ public record BatchInsertQuery(
             return this;
         }
 
+        public Builder rows(List<List<Object>> rows) {
+            this.rows.clear();
+            if (rows != null) {
+                addRows(rows);
+            }
+            return this;
+        }
+
         /**
          * Adds rows from a list of column-to-value maps.
          * If columns are not yet defined, infers columns from the union of map keys.

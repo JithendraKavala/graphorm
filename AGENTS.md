@@ -4,11 +4,20 @@ This file establishes the foundational, non-negotiable guidelines and engineerin
 
 ---
 
+## Fast Discovery & Token Optimization Protocol
+
+To prevent context inflation and avoid unnecessary file-reading at the start of new sessions:
+1. **Consult `REPO_MAP.md` First**: All 250+ classes, records, interfaces, and public method signatures across all modules are indexed in [REPO_MAP.md](file:///mnt/jithendra/Dev_Station/graphorm/REPO_MAP.md). Always look up class names, signatures, and locations here first before reading source files.
+2. **Targeted Reading Only**: Never broadly crawl directories or open batches of files to "explore the codebase". Identify the exact target file from `REPO_MAP.md` or a targeted symbol grep, then read only the specific file needed for the task.
+3. **Keep the Map Updated**: Run `.agents/scripts/update_repo_map.sh` whenever new classes, records, or public methods are added or refactored.
+
+---
+
 ## The 19 Global Engineering Rules
 
 1. **Read Relevant Skills Before Implementing**: Always load and consult the applicable skill(s) under `.agents/skills/` before designing or writing code for any module or feature. For view models, always load `graphorm-view-models`.
 2. **Architecture as Source of Truth**: Treat the system architecture and architectural decisions documented in `docs/ARCHITECTURE.md` and `docs/ARCHITECTURAL_DECISIONS.md` as the definitive source of truth.
-3. **Verify Before Assuming**: Do not invent APIs, classes, or assume functionality exists without verifying existing source code and tests.
+3. **Verify Before Assuming**: Check `REPO_MAP.md` and relevant source files before assuming functionality exists. Do not invent APIs or classes without verifying existing abstractions.
 4. **No Duplicate Abstractions**: Never create duplicate models, interfaces, AST structures, or query representations. Leverage existing abstractions.
 5. **No Database-Specific Code in Core**: Keep `graphorm-core` completely free of database-specific dependencies (e.g., PostgreSQL, MySQL, H2 specifics or JDBC drivers).
 6. **No Spring Dependencies in Core**: `graphorm-core`, `graphorm-schema`, `graphorm-generator`, and `graphorm-jdbc` must remain independent of Spring framework dependencies. Spring integration belongs exclusively in `graphorm-spring-boot-starter`.

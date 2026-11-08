@@ -90,11 +90,11 @@ typeName
     ;
 
 fieldAttribute
-    : AT identifier (LPAREN argumentList? RPAREN)?
+    : AT qualifiedIdentifier (LPAREN argumentList? RPAREN)?
     ;
 
 blockAttribute
-    : DOUBLE_AT identifier (LPAREN argumentList? RPAREN)?
+    : DOUBLE_AT qualifiedIdentifier (LPAREN argumentList? RPAREN)?
     ;
 
 argumentList

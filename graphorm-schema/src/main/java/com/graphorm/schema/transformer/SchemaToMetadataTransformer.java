@@ -466,6 +466,7 @@ public final class SchemaToMetadataTransformer {
         List<String> authRoles = field.authRoles();
         boolean isInjected = field.isInjected();
         String injectedFrom = field.injectedFrom().orElse(null);
+        boolean isVersion = field.isVersion();
 
         return new FieldMetadata(
                 name,
@@ -484,7 +485,8 @@ public final class SchemaToMetadataTransformer {
                 relName,
                 authRoles,
                 isInjected,
-                injectedFrom
+                injectedFrom,
+                isVersion
         );
     }
 

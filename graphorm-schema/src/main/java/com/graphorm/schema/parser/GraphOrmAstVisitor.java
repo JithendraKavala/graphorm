@@ -216,7 +216,7 @@ public final class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
 
     @Override
     public AstNode visitFieldAttribute(GraphOrmParser.FieldAttributeContext ctx) {
-        String name = ctx.identifier().getText();
+        String name = ctx.qualifiedIdentifier().getText();
         List<ArgumentNode> args = new ArrayList<>();
         if (ctx.argumentList() != null && ctx.argumentList().argument() != null) {
             for (GraphOrmParser.ArgumentContext argCtx : ctx.argumentList().argument()) {
@@ -228,7 +228,7 @@ public final class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
 
     @Override
     public AstNode visitBlockAttribute(GraphOrmParser.BlockAttributeContext ctx) {
-        String name = ctx.identifier().getText();
+        String name = ctx.qualifiedIdentifier().getText();
         List<ArgumentNode> args = new ArrayList<>();
         if (ctx.argumentList() != null && ctx.argumentList().argument() != null) {
             for (GraphOrmParser.ArgumentContext argCtx : ctx.argumentList().argument()) {
