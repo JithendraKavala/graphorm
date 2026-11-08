@@ -1,17 +1,41 @@
-# Compiled class file
+# Compiled class files & build outputs
 target/
 *.class
+out/
 
 # Log and process files
 *.log
 *.pid
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+hs_err_pid*
+replay_pid*
 
-# Node / Frontend
+# Environment and Secrets (CRITICAL for public repositories)
+.env
+.env.*
+*.env
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.credentials
+
+# Node / Frontend (graphorm-examples/university-dashboard/frontend)
 node_modules/
 dist/
 .vite/
+.eslintcache
+.turbo/
+coverage/
+.nyc_output/
 
-# Package Files #
+# Package Files
 *.jar
 *.war
 *.nar
@@ -23,6 +47,26 @@ dist/
 # Maven
 .mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
+release.properties
+pom.xml.releaseBackup
+pom.xml.tag
+pom.xml.next
+pom.xml.versionsBackup
+.flattened-pom.xml
+
+# Python (virtual environments, caches, builds)
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # IDE specific
 .idea/
@@ -33,11 +77,23 @@ dist/
 .classpath
 .settings/
 .vscode/
+*.code-workspace
 
-# OS specific
+# OS & Editor temporary files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.swp
+*.swo
+*~
+.#*
 
-# Python venvs
-.venv/
-
+# Internal audits & local generated agent maps
+audit/
+REPO_MAP.md
