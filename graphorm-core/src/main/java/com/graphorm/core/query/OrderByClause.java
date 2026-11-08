@@ -28,6 +28,13 @@ public record OrderByClause(
         }
     }
 
+    /**
+     * Alias for expression, representing the target sorted column or expression.
+     */
+    public String column() {
+        return expression;
+    }
+
     public static OrderByClause of(String expression, OrderDirection direction) {
         return new OrderByClause(expression, direction, NullsOrder.DEFAULT);
     }

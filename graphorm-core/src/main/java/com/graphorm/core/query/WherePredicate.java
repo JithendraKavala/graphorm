@@ -14,6 +14,7 @@ import java.util.Objects;
 public sealed interface WherePredicate permits
         WherePredicate.BinaryPredicate,
         WherePredicate.ColumnComparisonPredicate,
+        WherePredicate.RowComparisonPredicate,
         WherePredicate.AndPredicate,
         WherePredicate.OrPredicate,
         WherePredicate.NotPredicate,
@@ -82,6 +83,25 @@ public sealed interface WherePredicate permits
             if (rightColumn.isBlank()) {
                 throw new IllegalArgumentException("Right column must not be blank");
             }
+        }
+    }
+
+    /**
+     * Row constructor comparison predicate (e.g. for keyset pagination: (created_at, id) > (?, ?)).
+     */
+    record RowComparisonPredicate(List<String> columns, ComparisonOperator operator, List<Object> values) implements WherePredicate {
+        public RowComparisonPredicate {
+            Objects.requireNonNull(columns, "Columns must not be null");
+            if (columns.isEmpty()) {
+                throw new IllegalArgumentException("RowComparisonPredicate requires at least one column");
+            }
+            Objects.requireNonNull(operator, "Operator must not be null");
+            Objects.requireNonNull(values, "Values must not be null");
+            if (columns.size() != values.size()) {
+                throw new IllegalArgumentException("Column count (" + columns.size() + ") must match value count (" + values.size() + ")");
+            }
+            columns = List.copyOf(columns);
+            values = List.copyOf(values);
         }
     }
 
@@ -168,8 +188,7 @@ public sealed interface WherePredicate permits
      *             dialect extensions or complex vendor-specific expressions with parameterized inputs.
      *             <p>
      *             <strong>SECURITY WARNING (SEC-05):</strong> Never construct {@code RawPredicate} by concatenating
-     *             untrusted user input. Always parameterize arguments using positional '?' placeholders.
-     */
+     *             untrusted user input. Always parameterize arguments using positional '?' placeholders.\n     */
     @Deprecated(since = "0.1.0")
     record RawPredicate(String sql, List<Object> parameters) implements WherePredicate {
         public RawPredicate {
@@ -317,6 +336,10 @@ public sealed interface WherePredicate permits
 
     static WherePredicate columnComparison(String leftColumn, ComparisonOperator operator, String rightColumn) {
         return new ColumnComparisonPredicate(leftColumn, operator, rightColumn);
+    }
+
+    static WherePredicate rowComparison(List<String> columns, ComparisonOperator operator, List<Object> values) {
+        return new RowComparisonPredicate(columns, operator, values);
     }
 
     static WherePredicate and(WherePredicate... predicates) {

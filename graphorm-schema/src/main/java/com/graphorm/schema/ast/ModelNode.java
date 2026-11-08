@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import com.graphorm.core.metadata.ExposureMetadata;
 
 /**
  * Model declaration block representing a physical database table with CRUD capabilities
@@ -64,6 +65,32 @@ public record ModelNode(
 
     public Optional<BlockAttributeNode> authAttribute() {
         return findAttribute("auth");
+    }
+
+    public Optional<BlockAttributeNode> exposeAttribute() {
+        return findAttribute("expose");
+    }
+
+    public ExposureMetadata exposure() {
+        Optional<BlockAttributeNode> attrOpt = exposeAttribute();
+        if (attrOpt.isEmpty()) {
+            return ExposureMetadata.of(true, !isReadOnly());
+        }
+        BlockAttributeNode attr = attrOpt.get();
+        Optional<ExpressionNode> pos0 = attr.getPositionalArgumentValue(0);
+        if (pos0.isPresent() && pos0.get() instanceof BooleanLiteralNode boolNode) {
+            boolean exp = boolNode.value();
+            return exp ? ExposureMetadata.all() : ExposureMetadata.none();
+        }
+        boolean queries = attr.getArgumentValue("queries")
+                .filter(BooleanLiteralNode.class::isInstance)
+                .map(e -> ((BooleanLiteralNode) e).value())
+                .orElse(true);
+        boolean mutations = attr.getArgumentValue("mutations")
+                .filter(BooleanLiteralNode.class::isInstance)
+                .map(e -> ((BooleanLiteralNode) e).value())
+                .orElse(!isReadOnly());
+        return ExposureMetadata.of(queries, mutations && !isReadOnly());
     }
 
     /**

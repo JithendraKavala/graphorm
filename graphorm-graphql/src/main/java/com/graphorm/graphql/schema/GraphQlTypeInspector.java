@@ -120,8 +120,22 @@ public class GraphQlTypeInspector {
         String returnTypeName = unwrapTypeName(fieldType);
         boolean isList = isListType(fieldType);
 
-        // 1. Try matching entity by return type
-        EntityMetadata entity = matchEntity(returnTypeName);
+        boolean isConnection = returnTypeName.endsWith("Connection") || fieldName.endsWith("Connection");
+        EntityMetadata entity = null;
+        if (isConnection) {
+            String base = returnTypeName.endsWith("Connection")
+                    ? returnTypeName.substring(0, returnTypeName.length() - "Connection".length())
+                    : (fieldName.endsWith("Connection") ? fieldName.substring(0, fieldName.length() - "Connection".length()) : fieldName);
+            entity = matchEntity(base);
+            if (entity == null) {
+                entity = matchEntityByFieldName(base);
+            }
+        }
+
+        if (entity == null) {
+            // 1. Try matching entity by return type
+            entity = matchEntity(returnTypeName);
+        }
 
         // 2. Fallback: try matching by field name convention
         if (entity == null) {
@@ -140,7 +154,11 @@ public class GraphQlTypeInspector {
         String idArgName = resolveIdArgumentName(field, entity);
 
         GraphQlOperationKind kind;
-        if (entity instanceof com.graphorm.core.metadata.ViewModelMetadata) {
+        if (isConnection) {
+            kind = entity instanceof com.graphorm.core.metadata.ViewModelMetadata
+                    ? GraphQlOperationKind.VIEW_CONNECTION_QUERY
+                    : GraphQlOperationKind.MODEL_CONNECTION_QUERY;
+        } else if (entity instanceof com.graphorm.core.metadata.ViewModelMetadata) {
             kind = isList ? GraphQlOperationKind.VIEW_LIST_QUERY : GraphQlOperationKind.VIEW_SINGLE_QUERY;
         } else {
             kind = isList ? GraphQlOperationKind.MODEL_LIST_QUERY : GraphQlOperationKind.MODEL_SINGLE_QUERY;

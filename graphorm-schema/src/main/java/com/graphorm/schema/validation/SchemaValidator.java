@@ -5,6 +5,7 @@ import com.graphorm.schema.ast.ArgumentNode;
 import com.graphorm.schema.ast.ArrayLiteralNode;
 import com.graphorm.schema.ast.AstNode;
 import com.graphorm.schema.ast.BlockAttributeNode;
+import com.graphorm.schema.ast.BooleanLiteralNode;
 import com.graphorm.schema.ast.CompositeTypeNode;
 import com.graphorm.schema.ast.EnumNode;
 import com.graphorm.schema.ast.EnumValueNode;
@@ -165,6 +166,9 @@ public final class SchemaValidator {
 
             // Validate model-level @@auth
             validateAuthAttribute(model.name(), model.authAttribute(), diagnostics, true);
+
+            // Validate model-level @@expose
+            validateExposeAttribute(model.name(), model.exposeAttribute(), diagnostics, false);
 
             // Field uniqueness and type resolution
             validateFieldList(model.name(), model.fields(), document, diagnostics, true);
@@ -473,6 +477,9 @@ public final class SchemaValidator {
         for (ViewModelNode vm : document.viewModels()) {
             // Validate view-level @@auth
             validateAuthAttribute(vm.name(), vm.authAttribute(), diagnostics, true);
+
+            // Validate view-level @@expose
+            validateExposeAttribute(vm.name(), vm.exposeAttribute(), diagnostics, true);
 
             // Field uniqueness and type resolution
             validateFieldList(vm.name(), vm.fields(), document, diagnostics, false);
@@ -857,6 +864,52 @@ public final class SchemaValidator {
                         "Unknown type '" + typeName + "' for field '" + field.name() + "' in '" + containerName + "'",
                         field.type().position()
                 ));
+            }
+        }
+    }
+
+    private static void validateExposeAttribute(
+            String targetName,
+            Optional<BlockAttributeNode> exposeOpt,
+            List<Diagnostic> diagnostics,
+            boolean isViewModel
+    ) {
+        if (exposeOpt.isEmpty()) {
+            return;
+        }
+        BlockAttributeNode node = exposeOpt.get();
+        List<ArgumentNode> arguments = node.arguments();
+        SourcePosition pos = node.position();
+
+        for (ArgumentNode arg : arguments) {
+            if (arg.isNamed()) {
+                String name = arg.name();
+                if (!"queries".equals(name) && !"mutations".equals(name)) {
+                    diagnostics.add(Diagnostic.error(
+                            "Unknown argument '" + name + "' in @@expose on '" + targetName + "'. Expected 'queries' or 'mutations'",
+                            arg.position()
+                    ));
+                } else if (!(arg.value() instanceof BooleanLiteralNode)) {
+                    diagnostics.add(Diagnostic.error(
+                            "Argument '" + name + "' in @@expose on '" + targetName + "' must be a boolean",
+                            arg.position()
+                    ));
+                } else if (isViewModel && "mutations".equals(name)) {
+                    BooleanLiteralNode b = (BooleanLiteralNode) arg.value();
+                    if (b.value()) {
+                        diagnostics.add(Diagnostic.error(
+                                "View model '" + targetName + "' cannot expose mutations because view models are strictly read-only",
+                                arg.position()
+                        ));
+                    }
+                }
+            } else {
+                if (!(arg.value() instanceof BooleanLiteralNode)) {
+                    diagnostics.add(Diagnostic.error(
+                            "Positional argument in @@expose on '" + targetName + "' must be a boolean (e.g. @@expose(false))",
+                            arg.position()
+                    ));
+                }
             }
         }
     }

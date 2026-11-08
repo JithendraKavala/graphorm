@@ -40,6 +40,16 @@ public enum GraphQlOperationKind {
     MODEL_DELETE_MUTATION,
 
     /**
+     * Root query returning a Relay Connection with keyset cursor pagination for regular models.
+     */
+    MODEL_CONNECTION_QUERY,
+
+    /**
+     * Root query returning a Relay Connection with keyset cursor pagination for view models.
+     */
+    VIEW_CONNECTION_QUERY,
+
+    /**
      * Attempted mutation targeting a read-only view model (strictly rejected).
      */
     VIEW_MUTATION_REJECTED

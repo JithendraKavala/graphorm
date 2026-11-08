@@ -22,5 +22,20 @@ public enum QueryType {
     /**
      * DELETE write query.
      */
-    DELETE
+    DELETE,
+
+    /**
+     * UPSERT (INSERT ... ON CONFLICT) write query.
+     */
+    UPSERT,
+
+    /**
+     * Multi-row batch INSERT write query.
+     */
+    BATCH_INSERT,
+
+    /**
+     * Bulk UPDATE write query.
+     */
+    BULK_UPDATE
 }

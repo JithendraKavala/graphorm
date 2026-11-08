@@ -23,6 +23,7 @@ import java.util.Objects;
  * @param isMaterialized    true if the physical database view is materialized
  * @param rawQuery          for raw query views: raw SQL SELECT/WITH query (Strategy C, @@query)
  * @param authRoles         the authorization roles required to access this view (declared via @@auth)
+ * @param exposure          granular exposure control for GraphQL APIs (declared via @@expose)
  */
 public record ViewModelMetadata(
         String name,
@@ -35,7 +36,8 @@ public record ViewModelMetadata(
         boolean isDatabaseBacked,
         boolean isMaterialized,
         String rawQuery,
-        List<String> authRoles
+        List<String> authRoles,
+        ExposureMetadata exposure
 ) implements EntityMetadata {
 
     /**
@@ -54,6 +56,29 @@ public record ViewModelMetadata(
         joinDefinitions = joinDefinitions == null ? List.of() : List.copyOf(joinDefinitions);
         groupByColumns = groupByColumns == null ? List.of() : List.copyOf(groupByColumns);
         authRoles = authRoles == null ? List.of() : List.copyOf(authRoles);
+        if (exposure == null) {
+            exposure = ExposureMetadata.queriesOnly();
+        }
+    }
+
+    /**
+     * Backward-compatible constructor without exposure.
+     */
+    public ViewModelMetadata(
+            String name,
+            String viewName,
+            List<FieldMetadata> fields,
+            String sourceModelName,
+            String sourceAlias,
+            List<ViewJoinMetadata> joinDefinitions,
+            List<String> groupByColumns,
+            boolean isDatabaseBacked,
+            boolean isMaterialized,
+            String rawQuery,
+            List<String> authRoles
+    ) {
+        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns,
+                isDatabaseBacked, isMaterialized, rawQuery, authRoles, ExposureMetadata.queriesOnly());
     }
 
     /**
@@ -71,7 +96,8 @@ public record ViewModelMetadata(
             boolean isMaterialized,
             String rawQuery
     ) {
-        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns, isDatabaseBacked, isMaterialized, rawQuery, List.of());
+        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns,
+                isDatabaseBacked, isMaterialized, rawQuery, List.of(), ExposureMetadata.queriesOnly());
     }
 
     /**
@@ -88,7 +114,8 @@ public record ViewModelMetadata(
             boolean isDatabaseBacked,
             boolean isMaterialized
     ) {
-        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns, isDatabaseBacked, isMaterialized, null, List.of());
+        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns,
+                isDatabaseBacked, isMaterialized, null, List.of(), ExposureMetadata.queriesOnly());
     }
 
     @Override
@@ -114,6 +141,24 @@ public record ViewModelMetadata(
     @Override
     public boolean hasAuthRoles() {
         return authRoles != null && !authRoles.isEmpty();
+    }
+
+    @Override
+    public ExposureMetadata exposure() {
+        return exposure;
+    }
+
+    @Override
+    public boolean exposeQueries() {
+        return exposure.queries();
+    }
+
+    /**
+     * View models NEVER expose write mutations under any circumstances.
+     */
+    @Override
+    public boolean exposeMutations() {
+        return false;
     }
 
     /**
@@ -159,6 +204,7 @@ public record ViewModelMetadata(
         private boolean isMaterialized;
         private String rawQuery;
         private final List<String> authRoles = new ArrayList<>();
+        private ExposureMetadata exposure;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "View model name must not be null");
@@ -267,7 +313,21 @@ public record ViewModelMetadata(
             return this;
         }
 
+        public Builder exposure(ExposureMetadata exposure) {
+            this.exposure = exposure;
+            return this;
+        }
+
+        public Builder exposeQueries(boolean queries) {
+            this.exposure = queries ? ExposureMetadata.queriesOnly() : ExposureMetadata.none();
+            return this;
+        }
+
         public ViewModelMetadata build() {
+            ExposureMetadata finalExposure = exposure != null
+                    ? (exposure.queries() ? ExposureMetadata.queriesOnly() : ExposureMetadata.none())
+                    : ExposureMetadata.queriesOnly();
+
             return new ViewModelMetadata(
                     name,
                     viewName,
@@ -279,7 +339,8 @@ public record ViewModelMetadata(
                     isDatabaseBacked,
                     isMaterialized,
                     rawQuery,
-                    List.copyOf(authRoles)
+                    List.copyOf(authRoles),
+                    finalExposure
             );
         }
     }

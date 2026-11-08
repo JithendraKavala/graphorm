@@ -6,6 +6,11 @@ import com.graphorm.core.metadata.IndexMetadata;
 import com.graphorm.core.metadata.ReferentialAction;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
+import com.graphorm.core.query.BatchInsertQuery;
+import com.graphorm.core.query.BulkUpdateQuery;
+import com.graphorm.core.query.UpsertQuery;
+import com.graphorm.jdbc.builder.BatchInsertBuilder;
+import com.graphorm.jdbc.builder.UpsertBuilder;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.UpdateQuery;
 import com.graphorm.jdbc.builder.DeleteBuilder;
@@ -130,9 +135,26 @@ public class PostgreSqlDialect implements SqlDialect {
     }
 
     @Override
+    public BoundSql buildUpsertSql(UpsertQuery query) {
+        return new UpsertBuilder(this).build(query);
+    }
+
+    @Override
+    public BoundSql buildBatchInsertSql(BatchInsertQuery query) {
+        return new BatchInsertBuilder(this).build(query);
+    }
+
+
+    @Override
     public BoundSql buildUpdateSql(UpdateQuery query) {
         return new UpdateBuilder(this).build(query);
     }
+
+    @Override
+    public BoundSql buildBulkUpdateSql(BulkUpdateQuery query) {
+        return new UpdateBuilder(this).table(query.table()).values(query.values()).where(query.where()).build();
+    }
+
 
     @Override
     public BoundSql buildDeleteSql(DeleteQuery query) {

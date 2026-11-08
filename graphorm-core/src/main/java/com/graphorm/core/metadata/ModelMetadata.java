@@ -21,6 +21,7 @@ import java.util.Optional;
  * @param indexes           the database index metadata (declared via @@index or @index)
  * @param checkConstraints  the check constraint metadata (declared via @@check)
  * @param schemaName        the database schema/namespace (e.g. "public", "tenant_a")
+ * @param exposure          granular exposure control for GraphQL APIs (declared via @@expose)
  */
 public record ModelMetadata(
         String name,
@@ -33,7 +34,8 @@ public record ModelMetadata(
         List<String> authRoles,
         List<IndexMetadata> indexes,
         List<CheckConstraintMetadata> checkConstraints,
-        String schemaName
+        String schemaName,
+        ExposureMetadata exposure
 ) implements EntityMetadata {
 
     /**
@@ -60,10 +62,33 @@ public record ModelMetadata(
         if (schemaName != null && schemaName.isBlank()) {
             schemaName = null;
         }
+        if (exposure == null) {
+            exposure = ExposureMetadata.of(true, !isReadOnly);
+        }
     }
 
     /**
-     * Constructor without indexes, check constraints, and schemaName.
+     * Constructor without exposure metadata.
+     */
+    public ModelMetadata(
+            String name,
+            String tableName,
+            List<FieldMetadata> fields,
+            List<String> primaryKeyFields,
+            List<List<String>> uniqueConstraints,
+            List<RelationMetadata> relations,
+            boolean isReadOnly,
+            List<String> authRoles,
+            List<IndexMetadata> indexes,
+            List<CheckConstraintMetadata> checkConstraints,
+            String schemaName
+    ) {
+        this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
+                indexes, checkConstraints, schemaName, ExposureMetadata.of(true, !isReadOnly));
+    }
+
+    /**
+     * Constructor without indexes, check constraints, schemaName, and exposure.
      */
     public ModelMetadata(
             String name,
@@ -76,7 +101,7 @@ public record ModelMetadata(
             List<String> authRoles
     ) {
         this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
-                List.of(), List.of(), null);
+                List.of(), List.of(), null, ExposureMetadata.of(true, !isReadOnly));
     }
 
     /**
@@ -126,6 +151,21 @@ public record ModelMetadata(
     @Override
     public boolean hasAuthRoles() {
         return authRoles != null && !authRoles.isEmpty();
+    }
+
+    @Override
+    public ExposureMetadata exposure() {
+        return exposure;
+    }
+
+    @Override
+    public boolean exposeQueries() {
+        return exposure.queries();
+    }
+
+    @Override
+    public boolean exposeMutations() {
+        return exposure.mutations() && !isReadOnly;
     }
 
     /**
@@ -234,6 +274,7 @@ public record ModelMetadata(
         private final List<IndexMetadata> indexes = new ArrayList<>();
         private final List<CheckConstraintMetadata> checkConstraints = new ArrayList<>();
         private String schemaName;
+        private ExposureMetadata exposure;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Model name must not be null");
@@ -373,7 +414,21 @@ public record ModelMetadata(
             return this;
         }
 
+        public Builder exposure(ExposureMetadata exposure) {
+            this.exposure = exposure;
+            return this;
+        }
+
+        public Builder expose(boolean queries, boolean mutations) {
+            this.exposure = ExposureMetadata.of(queries, mutations);
+            return this;
+        }
+
         public ModelMetadata build() {
+            ExposureMetadata finalExposure = exposure != null
+                    ? exposure
+                    : ExposureMetadata.of(true, !isReadOnly);
+
             return new ModelMetadata(
                     name,
                     tableName,
@@ -385,7 +440,8 @@ public record ModelMetadata(
                     authRoles,
                     indexes,
                     checkConstraints,
-                    schemaName
+                    schemaName,
+                    finalExposure
             );
         }
     }

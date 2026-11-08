@@ -1,5 +1,7 @@
 package com.graphorm.core.query;
 
+import com.graphorm.core.pagination.CursorPagination;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -8,16 +10,18 @@ import java.util.Objects;
  * Strongly typed, immutable AST representation of a unified SQL SELECT query.
  * Represents queries for both regular physical models and schema-defined view models.
  *
- * @param source     the driving source relation (table, view, or subquery)
- * @param tableAlias the alias for the source relation (optional)
- * @param columns    the projected column expressions
- * @param joins      the list of joined relations
- * @param where      the WHERE predicate (optional)
- * @param groupBy    the GROUP BY expressions
- * @param having     the HAVING predicate (optional)
- * @param orderBy    the ORDER BY sorting criteria
- * @param limit      the maximum rows to return (optional)
- * @param offset     the number of rows to skip (optional)
+ * @param source           the driving source relation (table, view, or subquery)
+ * @param tableAlias       the alias for the source relation (optional)
+ * @param columns          the projected column expressions
+ * @param joins            the list of joined relations
+ * @param where            the WHERE predicate (optional)
+ * @param groupBy          the GROUP BY expressions
+ * @param having           the HAVING predicate (optional)
+ * @param orderBy          the ORDER BY sorting criteria
+ * @param limit            the maximum rows to return (optional)
+ * @param offset           the number of rows to skip (optional)
+ * @param ctes             Common Table Expressions (WITH ... AS (...))
+ * @param cursorPagination keyset cursor pagination specification (optional)
  */
 public record SelectQuery(
         SourceTable source,
@@ -29,7 +33,9 @@ public record SelectQuery(
         HavingPredicate having,
         List<OrderByClause> orderBy,
         Integer limit,
-        Integer offset
+        Integer offset,
+        List<CommonTableExpression> ctes,
+        CursorPagination cursorPagination
 ) implements SqlQuery {
 
     public SelectQuery {
@@ -38,6 +44,7 @@ public record SelectQuery(
         joins = joins == null ? List.of() : List.copyOf(joins);
         groupBy = groupBy == null ? List.of() : List.copyOf(groupBy);
         orderBy = orderBy == null ? List.of() : List.copyOf(orderBy);
+        ctes = ctes == null ? List.of() : List.copyOf(ctes);
 
         if (limit != null && limit < 0) {
             throw new IllegalArgumentException("Limit cannot be negative: " + limit);
@@ -47,9 +54,35 @@ public record SelectQuery(
         }
     }
 
+    /**
+     * Backward-compatible constructor without ctes and cursorPagination.
+     */
+    public SelectQuery(
+            SourceTable source,
+            String tableAlias,
+            List<ProjectedColumn> columns,
+            List<JoinClause> joins,
+            WherePredicate where,
+            List<GroupByClause> groupBy,
+            HavingPredicate having,
+            List<OrderByClause> orderBy,
+            Integer limit,
+            Integer offset
+    ) {
+        this(source, tableAlias, columns, joins, where, groupBy, having, orderBy, limit, offset, List.of(), null);
+    }
+
     @Override
     public QueryType queryType() {
         return QueryType.SELECT;
+    }
+
+    public boolean hasCtes() {
+        return !ctes.isEmpty();
+    }
+
+    public boolean hasCursorPagination() {
+        return cursorPagination != null;
     }
 
     public boolean hasGroupBy() {
@@ -112,6 +145,8 @@ public record SelectQuery(
         private final List<OrderByClause> orderBy = new ArrayList<>();
         private Integer limit;
         private Integer offset;
+        private final List<CommonTableExpression> ctes = new ArrayList<>();
+        private CursorPagination cursorPagination;
 
         private Builder(SourceTable source) {
             this.source = Objects.requireNonNull(source, "Source table must not be null");
@@ -119,6 +154,70 @@ public record SelectQuery(
 
         public Builder as(String tableAlias) {
             this.tableAlias = tableAlias;
+            return this;
+        }
+
+        public Builder with(CommonTableExpression cte) {
+            this.ctes.add(Objects.requireNonNull(cte, "CTE must not be null"));
+            return this;
+        }
+
+        public Builder with(String name, SqlQuery query) {
+            return with(CommonTableExpression.of(name, query));
+        }
+
+        public Builder with(String name, List<String> columnAliases, SqlQuery query) {
+            return with(CommonTableExpression.of(name, columnAliases, query));
+        }
+
+        public Builder withRecursive(String name, SqlQuery query) {
+            return with(CommonTableExpression.recursive(name, query));
+        }
+
+        public Builder withRecursive(String name, List<String> columnAliases, SqlQuery query) {
+            return with(CommonTableExpression.recursive(name, columnAliases, query));
+        }
+
+        public Builder ctes(List<CommonTableExpression> ctes) {
+            this.ctes.clear();
+            if (ctes != null) {
+                this.ctes.addAll(ctes);
+            }
+            return this;
+        }
+
+        public Builder cursorPagination(CursorPagination cursorPagination) {
+            this.cursorPagination = cursorPagination;
+            return this;
+        }
+
+        public Builder after(String cursor) {
+            this.cursorPagination = new CursorPagination(cursor, null, this.limit, null);
+            return this;
+        }
+
+        public Builder before(String cursor) {
+            this.cursorPagination = new CursorPagination(null, cursor, null, this.limit);
+            return this;
+        }
+
+        public Builder first(Integer first) {
+            this.limit = first;
+            if (this.cursorPagination != null) {
+                this.cursorPagination = new CursorPagination(this.cursorPagination.after(), null, first, null);
+            } else {
+                this.cursorPagination = new CursorPagination(null, null, first, null);
+            }
+            return this;
+        }
+
+        public Builder last(Integer last) {
+            this.limit = last;
+            if (this.cursorPagination != null) {
+                this.cursorPagination = new CursorPagination(null, this.cursorPagination.before(), null, last);
+            } else {
+                this.cursorPagination = new CursorPagination(null, null, null, last);
+            }
             return this;
         }
 
@@ -145,6 +244,10 @@ public record SelectQuery(
                 this.columns.addAll(columns);
             }
             return this;
+        }
+
+        public Builder select(String... expressions) {
+            return columns(expressions);
         }
 
         public Builder columns(String... expressions) {
@@ -299,7 +402,9 @@ public record SelectQuery(
                     having,
                     orderBy,
                     limit,
-                    offset
+                    offset,
+                    ctes,
+                    cursorPagination
             );
         }
     }

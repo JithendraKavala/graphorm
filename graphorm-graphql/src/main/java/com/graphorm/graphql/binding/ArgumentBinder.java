@@ -332,6 +332,28 @@ public final class ArgumentBinder {
      * @param env the GraphQL data fetching environment
      * @return non-negative offset, or null if not provided
      */
+    public String bindAfter(DataFetchingEnvironment env) {
+        if (env == null) return null;
+        Object val = env.getArgument("after");
+        return val != null ? val.toString() : null;
+    }
+
+    public String bindBefore(DataFetchingEnvironment env) {
+        if (env == null) return null;
+        Object val = env.getArgument("before");
+        return val != null ? val.toString() : null;
+    }
+
+    public Integer bindFirst(DataFetchingEnvironment env) {
+        if (env == null) return null;
+        return parseInteger(env.getArgument("first"));
+    }
+
+    public Integer bindLast(DataFetchingEnvironment env) {
+        if (env == null) return null;
+        return parseInteger(env.getArgument("last"));
+    }
+
     public Integer bindOffset(DataFetchingEnvironment env) {
         if (env == null) {
             return null;

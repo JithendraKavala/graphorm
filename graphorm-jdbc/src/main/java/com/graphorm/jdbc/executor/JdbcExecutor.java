@@ -4,6 +4,12 @@ import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.UpdateQuery;
+import com.graphorm.core.query.BatchInsertQuery;
+import com.graphorm.core.query.BulkUpdateQuery;
+import com.graphorm.core.query.SqlQuery;
+import com.graphorm.core.query.UpsertQuery;
+import com.graphorm.jdbc.builder.BatchInsertBuilder;
+import com.graphorm.jdbc.builder.UpsertBuilder;
 import com.graphorm.jdbc.builder.InsertBuilder;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
@@ -331,6 +337,136 @@ public class JdbcExecutor {
 
     public int executeUpdate(DeleteQuery query) {
         return executeUpdate(dialect.buildDeleteSql(query));
+    }
+
+    public int executeUpsert(UpsertQuery query) {
+        return executeUpdate(dialect.buildUpsertSql(query));
+    }
+
+    public Optional<Map<String, Object>> executeUpsertAndReturn(UpsertQuery query) {
+        if (query.returning() != null && !query.returning().isEmpty()) {
+            return queryForObject(dialect.buildUpsertSql(query));
+        }
+        if (dialect.supportsReturning()) {
+            UpsertQuery returningQuery = query.toBuilder().returningAll().build();
+            return queryForObject(dialect.buildUpsertSql(returningQuery));
+        }
+        int rows = executeUpdate(dialect.buildUpsertSql(query));
+        return rows > 0 ? Optional.of(new LinkedHashMap<>(query.values())) : Optional.empty();
+    }
+
+    public <T> Optional<T> executeUpsertAndReturn(UpsertQuery query, Class<T> targetClass) {
+        return executeUpsertAndReturn(query).map(map -> DynamicRowMapper.mapMapToRecord(map, targetClass));
+    }
+
+    public int executeBatchInsert(BatchInsertQuery query) {
+        return executeUpdate(dialect.buildBatchInsertSql(query));
+    }
+
+    public List<Map<String, Object>> executeBatchInsertAndReturn(BatchInsertQuery query) {
+        if (query.returning() != null && !query.returning().isEmpty()) {
+            return queryForList(dialect.buildBatchInsertSql(query));
+        }
+        if (dialect.supportsReturning()) {
+            BatchInsertQuery returningQuery = query.toBuilder().returningAll().build();
+            return queryForList(dialect.buildBatchInsertSql(returningQuery));
+        }
+        executeUpdate(dialect.buildBatchInsertSql(query));
+        return Collections.emptyList();
+    }
+
+    public <T> List<T> executeBatchInsertAndReturn(BatchInsertQuery query, Class<T> targetClass) {
+        return executeBatchInsertAndReturn(query).stream()
+                .map(map -> DynamicRowMapper.mapMapToRecord(map, targetClass))
+                .toList();
+    }
+
+    public int executeBulkUpdate(BulkUpdateQuery query) {
+        return executeUpdate(dialect.buildBulkUpdateSql(query));
+    }
+
+    public int[] executeBatch(String sql, List<List<Object>> parameterBatches) {
+        Objects.requireNonNull(sql, "SQL must not be null");
+        if (parameterBatches == null || parameterBatches.isEmpty()) {
+            return new int[0];
+        }
+
+        log.debug("Executing batch ({} statements): {}", parameterBatches.size(), sql);
+        long start = System.nanoTime();
+        for (StatementInterceptor interceptor : interceptors) {
+            try {
+                interceptor.beforeExecute(sql, parameterBatches.isEmpty() ? List.of() : parameterBatches.get(0));
+            } catch (Throwable t) {
+                log.error("Interceptor failed in beforeExecute: {}", t.getMessage(), t);
+            }
+        }
+
+        Connection conn = null;
+        try {
+            conn = connectionProvider.getConnection(dataSource);
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (List<Object> params : parameterBatches) {
+                    bindParameters(ps, params);
+                    ps.addBatch();
+                }
+                return ps.executeBatch();
+            }
+        } catch (SQLException e) {
+            throw new QueryExecutionException("Batch execution failed: " + e.getMessage(), sql, e);
+        } finally {
+            try {
+                if (conn != null) {
+                    try {
+                        connectionProvider.releaseConnection(conn, dataSource);
+                    } catch (SQLException e) {
+                        log.warn("Failed to release connection: {}", e.getMessage(), e);
+                    }
+                }
+            } finally {
+                long duration = System.nanoTime() - start;
+                for (StatementInterceptor interceptor : interceptors) {
+                    try {
+                        interceptor.afterExecute(sql, parameterBatches.isEmpty() ? List.of() : parameterBatches.get(0), duration);
+                    } catch (Throwable t) {
+                        log.error("Interceptor failed in afterExecute: {}", t.getMessage(), t);
+                    }
+                }
+            }
+        }
+    }
+
+    public int[] executeBatch(List<BoundSql> queries) {
+        if (queries == null || queries.isEmpty()) {
+            return new int[0];
+        }
+        String firstSql = queries.get(0).sql();
+        boolean sameSql = queries.stream().allMatch(q -> Objects.equals(q.sql(), firstSql));
+        if (sameSql) {
+            List<List<Object>> batches = queries.stream().map(BoundSql::parameters).toList();
+            return executeBatch(firstSql, batches);
+        }
+        int[] counts = new int[queries.size()];
+        for (int i = 0; i < queries.size(); i++) {
+            counts[i] = executeUpdate(queries.get(i));
+        }
+        return counts;
+    }
+
+    public String explainPlan(SqlQuery query) {
+        Objects.requireNonNull(query, "SqlQuery must not be null");
+        return explainPlan(dialect.buildSql(query));
+    }
+
+    public String explainPlan(BoundSql boundSql) {
+        Objects.requireNonNull(boundSql, "BoundSql must not be null");
+        String explainSql = dialect.buildExplainSql(boundSql.sql());
+        BoundSql explainBoundSql = new BoundSql(explainSql, boundSql.parameters());
+        List<Map<String, Object>> rows = queryForList(explainBoundSql);
+        if (rows.isEmpty()) {
+            return "";
+        }
+        Object val = rows.get(0).values().iterator().next();
+        return val != null ? val.toString() : "";
     }
 
     /**

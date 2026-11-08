@@ -3,10 +3,15 @@ package com.graphorm.jdbc.dialect;
 import com.graphorm.core.metadata.CheckConstraintMetadata;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.IndexMetadata;
+import com.graphorm.core.query.BatchInsertQuery;
+import com.graphorm.core.query.BulkUpdateQuery;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.UpdateQuery;
+import com.graphorm.core.query.UpsertQuery;
+import com.graphorm.core.query.SqlQuery;
+import java.util.Objects;
 import com.graphorm.jdbc.ddl.ColumnDefinition;
 import com.graphorm.jdbc.ddl.ForeignKeyDefinition;
 import com.graphorm.jdbc.ddl.TableDefinition;
@@ -74,6 +79,30 @@ public interface SqlDialect {
     }
 
     /**
+     * Builds a parameterized {@link BoundSql} for an {@link UpsertQuery}.
+     *
+     * @param query the upsert query AST
+     * @return the parameterized BoundSql
+     */
+    BoundSql buildUpsertSql(UpsertQuery query);
+
+    default BoundSql buildUpsert(UpsertQuery query) {
+        return buildUpsertSql(query);
+    }
+
+    /**
+     * Builds a parameterized {@link BoundSql} for a {@link BatchInsertQuery}.
+     *
+     * @param query the batch insert query AST
+     * @return the parameterized BoundSql
+     */
+    BoundSql buildBatchInsertSql(BatchInsertQuery query);
+
+    default BoundSql buildBatchInsert(BatchInsertQuery query) {
+        return buildBatchInsertSql(query);
+    }
+
+    /**
      * Builds a parameterized {@link BoundSql} for an {@link UpdateQuery}.
      *
      * @param query the update query AST
@@ -86,6 +115,18 @@ public interface SqlDialect {
     }
 
     /**
+     * Builds a parameterized {@link BoundSql} for a {@link BulkUpdateQuery}.
+     *
+     * @param query the bulk update query AST
+     * @return the parameterized BoundSql
+     */
+    BoundSql buildBulkUpdateSql(BulkUpdateQuery query);
+
+    default BoundSql buildBulkUpdate(BulkUpdateQuery query) {
+        return buildBulkUpdateSql(query);
+    }
+
+    /**
      * Builds a parameterized {@link BoundSql} for a {@link DeleteQuery}.
      *
      * @param query the delete query AST
@@ -95,6 +136,35 @@ public interface SqlDialect {
 
     default BoundSql buildDelete(DeleteQuery query) {
         return buildDeleteSql(query);
+    }
+
+    /**
+     * Builds a parameterized {@link BoundSql} for any supported {@link SqlQuery}.
+     *
+     * @param query the query AST
+     * @return the parameterized BoundSql
+     */
+    default BoundSql buildSql(SqlQuery query) {
+        Objects.requireNonNull(query, "SqlQuery must not be null");
+        return switch (query.queryType()) {
+            case SELECT -> buildSelectSql((SelectQuery) query);
+            case INSERT -> buildInsertSql((InsertQuery) query);
+            case UPDATE -> buildUpdateSql((UpdateQuery) query);
+            case DELETE -> buildDeleteSql((DeleteQuery) query);
+            case UPSERT -> buildUpsertSql((UpsertQuery) query);
+            case BATCH_INSERT -> buildBatchInsertSql((BatchInsertQuery) query);
+            case BULK_UPDATE -> buildBulkUpdateSql((BulkUpdateQuery) query);
+        };
+    }
+
+    /**
+     * Builds an EXPLAIN plan SQL query string for this dialect.
+     *
+     * @param sql the SQL string to explain
+     * @return the EXPLAIN statement SQL
+     */
+    default String buildExplainSql(String sql) {
+        return "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sql;
     }
 
     /**

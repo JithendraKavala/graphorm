@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import com.graphorm.core.metadata.ExposureMetadata;
 
 /**
  * View model declaration block representing a read-only projection (database-backed, virtual, or raw SQL).
@@ -77,6 +78,28 @@ public record ViewModelNode(
 
     public Optional<BlockAttributeNode> authAttribute() {
         return findAttribute("auth");
+    }
+
+    public Optional<BlockAttributeNode> exposeAttribute() {
+        return findAttribute("expose");
+    }
+
+    public ExposureMetadata exposure() {
+        Optional<BlockAttributeNode> attrOpt = exposeAttribute();
+        if (attrOpt.isEmpty()) {
+            return ExposureMetadata.queriesOnly();
+        }
+        BlockAttributeNode attr = attrOpt.get();
+        Optional<ExpressionNode> pos0 = attr.getPositionalArgumentValue(0);
+        if (pos0.isPresent() && pos0.get() instanceof BooleanLiteralNode boolNode) {
+            boolean exp = boolNode.value();
+            return exp ? ExposureMetadata.queriesOnly() : ExposureMetadata.none();
+        }
+        boolean queries = attr.getArgumentValue("queries")
+                .filter(BooleanLiteralNode.class::isInstance)
+                .map(e -> ((BooleanLiteralNode) e).value())
+                .orElse(true);
+        return ExposureMetadata.of(queries, false);
     }
 
     /**

@@ -7,7 +7,9 @@ import com.graphorm.core.metadata.RelationMetadata;
 import com.graphorm.core.metadata.ViewModelMetadata;
 import com.graphorm.graphql.binding.ArgumentBinder;
 import com.graphorm.graphql.fetcher.ModelCreateDataFetcher;
+import com.graphorm.graphql.fetcher.ModelConnectionDataFetcher;
 import com.graphorm.graphql.fetcher.ModelDeleteDataFetcher;
+import com.graphorm.graphql.fetcher.ViewConnectionDataFetcher;
 import com.graphorm.graphql.fetcher.ModelListDataFetcher;
 import com.graphorm.graphql.fetcher.ModelRelationDataFetcher;
 import com.graphorm.graphql.fetcher.ModelSingleDataFetcher;
@@ -133,6 +135,15 @@ public class GraphOrmGraphQlRegistrar {
                 continue;
             }
 
+            if (binding.isQuery() && !binding.entity().exposeQueries()) {
+                log.info("Query exposure suppressed for entity '{}'; skipping auto-wiring of {}", binding.entity().name(), coords);
+                continue;
+            }
+            if (binding.isMutation() && !binding.entity().exposeMutations()) {
+                log.info("Mutation exposure suppressed for entity '{}'; skipping auto-wiring of {}", binding.entity().name(), coords);
+                continue;
+            }
+
             DataFetcher<?> fetcher = createDataFetcher(binding);
             if (binding.isQuery()) {
                 queryWiring.dataFetcher(binding.fieldName(), fetcher);
@@ -179,6 +190,15 @@ public class GraphOrmGraphQlRegistrar {
             FieldCoordinates coords = FieldCoordinates.coordinates(binding.parentType(), binding.fieldName());
             if (isCustomResolverPresent(coords) || codeRegistryBuilder.hasDataFetcher(coords)) {
                 log.info("Custom resolver detected for {}; skipping GraphORM auto-wiring", coords);
+                continue;
+            }
+
+            if (binding.isQuery() && !binding.entity().exposeQueries()) {
+                log.info("Query exposure suppressed for entity '{}'; skipping auto-wiring of {}", binding.entity().name(), coords);
+                continue;
+            }
+            if (binding.isMutation() && !binding.entity().exposeMutations()) {
+                log.info("Mutation exposure suppressed for entity '{}'; skipping auto-wiring of {}", binding.entity().name(), coords);
                 continue;
             }
 
@@ -279,6 +299,16 @@ public class GraphOrmGraphQlRegistrar {
                     binding.idArgumentName(),
                     binding.inputArgumentName()
             );
+            case MODEL_CONNECTION_QUERY -> new ModelConnectionDataFetcher(
+                    (ModelMetadata) binding.entity(),
+                    modelRegistry,
+                    executor,
+                    argumentBinder,
+                    dialect
+            );
+            case VIEW_CONNECTION_QUERY -> binding.entity() instanceof ViewModelMetadata vm
+                    ? new ViewConnectionDataFetcher(vm, modelRegistry, executor, argumentBinder, dialect)
+                    : new ModelConnectionDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executor, argumentBinder, dialect);
             case MODEL_DELETE_MUTATION -> new ModelDeleteDataFetcher(
                     (ModelMetadata) binding.entity(),
                     executor,

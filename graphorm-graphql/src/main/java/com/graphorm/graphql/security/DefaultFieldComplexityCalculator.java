@@ -42,6 +42,12 @@ public class DefaultFieldComplexityCalculator implements FieldComplexityCalculat
             if (limitArg == null) {
                 limitArg = environment.getArguments().get("first");
             }
+            if (limitArg == null) {
+                limitArg = environment.getArguments().get("last");
+            }
+            if (limitArg == null) {
+                limitArg = environment.getArguments().get("batchSize");
+            }
             if (limitArg instanceof Number num && num.intValue() > 0) {
                 return baseWeight + (num.intValue() * Math.max(1, childComplexity));
             }

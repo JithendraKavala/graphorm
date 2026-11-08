@@ -57,6 +57,29 @@ public interface EntityMetadata {
     }
 
     /**
+     * Returns the exposure configuration for this entity in GraphQL APIs.
+     *
+     * @return the exposure metadata
+     */
+    default ExposureMetadata exposure() {
+        return isReadOnly() ? ExposureMetadata.queriesOnly() : ExposureMetadata.all();
+    }
+
+    /**
+     * Returns whether root queries for this entity are exposed in GraphQL.
+     */
+    default boolean exposeQueries() {
+        return exposure().queries();
+    }
+
+    /**
+     * Returns whether mutations for this entity are exposed in GraphQL.
+     */
+    default boolean exposeMutations() {
+        return exposure().mutations();
+    }
+
+    /**
      * Looks up a field by its logical name.
      *
      * @param fieldName the name of the field to find

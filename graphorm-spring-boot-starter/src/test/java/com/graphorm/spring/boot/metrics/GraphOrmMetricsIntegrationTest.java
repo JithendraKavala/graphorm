@@ -1,5 +1,6 @@
 package com.graphorm.spring.boot.metrics;
 
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -62,5 +63,31 @@ class GraphOrmMetricsIntegrationTest {
                 .timer();
         assertThat(durationTimer).isNotNull();
         assertThat(durationTimer.count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("MicrometerStatementInterceptor records query count and tags with fingerprint, model, and operation")
+    void testStatementInterceptorRecordsFingerprintAndCountMetric() {
+        MicrometerStatementInterceptor interceptor = new MicrometerStatementInterceptor(meterRegistry);
+
+        String sql = "SELECT id, name FROM students WHERE id = 42";
+        interceptor.beforeExecute(sql, List.of());
+        interceptor.afterExecute(sql, List.of(), 3_000_000L);
+
+        Counter counter = meterRegistry.find("graphorm.query.count")
+                .tag("operation", "SELECT")
+                .tag("model", "students")
+                .counter();
+
+        assertThat(counter).isNotNull();
+        assertThat(counter.count()).isEqualTo(1.0);
+
+        Timer timer = meterRegistry.find("graphorm.query.duration")
+                .tag("operation", "SELECT")
+                .tag("model", "students")
+                .timer();
+
+        assertThat(timer).isNotNull();
+        assertThat(timer.getId().getTag("fingerprint")).matches("^[0-9a-f]{64}$");
     }
 }

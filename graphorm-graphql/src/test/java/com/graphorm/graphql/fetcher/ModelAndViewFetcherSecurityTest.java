@@ -141,6 +141,7 @@ class ModelAndViewFetcherSecurityTest {
                 new Class<?>[]{DataFetchingFieldSelectionSet.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getImmediateFields" -> List.of(mockSelectedField("id"), mockSelectedField("action"));
+                    case "contains" -> false;
                     default -> Collections.emptyList();
                 }
         );
@@ -416,5 +417,75 @@ class ModelAndViewFetcherSecurityTest {
 
         assertThat(captured.get()).isNotNull();
         assertThat(result).isEqualTo(true);
+    }
+
+    // 7. ModelConnectionDataFetcher & ViewConnectionDataFetcher Tests
+    @Test
+    @DisplayName("ModelConnectionDataFetcher: Denies access when caller lacks auth roles")
+    void modelConnection_deniedWhenLacksRole() {
+        JdbcExecutor executor = new JdbcExecutor(dummyDataSource, dialect);
+        ModelConnectionDataFetcher fetcher = new ModelConnectionDataFetcher(protectedModel, registry, executor, new ArgumentBinder(), dialect);
+
+        FieldAuthorizer userAuth = roles -> false;
+        DataFetchingEnvironment env = createMockEnv(Collections.emptyMap(), userAuth, null);
+
+        assertThatThrownBy(() -> fetcher.get(env))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("AuditLog");
+    }
+
+    @Test
+    @DisplayName("ModelConnectionDataFetcher: Allows access when caller has matching role")
+    void modelConnection_allowedWhenRoleMatches() {
+        JdbcExecutor executor = new JdbcExecutor(dummyDataSource, dialect) {
+            @Override
+            public List<Map<String, Object>> queryForList(SelectQuery query) {
+                return List.of(Map.of("id", 1L, "action", "LOGIN"));
+            }
+        };
+        ModelConnectionDataFetcher fetcher = new ModelConnectionDataFetcher(protectedModel, registry, executor, new ArgumentBinder(), dialect);
+
+        FieldAuthorizer auditorAuth = roles -> roles.contains("AUDITOR");
+        DataFetchingEnvironment env = createMockEnv(Collections.emptyMap(), auditorAuth, null);
+
+        var connection = fetcher.get(env);
+        assertThat(connection).isNotNull();
+        assertThat(connection.edges()).hasSize(1);
+        assertThat(connection.edges().get(0).node().get("action")).isEqualTo("LOGIN");
+        assertThat(connection.edges().get(0).cursor()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("ViewConnectionDataFetcher: Denies access when caller lacks auth roles")
+    void viewConnection_deniedWhenLacksRole() {
+        JdbcExecutor executor = new JdbcExecutor(dummyDataSource, dialect);
+        ViewConnectionDataFetcher fetcher = new ViewConnectionDataFetcher(protectedView, registry, executor, new ArgumentBinder(), dialect);
+
+        FieldAuthorizer userAuth = roles -> false;
+        DataFetchingEnvironment env = createMockEnv(Collections.emptyMap(), userAuth, null);
+
+        assertThatThrownBy(() -> fetcher.get(env))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("AuditSummary");
+    }
+
+    @Test
+    @DisplayName("ViewConnectionDataFetcher: Allows access when caller has matching role")
+    void viewConnection_allowedWhenRoleMatches() {
+        JdbcExecutor executor = new JdbcExecutor(dummyDataSource, dialect) {
+            @Override
+            public List<Map<String, Object>> queryForList(SelectQuery query) {
+                return List.of(Map.of("id", 1L, "action", "SUMMARY"));
+            }
+        };
+        ViewConnectionDataFetcher fetcher = new ViewConnectionDataFetcher(protectedView, registry, executor, new ArgumentBinder(), dialect);
+
+        FieldAuthorizer adminAuth = roles -> roles.contains("ADMIN");
+        DataFetchingEnvironment env = createMockEnv(Collections.emptyMap(), adminAuth, null);
+
+        var connection = fetcher.get(env);
+        assertThat(connection).isNotNull();
+        assertThat(connection.edges()).hasSize(1);
+        assertThat(connection.edges().get(0).node().get("action")).isEqualTo("SUMMARY");
     }
 }

@@ -21,6 +21,8 @@ public final class GraphQlSdlGenerator {
      * View models and read-only physical models are strictly generated as read-only types and query fields (no mutations).
      * Excludes backend-injected fields (@injected) from input types.
      * Annotates operations with @auth(roles: [...]) when model, view, or field specifies authRoles.
+     * Generates Relay-spec compliant Connection, Edge, and PageInfo types for cursor pagination.
+     * Respects granular exposure controls (@@expose).
      *
      * @param registry the runtime ModelRegistry
      * @return SDL schema string
@@ -35,6 +37,7 @@ public final class GraphQlSdlGenerator {
 
         List<String> queryFields = new ArrayList<>();
         List<String> mutationFields = new ArrayList<>();
+        boolean hasConnections = false;
 
         // 1. Regular Models
         for (ModelMetadata model : registry.getAllModels()) {
@@ -66,8 +69,8 @@ public final class GraphQlSdlGenerator {
 
             String modelAuth = formatAuthDirective(model.authRoles());
 
-            // If model is NOT read-only, generate input types and mutations
-            if (!model.isReadOnly()) {
+            // If model exposes mutations, generate input types and mutations
+            if (model.exposeMutations()) {
                 // Input types
                 sb.append("input ").append(modelName).append("CreateInput {\n");
                 for (FieldMetadata field : model.fields()) {
@@ -95,11 +98,27 @@ public final class GraphQlSdlGenerator {
                 mutationFields.add("delete" + modelName + "(id: ID!): Boolean!" + modelAuth);
             }
 
-            // Queries
-            String plural = toLowerCamel(modelName) + "s";
-            String singular = toLowerCamel(modelName);
-            queryFields.add(plural + ": [" + modelName + "!]!" + modelAuth);
-            queryFields.add(singular + "(id: ID!): " + modelName + modelAuth);
+            // If model exposes queries, generate queries & Connection/Edge
+            if (model.exposeQueries()) {
+                sb.append("type ").append(modelName).append("Edge {\n");
+                sb.append("  node: ").append(modelName).append("!\n");
+                sb.append("  cursor: String!\n");
+                sb.append("}\n\n");
+
+                sb.append("type ").append(modelName).append("Connection {\n");
+                sb.append("  edges: [").append(modelName).append("Edge!]!\n");
+                sb.append("  pageInfo: PageInfo!\n");
+                sb.append("  totalCount: Int\n");
+                sb.append("}\n\n");
+
+                hasConnections = true;
+
+                String plural = toLowerCamel(modelName) + "s";
+                String singular = toLowerCamel(modelName);
+                queryFields.add(plural + ": [" + modelName + "!]!" + modelAuth);
+                queryFields.add(singular + "(id: ID!): " + modelName + modelAuth);
+                queryFields.add(plural + "Connection(first: Int, after: String, last: Int, before: String): " + modelName + "Connection!" + modelAuth);
+            }
         }
 
         // 2. View Models (Strictly Read-Only!)
@@ -115,11 +134,36 @@ public final class GraphQlSdlGenerator {
             sb.append("}\n\n");
 
             // Strictly ONLY Queries, NEVER any Mutations!
-            String viewAuth = formatAuthDirective(view.authRoles());
-            String plural = toLowerCamel(viewName) + "s";
-            String singular = toLowerCamel(viewName);
-            queryFields.add(plural + ": [" + viewName + "!]!" + viewAuth);
-            queryFields.add(singular + "(id: ID!): " + viewName + viewAuth);
+            if (view.exposeQueries()) {
+                sb.append("type ").append(viewName).append("Edge {\n");
+                sb.append("  node: ").append(viewName).append("!\n");
+                sb.append("  cursor: String!\n");
+                sb.append("}\n\n");
+
+                sb.append("type ").append(viewName).append("Connection {\n");
+                sb.append("  edges: [").append(viewName).append("Edge!]!\n");
+                sb.append("  pageInfo: PageInfo!\n");
+                sb.append("  totalCount: Int\n");
+                sb.append("}\n\n");
+
+                hasConnections = true;
+
+                String viewAuth = formatAuthDirective(view.authRoles());
+                String plural = toLowerCamel(viewName) + "s";
+                String singular = toLowerCamel(viewName);
+                queryFields.add(plural + ": [" + viewName + "!]!" + viewAuth);
+                queryFields.add(singular + "(id: ID!): " + viewName + viewAuth);
+                queryFields.add(plural + "Connection(first: Int, after: String, last: Int, before: String): " + viewName + "Connection!" + viewAuth);
+            }
+        }
+
+        if (hasConnections) {
+            sb.append("type PageInfo {\n");
+            sb.append("  hasNextPage: Boolean!\n");
+            sb.append("  hasPreviousPage: Boolean!\n");
+            sb.append("  startCursor: String\n");
+            sb.append("  endCursor: String\n");
+            sb.append("}\n\n");
         }
 
         // Query Type

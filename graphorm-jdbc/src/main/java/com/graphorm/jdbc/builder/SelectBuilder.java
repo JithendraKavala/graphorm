@@ -5,12 +5,18 @@ import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.ViewModelMetadata;
+import com.graphorm.core.pagination.CursorCodec;
+import com.graphorm.core.pagination.CursorPagination;
+import com.graphorm.core.pagination.KeysetPredicateGenerator;
+import com.graphorm.core.query.CommonTableExpression;
 import com.graphorm.core.query.GroupByClause;
 import com.graphorm.core.query.JoinClause;
+import com.graphorm.core.query.OrderByClause;
 import com.graphorm.core.query.ProjectedColumn;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.WherePredicate;
+import com.graphorm.core.query.template.SqlFragment;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.BoundSql;
 import com.graphorm.jdbc.view.ViewQueryPlanner;
@@ -22,6 +28,8 @@ import java.util.Objects;
 /**
  * Builds parameterized {@link BoundSql} from {@link SelectQuery} ASTs across both
  * regular models and read-only view models.
+ * Supports Common Table Expressions (CTEs), keyset cursor pagination with deterministic tie-breaker ordering,
+ * multi-table joins, aggregations, and pushdown execution.
  */
 public final class SelectBuilder {
 
@@ -32,11 +40,7 @@ public final class SelectBuilder {
     }
 
     /**
-     * Factory method creating a new {@link SelectBuilder} with the given dialect.
-     *
-     * @param dialect the dialect to use
-     * @return a new SelectBuilder instance
-     */
+     * Factory method creating a new {@link SelectBuilder} with the given dialect.\n     *\n     * @param dialect the dialect to use\n     * @return a new SelectBuilder instance\n     */
     public static SelectBuilder of(SqlDialect dialect) {
         return new SelectBuilder(dialect);
     }
@@ -44,8 +48,7 @@ public final class SelectBuilder {
     /**
      * Creates a {@link SelectQuery.Builder} pre-populated with an entity's persistent columns
      * and target table/view.
-     *
-     * @param entity the entity metadata (Model or ViewModel)
+     *\n     * @param entity the entity metadata (Model or ViewModel)
      * @return a configured SelectQuery.Builder
      */
     public static SelectQuery.Builder forEntity(EntityMetadata entity) {
@@ -55,8 +58,7 @@ public final class SelectBuilder {
     /**
      * Creates a {@link SelectQuery.Builder} pre-populated with an entity's columns, joins,
      * and target tables, utilizing the {@link ModelRegistry} for virtual joined view models.
-     *
-     * @param entity   the entity metadata (Model or ViewModel)
+     *\n     * @param entity   the entity metadata (Model or ViewModel)
      * @param registry the model registry (required for virtual views with joins)
      * @return a configured SelectQuery.Builder
      */
@@ -76,9 +78,7 @@ public final class SelectBuilder {
             source = SourceTable.table(tableName);
         } else if (entity instanceof ViewModelMetadata vm) {
             tableName = vm.viewName();
-            source = vm.isDatabaseBacked()
-                    ? SourceTable.view(tableName)
-                    : SourceTable.view(tableName);
+            source = SourceTable.view(tableName);
         } else {
             tableName = entity.name().toLowerCase();
             source = entity.isReadOnly()
@@ -97,15 +97,53 @@ public final class SelectBuilder {
 
     /**
      * Builds a {@link BoundSql} from a {@link SelectQuery}.
-     *
-     * @param query the select query AST
+     *\n     * @param query the select query AST
      * @return the parameterized BoundSql
      */
     public BoundSql build(SelectQuery query) {
         Objects.requireNonNull(query, "SelectQuery must not be null");
 
-        StringBuilder sql = new StringBuilder("SELECT ");
+        StringBuilder sql = new StringBuilder();
         List<Object> parameters = new ArrayList<>();
+
+        // 0. Common Table Expressions (WITH ... AS (...))
+        if (query.hasCtes()) {
+            boolean recursive = query.ctes().stream().anyMatch(CommonTableExpression::recursive);
+            sql.append("WITH ");
+            if (recursive) {
+                sql.append("RECURSIVE ");
+            }
+            for (int i = 0; i < query.ctes().size(); i++) {
+                if (i > 0) {
+                    sql.append(", ");
+                }
+                CommonTableExpression cte = query.ctes().get(i);
+                sql.append(dialect.quoteIdentifier(cte.name()));
+                if (!cte.columnAliases().isEmpty()) {
+                    sql.append(" (");
+                    for (int j = 0; j < cte.columnAliases().size(); j++) {
+                        if (j > 0) sql.append(", ");
+                        sql.append(dialect.quoteIdentifier(cte.columnAliases().get(j)));
+                    }
+                    sql.append(")");
+                }
+                sql.append(" AS (");
+                if (cte.query() instanceof SelectQuery sq) {
+                    BoundSql cteSql = build(sq);
+                    sql.append(cteSql.sql());
+                    parameters.addAll(cteSql.parameters());
+                } else if (cte.query() instanceof SqlFragment sf) {
+                    sql.append(sf.sql());
+                    parameters.addAll(sf.parameters());
+                } else {
+                    sql.append(cte.query().toString());
+                }
+                sql.append(")");
+            }
+            sql.append(" ");
+        }
+
+        sql.append("SELECT ");
 
         // 1. Projection columns
         List<ProjectedColumn> columns = query.columns();
@@ -150,9 +188,34 @@ public final class SelectBuilder {
             }
         }
 
+        // Keyset Cursor Pagination resolution
+        WherePredicate effectiveWhere = query.where();
+        List<OrderByClause> effectiveOrderBy = query.orderBy();
+        Integer effectiveLimit = query.limit();
+        Integer effectiveOffset = query.offset();
+
+        if (query.hasCursorPagination()) {
+            CursorPagination cp = query.cursorPagination();
+            // Ensure deterministic tie-breaker ordering on keyset pagination
+            effectiveOrderBy = KeysetPredicateGenerator.ensureTieBreaker(effectiveOrderBy, "id");
+
+            if (cp.hasAfter() || cp.hasBefore()) {
+                boolean isForward = cp.isForward();
+                String cursor = cp.hasAfter() ? cp.after() : cp.before();
+                List<Object> cursorValues = CursorCodec.decode(cursor);
+                WherePredicate keysetPred = KeysetPredicateGenerator.generatePredicate(effectiveOrderBy, cursorValues, isForward);
+                effectiveWhere = effectiveWhere == null ? keysetPred : effectiveWhere.and(keysetPred);
+            }
+
+            if (cp.limit() != null) {
+                effectiveLimit = cp.limit();
+                effectiveOffset = null; // keyset pagination avoids offset
+            }
+        }
+
         // 4. WHERE clause
-        if (query.where() != null) {
-            BoundSql whereSql = WhereClauseBuilder.buildWhereClause(query.where(), dialect);
+        if (effectiveWhere != null) {
+            BoundSql whereSql = WhereClauseBuilder.buildWhereClause(effectiveWhere, dialect);
             sql.append(whereSql.sql());
             parameters.addAll(whereSql.parameters());
         }
@@ -179,20 +242,20 @@ public final class SelectBuilder {
         }
 
         // 7. ORDER BY clause
-        if (!query.orderBy().isEmpty()) {
-            sql.append(OrderByClauseBuilder.buildOrderByClause(query.orderBy(), dialect));
+        if (!effectiveOrderBy.isEmpty()) {
+            sql.append(OrderByClauseBuilder.buildOrderByClause(effectiveOrderBy, dialect));
         }
 
         // 8. LIMIT and OFFSET
-        if (query.limit() != null || query.offset() != null) {
-            String limitOffsetClause = dialect.formatLimitOffset(query.limit(), query.offset());
+        if (effectiveLimit != null || effectiveOffset != null) {
+            String limitOffsetClause = dialect.formatLimitOffset(effectiveLimit, effectiveOffset);
             if (!limitOffsetClause.isBlank()) {
                 sql.append(" ").append(limitOffsetClause);
-                if (query.limit() != null) {
-                    parameters.add(query.limit());
+                if (effectiveLimit != null) {
+                    parameters.add(effectiveLimit);
                 }
-                if (query.offset() != null) {
-                    parameters.add(query.offset());
+                if (effectiveOffset != null) {
+                    parameters.add(effectiveOffset);
                 }
             }
         }

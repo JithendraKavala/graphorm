@@ -1,20 +1,23 @@
 package com.graphorm.spring.boot.metrics;
 
+import com.graphorm.jdbc.observability.SqlQueryFingerprinter;
 import com.graphorm.jdbc.util.StatementInterceptor;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Statement interceptor recording SQL query execution durations via Micrometer (TASK-15.4).
+ * Statement interceptor recording SQL query execution durations and counts via Micrometer,
+ * tagged with deterministic SHA-256 SQL fingerprint, model/table, and operation type.
  */
 public class MicrometerStatementInterceptor implements StatementInterceptor {
 
     public static final String METRIC_QUERY_DURATION = "graphorm.query.duration";
+    public static final String METRIC_QUERY_COUNT = "graphorm.query.count";
 
     private final MeterRegistry meterRegistry;
 
@@ -29,29 +32,25 @@ public class MicrometerStatementInterceptor implements StatementInterceptor {
 
     @Override
     public void afterExecute(String sql, List<Object> parameters, long durationNanos) {
-        String queryType = resolveQueryType(sql);
+        SqlQueryFingerprinter.FingerprintResult fp = SqlQueryFingerprinter.fingerprint(sql);
+
         Timer.builder(METRIC_QUERY_DURATION)
                 .description("GraphORM SQL query execution duration")
-                .tag("queryType", queryType)
+                .tag("operation", fp.operation())
+                .tag("queryType", fp.operation())
+                .tag("model", fp.targetTable())
+                .tag("fingerprint", fp.fingerprint())
                 .register(meterRegistry)
                 .record(durationNanos, TimeUnit.NANOSECONDS);
-    }
 
-    private static String resolveQueryType(String sql) {
-        if (sql == null || sql.isBlank()) {
-            return "UNKNOWN";
-        }
-        String trimmed = sql.stripLeading().toUpperCase(Locale.ROOT);
-        if (trimmed.startsWith("SELECT")) {
-            return "SELECT";
-        } else if (trimmed.startsWith("INSERT")) {
-            return "INSERT";
-        } else if (trimmed.startsWith("UPDATE")) {
-            return "UPDATE";
-        } else if (trimmed.startsWith("DELETE")) {
-            return "DELETE";
-        }
-        return "OTHER";
+        Counter.builder(METRIC_QUERY_COUNT)
+                .description("GraphORM SQL query execution count")
+                .tag("operation", fp.operation())
+                .tag("queryType", fp.operation())
+                .tag("model", fp.targetTable())
+                .tag("fingerprint", fp.fingerprint())
+                .register(meterRegistry)
+                .increment();
     }
 
     public MeterRegistry getMeterRegistry() {

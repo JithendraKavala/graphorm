@@ -61,6 +61,8 @@ public final class WhereClauseBuilder {
             renderBinary(binary, dialect, sql, parameters);
         } else if (predicate instanceof WherePredicate.ColumnComparisonPredicate colComp) {
             renderColumnComparison(colComp, dialect, sql);
+        } else if (predicate instanceof WherePredicate.RowComparisonPredicate rowComp) {
+            renderRowComparison(rowComp, dialect, sql, parameters);
         } else if (predicate instanceof WherePredicate.AndPredicate and) {
             renderAnd(and, dialect, sql, parameters);
         } else if (predicate instanceof WherePredicate.OrPredicate or) {
@@ -102,6 +104,42 @@ public final class WhereClauseBuilder {
             case ILIKE -> "ILIKE";
         };
         sql.append(quotedLeft).append(" ").append(opSymbol).append(" ").append(quotedRight);
+    }
+
+    private static void renderRowComparison(
+            WherePredicate.RowComparisonPredicate rowComp,
+            SqlDialect dialect,
+            StringBuilder sql,
+            List<Object> parameters
+    ) {
+        sql.append("(");
+        for (int i = 0; i < rowComp.columns().size(); i++) {
+            if (i > 0) {
+                sql.append(", ");
+            }
+            sql.append(dialect.quoteIdentifier(rowComp.columns().get(i)));
+        }
+        sql.append(") ");
+
+        String opSymbol = switch (rowComp.operator()) {
+            case EQUALS -> "=";
+            case NOT_EQUALS -> "!=";
+            case GREATER_THAN -> ">";
+            case GREATER_THAN_OR_EQUAL -> ">=";
+            case LESS_THAN -> "<";
+            case LESS_THAN_OR_EQUAL -> "<=";
+            case LIKE -> "LIKE";
+            case ILIKE -> "ILIKE";
+        };
+        sql.append(opSymbol).append(" (");
+        for (int i = 0; i < rowComp.values().size(); i++) {
+            if (i > 0) {
+                sql.append(", ");
+            }
+            sql.append("?");
+            parameters.add(rowComp.values().get(i));
+        }
+        sql.append(")");
     }
 
     private static void renderBinary(

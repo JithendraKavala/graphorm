@@ -221,6 +221,7 @@ public final class SchemaToMetadataTransformer {
                 .relations(relations)
                 .readOnly(modelNode.isReadOnly())
                 .authRoles(modelNode.authRoles())
+                .exposure(modelNode.exposure())
                 .indexes(indexes)
                 .checkConstraints(checkConstraints)
                 .schemaName(schemaName)
@@ -384,6 +385,7 @@ public final class SchemaToMetadataTransformer {
                 .databaseBacked(isDbBacked)
                 .rawQuery(vmNode.queryClause().orElse(null))
                 .authRoles(vmNode.authRoles())
+                .exposure(vmNode.exposure())
                 .build();
     }
 
