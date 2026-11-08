@@ -6,12 +6,12 @@ This document tracks the live implementation status across all phases, milestone
 
 ## Progress Dashboard
 
-- **Total Phases**: 19
-- **Total Tasks**: 101
-- **Completed Tasks**: 101
+- **Total Phases**: 20
+- **Total Tasks**: 109
+- **Completed Tasks**: 109
 - **In Progress**: 0
 - **Not Started**: 0
-- **Current Active Phase**: None (100% of Project Phases & Milestones Completed - P0, P1, and P2 Production-Ready)
+- **Current Active Phase**: None (100% of Project Phases & Milestones Completed - P0, P1, P2, and P3 Ecosystem Production-Ready)
 
 ---
 
@@ -92,7 +92,7 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 15** | **Milestone 8** | `TASK-15.5` | Security & DoS Attack Test Suite | Completed | `TASK-15.4` | Asserts rejection of depth attacks and auth violations | Milestone 8 deliverable verified: `Milestone8SecurityIntegrationTest.java` (7 integration tests with PostgreSQL verifying depth limit DoS rejection, complexity rejection, `@auth` role enforcement on models & views, and Micrometer timer recording) |
 | **Phase 15** | View Models | `TASK-15.6` | Raw SQL Subquery Views (`@@query`) | Completed | `TASK-9.4` | Support `UNION`, `UNION ALL`, CTEs, window functions via `@@query` | `SourceTable.RawSqlSource`, `GraphOrmAstVisitor`, `SchemaValidator`, `SelectBuilder`, `ViewQueryPlanner`, `RawQueryViewSchemaTest`, `RawQueryViewSqlTest`, `PostgresRawQueryViewIntegrationTest` |
 | **Phase 15** | Security | `TASK-15.7` | Model & View Level Authorization (`@@auth(roles: [...])`) | Completed | `TASK-15.2` | Top-level queries/mutations guarded by entity-level auth | AST & metadata `authRoles`, SDL generator `@auth` annotations, fetcher-level authorization checks throwing `AccessDeniedException` |
-| **Phase 15** | Security | `TASK-15.8` | Backend-Injected Column Attribute (`@injected(from: "...")`) | Completed | `TASK-15.7` | Injected columns excluded from inputs and hydrated from context | `FieldMetadata.isInjected`, `InjectedValueResolver` (GraphQL context & Spring Security), exclusion from Create/Update inputs, tamper prevention |
+| **Phase 15** | Security | `TASK-15.8` | Backend-Injected Column Attribute (`@injected(from: \"...\")`) | Completed | `TASK-15.7` | Injected columns excluded from inputs and hydrated from context | `FieldMetadata.isInjected`, `InjectedValueResolver` (GraphQL context & Spring Security), exclusion from Create/Update inputs, tamper prevention |
 | **Phase 15** | Security | `TASK-15.9` | Read-Only Physical Models (`@@readonly`) | Completed | `TASK-15.6` | Physical models can be declared read-only | `ModelMetadata.isReadOnly`, SDL generator mutation suppression, runtime write guard throwing `ReadOnlyViewException` |
 | **Phase 16** | Release | `TASK-16.1` | University Reference Application | Completed | `TASK-14.6`, `TASK-15.5` | Complete runnable Spring Boot + Postgres sample app | `graphorm-examples/spring-boot-postgres`, Spring Boot 3 + PostgreSQL, models, virtual aggregated views, db views, @auth & @@auth, @injected, @@readonly, GraphiQL, type-safe client APIs |
 | **Phase 16** | Release | `TASK-16.2` | End-to-End Reference App Tests | Completed | `TASK-16.1` | End-to-end integration tests covering all features | `UniversityApplicationE2EIntegrationTest` (7 tests), `UniversityGraphQlE2EIntegrationTest` (15 tests), `UniversityClientApiE2EIntegrationTest` (9 tests), 31/31 tests passing with live PostgreSQL |
@@ -126,3 +126,11 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 19** | **P2 DevEx & Postgres** | `TASK-19.6` | Portable Database Error Translation | Completed | `TASK-19.5` | Portable `DataAccessException` hierarchy and `PostgreSqlErrorTranslator` converting SQLSTATE codes | `DataAccessException`, `DuplicateKeyException`, `ForeignKeyViolationException`, `CheckConstraintViolationException`, `DataIntegrityViolationException`, `PostgreSqlErrorTranslator`, `PostgreSqlErrorTranslatorTest` |
 | **Phase 19** | **P2 DevEx & Postgres** | `TASK-19.7` | Streaming Result Sets & Cursor Processing | Completed | `TASK-19.6` | `Stream<T>` / `Cursor<T>` via `Statement.setFetchSize` within active transaction | `Cursor<T>`, `DefaultCursor<T>`, `JdbcExecutor.stream`, `JdbcExecutor.queryForStream`, auto-commit guards, `JdbcStreamingCursorTest` |
 | **Phase 19** | **P2 DevEx & Postgres** | `TASK-19.8` | Transparent Parameter-Limit Chunking | Completed | `TASK-19.7` | Chunk large IN-lists (>1000 items) and batch inserts (>1000 rows / >5000 params) safeguarding against 65,535 limit | `WhereClauseBuilder` IN-list partitioning, `JdbcExecutor.executeBatch` chunking, `ParameterLimitChunkingTest` |
+| **Phase 20** | **P3 Ecosystem** | `TASK-20.1` | `graphorm-maven-plugin` Build Integration | Completed | `TASK-19.8` | Dedicated Maven plugin for build-time code generation | `GenerateMojo`, `TestGenerateMojo`, `ValidateMojo`, `AbstractGraphOrmMojo`, `add-source` compile/test-compile roots |
+| **Phase 20** | **P3 Ecosystem** | `TASK-20.2` | Maven Plugin Unit & Lifecycle Tests | Completed | `TASK-20.1` | Verification of plugin mojos, parameters, and error diagnostics | `GenerateMojoTest` (6 tests covering happy path, skip, syntax error, semantic error, test-generate, and validate) |
+| **Phase 20** | **P3 Ecosystem** | `TASK-20.3` | Spring Boot Auto-Configuration Hardening | Completed | `TASK-20.2` | Support customizable DataSource/TransactionManager bean names and graceful fallback | `GraphOrmProperties.datasourceBeanName`, `transactionManagerBeanName`, `@NestedConfigurationProperty`, `GraphOrmAutoConfigurationTest` |
+| **Phase 20** | **P3 Ecosystem** | `TASK-20.4` | GraalVM Native-Image (AOT) `RuntimeHintsRegistrar` | Completed | `TASK-20.3` | Register reflection, resource, and serialization reachability hints | `GraphOrmRuntimeHintsRegistrar` covering ANTLR4, Core metadata records, AST, DynamicRowMapper, and exceptions |
+| **Phase 20** | **P3 Ecosystem** | `TASK-20.5` | GraalVM Reachability Metadata Files | Completed | `TASK-20.4` | Standard GraalVM configuration descriptors in `META-INF/native-image` | `reflect-config.json`, `resource-config.json`, `serialization-config.json`, `native-image.properties`, `aot.factories` |
+| **Phase 20** | **P3 Ecosystem** | `TASK-20.6` | GraalVM AOT Runtime Hints Tests | Completed | `TASK-20.5` | Verify reflection, resource, and serialization hint registration | `GraphOrmRuntimeHintsRegistrarTest` using Spring Test `RuntimeHintsPredicates` (6 tests, 100% pass) |
+| **Phase 20** | **P3 Ecosystem** | `TASK-20.7` | Quickstart & Schema Specification Reference | Completed | `TASK-20.6` | Comprehensive user documentation for getting started and schema grammar | `docs/QUICKSTART.md`, `docs/SCHEMA_REFERENCE.md` |
+| **Phase 20** | **P3 Ecosystem** | `TASK-20.8` | Migration & Production Deployment Guides | Completed | `TASK-20.7` | Full guides for ORM migration and production/GraalVM deployment | `docs/MIGRATION_GUIDE.md`, `docs/PRODUCTION_DEPLOYMENT.md` |

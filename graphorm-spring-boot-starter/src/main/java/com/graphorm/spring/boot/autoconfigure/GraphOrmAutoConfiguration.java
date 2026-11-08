@@ -11,6 +11,7 @@ import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.transaction.TransactionManager;
 import com.graphorm.jdbc.util.StatementInterceptor;
 import com.graphorm.schema.transformer.SchemaToMetadataTransformer;
+import com.graphorm.spring.boot.aot.GraphOrmRuntimeHintsRegistrar;
 import com.graphorm.spring.boot.graphql.GraphOrmExceptionHandler;
 import com.graphorm.spring.boot.graphql.GraphQlAutoConfigurationCustomizer;
 import com.graphorm.spring.boot.metrics.MicrometerDataLoaderMetricsListener;
@@ -21,6 +22,7 @@ import com.graphorm.spring.boot.transaction.SpringTransactionManagerAdapter;
 import graphql.GraphQL;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -33,6 +35,7 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.graphql.execution.DataFetcherExceptionResolverAdapter;
@@ -54,6 +57,7 @@ import java.util.List;
 @AutoConfiguration(after = {DataSourceAutoConfiguration.class, GraphQlAutoConfiguration.class})
 @ConditionalOnClass(DataSource.class)
 @EnableConfigurationProperties(GraphOrmProperties.class)
+@ImportRuntimeHints(GraphOrmRuntimeHintsRegistrar.class)
 public class GraphOrmAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(GraphOrmAutoConfiguration.class);
@@ -178,14 +182,38 @@ public class GraphOrmAutoConfiguration {
         return new SpringConnectionProvider();
     }
 
+    private static DataSource resolveDataSource(
+            ObjectProvider<DataSource> dataSourceProvider,
+            GraphOrmProperties properties,
+            BeanFactory beanFactory
+    ) {
+        String customBeanName = properties.getDatasourceBeanName();
+        if (customBeanName != null && !customBeanName.isBlank()) {
+            return beanFactory.getBean(customBeanName, DataSource.class);
+        }
+        DataSource ds = dataSourceProvider.getIfUnique();
+        if (ds != null) {
+            return ds;
+        }
+        return dataSourceProvider.getIfAvailable();
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public JdbcExecutor jdbcExecutor(
-            DataSource dataSource,
+            ObjectProvider<DataSource> dataSourceProvider,
+            GraphOrmProperties properties,
+            BeanFactory beanFactory,
             SqlDialect sqlDialect,
             JdbcExecutor.ConnectionProvider connectionProvider,
             ObjectProvider<StatementInterceptor> interceptorsProvider
     ) {
+        DataSource dataSource = resolveDataSource(dataSourceProvider, properties, beanFactory);
+        if (dataSource == null) {
+            throw new IllegalStateException(
+                    "No DataSource bean found in application context. Ensure a DataSource bean is configured or configure 'graphorm.datasource-bean-name'."
+            );
+        }
         DataSource txAwareDataSource = dataSource instanceof TransactionAwareDataSourceProxy
                 ? dataSource
                 : new TransactionAwareDataSourceProxy(dataSource);
@@ -202,10 +230,20 @@ public class GraphOrmAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(TransactionManager.class)
     public TransactionManager graphOrmTransactionManager(
-            DataSource dataSource,
-            ObjectProvider<PlatformTransactionManager> txManagerProvider
+            ObjectProvider<DataSource> dataSourceProvider,
+            ObjectProvider<PlatformTransactionManager> txManagerProvider,
+            GraphOrmProperties properties,
+            BeanFactory beanFactory
     ) {
-        return new SpringTransactionManagerAdapter(dataSource, txManagerProvider.getIfAvailable());
+        DataSource dataSource = resolveDataSource(dataSourceProvider, properties, beanFactory);
+        PlatformTransactionManager platformTxManager = null;
+        String customTxName = properties.getTransactionManagerBeanName();
+        if (customTxName != null && !customTxName.isBlank()) {
+            platformTxManager = beanFactory.getBean(customTxName, PlatformTransactionManager.class);
+        } else {
+            platformTxManager = txManagerProvider.getIfAvailable();
+        }
+        return new SpringTransactionManagerAdapter(dataSource, platformTxManager);
     }
 
     @Bean

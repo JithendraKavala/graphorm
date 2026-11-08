@@ -1,6 +1,7 @@
 package com.graphorm.spring.boot.autoconfigure;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**
  * Configuration properties for GraphORM Spring Boot Starter.
@@ -24,6 +25,16 @@ public class GraphOrmProperties {
     private String dialect = "postgresql";
 
     /**
+     * Optional bean name of the DataSource to bind to. If not specified, the primary or unique DataSource bean is used.
+     */
+    private String datasourceBeanName;
+
+    /**
+     * Optional bean name of the PlatformTransactionManager to bind to. If not specified, the primary or unique transaction manager bean is used.
+     */
+    private String transactionManagerBeanName;
+
+    /**
      * Whether to log executed SQL queries and parameters to stdout/logger.
      */
     private boolean sqlLogging = false;
@@ -36,21 +47,25 @@ public class GraphOrmProperties {
     /**
      * GraphQL specific auto-configuration properties.
      */
+    @NestedConfigurationProperty
     private GraphqlProperties graphql = new GraphqlProperties();
 
     /**
      * Logging specific configuration properties.
      */
+    @NestedConfigurationProperty
     private LoggingProperties logging = new LoggingProperties();
 
     /**
      * Security specific configuration properties (TASK-15.1, TASK-15.2).
      */
+    @NestedConfigurationProperty
     private SecurityProperties security = new SecurityProperties();
 
     /**
      * Metrics specific configuration properties (TASK-15.4).
      */
+    @NestedConfigurationProperty
     private MetricsProperties metrics = new MetricsProperties();
 
     public String getSchemaLocation() {
@@ -82,6 +97,22 @@ public class GraphOrmProperties {
 
     public void setDialect(String dialect) {
         this.dialect = dialect;
+    }
+
+    public String getDatasourceBeanName() {
+        return datasourceBeanName;
+    }
+
+    public void setDatasourceBeanName(String datasourceBeanName) {
+        this.datasourceBeanName = datasourceBeanName;
+    }
+
+    public String getTransactionManagerBeanName() {
+        return transactionManagerBeanName;
+    }
+
+    public void setTransactionManagerBeanName(String transactionManagerBeanName) {
+        this.transactionManagerBeanName = transactionManagerBeanName;
     }
 
     public boolean isSqlLogging() {

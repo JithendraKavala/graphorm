@@ -21,6 +21,7 @@
         <module>graphorm-graphql</module>
         <module>graphorm-spring-boot-starter</module>
         <module>graphorm-cli</module>
+        <module>graphorm-maven-plugin</module>
         <module>graphorm-examples</module>
     </modules>
 
@@ -55,6 +56,7 @@
         <jacoco-maven-plugin.version>0.8.11</jacoco-maven-plugin.version>
         <antlr4-maven-plugin.version>4.13.1</antlr4-maven-plugin.version>
         <build-helper-maven-plugin.version>3.5.0</build-helper-maven-plugin.version>
+        <maven-plugin-tools.version>3.11.0</maven-plugin-tools.version>
     </properties>
 
     <dependencyManagement>
@@ -93,6 +95,11 @@
             <dependency>
                 <groupId>com.graphorm</groupId>
                 <artifactId>graphorm-cli</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.graphorm</groupId>
+                <artifactId>graphorm-maven-plugin</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -248,6 +255,16 @@
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>build-helper-maven-plugin</artifactId>
                     <version>${build-helper-maven-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-plugin-plugin</artifactId>
+                    <version>${maven-plugin-tools.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>com.graphorm</groupId>
+                    <artifactId>graphorm-maven-plugin</artifactId>
+                    <version>${project.version}</version>
                 </plugin>
             </plugins>
         </pluginManagement>

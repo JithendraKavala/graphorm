@@ -20,10 +20,15 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerA
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("GraphOrmAutoConfiguration ApplicationContextRunner Tests (TASK-13.3, TASK-13.5)")
+@DisplayName("GraphOrmAutoConfiguration ApplicationContextRunner Tests (TASK-13.3, TASK-13.5, P3 Hardening)")
 class GraphOrmAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -59,6 +64,48 @@ class GraphOrmAutoConfigurationTest {
             SqlDialect dialect = context.getBean(SqlDialect.class);
             assertThat(dialect).isInstanceOf(PostgreSqlDialect.class);
         });
+    }
+
+    @Test
+    @DisplayName("Graceful fallback with informative error when no DataSource bean is configured")
+    void testInformativeErrorWithoutDataSource() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(GraphOrmAutoConfiguration.class))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("No DataSource bean found in application context");
+                });
+    }
+
+    @Test
+    @DisplayName("Custom named DataSource binding via graphorm.datasource-bean-name")
+    void testCustomNamedDataSourceBinding() {
+        contextRunner
+                .withUserConfiguration(MultipleDataSourcesConfig.class)
+                .withPropertyValues("graphorm.datasource-bean-name=secondaryDataSource")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(JdbcExecutor.class);
+                    JdbcExecutor executor = context.getBean(JdbcExecutor.class);
+                    assertThat(executor.dataSource()).isNotNull();
+                });
+    }
+
+    @Test
+    @DisplayName("Custom named PlatformTransactionManager binding via graphorm.transaction-manager-bean-name")
+    void testCustomNamedTransactionManagerBinding() {
+        contextRunner
+                .withUserConfiguration(MultipleDataSourcesConfig.class)
+                .withPropertyValues(
+                        "graphorm.datasource-bean-name=secondaryDataSource",
+                        "graphorm.transaction-manager-bean-name=secondaryTxManager"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(TransactionManager.class);
+                });
     }
 
     @Test
@@ -163,6 +210,29 @@ class GraphOrmAutoConfigurationTest {
                     GraphOrmClient client = context.getBean(GraphOrmClient.class);
                     assertThat(client).isSameAs(CustomUserConfig.CUSTOM_CLIENT);
                 });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class MultipleDataSourcesConfig {
+        @Bean
+        @Primary
+        public DataSource primaryDataSource() {
+            org.h2.jdbcx.JdbcDataSource ds = new org.h2.jdbcx.JdbcDataSource();
+            ds.setURL("jdbc:h2:mem:primary;DB_CLOSE_DELAY=-1");
+            return ds;
+        }
+
+        @Bean
+        public DataSource secondaryDataSource() {
+            org.h2.jdbcx.JdbcDataSource ds = new org.h2.jdbcx.JdbcDataSource();
+            ds.setURL("jdbc:h2:mem:secondary;DB_CLOSE_DELAY=-1");
+            return ds;
+        }
+
+        @Bean
+        public PlatformTransactionManager secondaryTxManager(DataSource secondaryDataSource) {
+            return new DataSourceTransactionManager(secondaryDataSource);
+        }
     }
 
     @Configuration(proxyBeanMethods = false)

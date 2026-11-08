@@ -1,0 +1,32 @@
+[
+  {
+    "name": "com.graphorm.core.exception.GraphOrmException"
+  },
+  {
+    "name": "com.graphorm.core.exception.ReadOnlyViewException"
+  },
+  {
+    "name": "com.graphorm.core.exception.ConfigurationException"
+  },
+  {
+    "name": "com.graphorm.jdbc.exception.DataAccessException"
+  },
+  {
+    "name": "com.graphorm.jdbc.exception.DuplicateKeyException"
+  },
+  {
+    "name": "com.graphorm.jdbc.exception.ForeignKeyViolationException"
+  },
+  {
+    "name": "com.graphorm.jdbc.exception.CheckConstraintViolationException"
+  },
+  {
+    "name": "com.graphorm.jdbc.exception.DataIntegrityViolationException"
+  },
+  {
+    "name": "com.graphorm.jdbc.exception.OptimisticLockException"
+  },
+  {
+    "name": "com.graphorm.jdbc.exception.QueryExecutionException"
+  }
+]

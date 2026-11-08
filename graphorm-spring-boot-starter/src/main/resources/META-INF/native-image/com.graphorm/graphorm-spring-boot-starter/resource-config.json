@@ -1,0 +1,18 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "pattern": ".*\\.graphorm$"
+      },
+      {
+        "pattern": "graphql/.*\\.graphqls$"
+      },
+      {
+        "pattern": "META-INF/spring/.*"
+      },
+      {
+        "pattern": "META-INF/native-image/.*"
+      }
+    ]
+  }
+}
