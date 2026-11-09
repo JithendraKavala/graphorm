@@ -106,11 +106,26 @@ public final class SchemaToMetadataTransformer {
             }
         }
 
+        boolean isMultiTenant = modelNode.isMultiTenant();
+        String tenantFieldName = modelNode.tenantFieldName().orElse(null);
+        String tenantColumn = modelNode.tenantColumnName().orElse(null);
+
+        if (tenantColumn == null && tenantFieldName != null) {
+            Optional<FieldNode> tf = modelNode.findField(tenantFieldName);
+            if (tf.isPresent()) {
+                tenantColumn = tf.get().mapAttribute()
+                        .flatMap(attr -> attr.getPositionalArgumentValue(0).or(() -> attr.getArgumentValue("name")))
+                        .map(SchemaToMetadataTransformer::extractStringValue)
+                        .orElse(tenantFieldName);
+            }
+        }
+
         // Transform fields
         List<FieldMetadata> fields = new ArrayList<>();
         for (FieldNode f : modelNode.fields()) {
             boolean isRelation = document.containsModel(f.type().name());
-            FieldMetadata fm = transformField(f, isRelation, pkFieldSet);
+            boolean isTenant = f.isTenantId() || (tenantFieldName != null && tenantFieldName.equals(f.name()));
+            FieldMetadata fm = transformField(f, isRelation, pkFieldSet, isTenant);
             fields.add(fm);
         }
 
@@ -213,7 +228,7 @@ public final class SchemaToMetadataTransformer {
             }
         }
 
-        return ModelMetadata.builder(modelNode.name())
+        var builder = ModelMetadata.builder(modelNode.name())
                 .tableName(tableName)
                 .fields(fields)
                 .primaryKeyFields(new ArrayList<>(pkFieldSet))
@@ -225,7 +240,11 @@ public final class SchemaToMetadataTransformer {
                 .indexes(indexes)
                 .checkConstraints(checkConstraints)
                 .schemaName(schemaName)
-                .build();
+                .multiTenant(isMultiTenant);
+        if (tenantColumn != null) {
+            builder.tenantColumn(tenantColumn);
+        }
+        return builder.build();
     }
 
     private static RelationMetadata transformRelation(ModelNode model, FieldNode field, SchemaDocument document) {
@@ -390,6 +409,10 @@ public final class SchemaToMetadataTransformer {
     }
 
     private static FieldMetadata transformField(FieldNode field, boolean isRelation, Set<String> pkFieldSet) {
+        return transformField(field, isRelation, pkFieldSet, field.isTenantId());
+    }
+
+    private static FieldMetadata transformField(FieldNode field, boolean isRelation, Set<String> pkFieldSet, boolean isTenant) {
         String name = field.name();
         String typeName = field.type().name();
         Class<?> javaType = TYPE_MAPPINGS.get(typeName);
@@ -486,7 +509,8 @@ public final class SchemaToMetadataTransformer {
                 authRoles,
                 isInjected,
                 injectedFrom,
-                isVersion
+                isVersion,
+                isTenant
         );
     }
 

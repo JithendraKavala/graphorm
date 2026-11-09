@@ -22,6 +22,7 @@ import java.util.Objects;
 public final class InsertBuilder {
 
     private final SqlDialect dialect;
+    private EntityMetadata entity;
     private SourceTable.PhysicalTable table;
     private final Map<String, Object> values = new LinkedHashMap<>();
     private final List<String> returningColumns = new ArrayList<>();
@@ -58,6 +59,10 @@ public final class InsertBuilder {
     public InsertBuilder forEntity(EntityMetadata entity) {
         Objects.requireNonNull(entity, "Entity metadata must not be null");
         QueryGuards.assertWritable(entity, "INSERT");
+        this.entity = entity;
+        if (entity.isMultiTenant()) {
+            QueryGuards.requireTenantContext(entity, "INSERT");
+        }
         String tableName = entity instanceof ModelMetadata model ? model.tableName() : entity.name().toLowerCase();
         this.table = SourceTable.table(tableName);
         return this;
@@ -157,6 +162,12 @@ public final class InsertBuilder {
     public BoundSql build() {
         if (table == null) {
             throw new IllegalStateException("Target table must be specified for INSERT");
+        }
+        if (entity != null && entity.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(entity, "INSERT");
+            if (tenantId != null) {
+                values.put(entity.tenantColumn(), tenantId);
+            }
         }
         if (values.isEmpty()) {
             throw new IllegalStateException("At least one column value must be specified for INSERT");

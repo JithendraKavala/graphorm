@@ -7,7 +7,8 @@ import java.util.Objects;
 
 /**
  * Immutable metadata record representing a scalar field, calculated expression,
- * aggregation, relational field, backend-injected field, or optimistic lock version on an entity.
+ * aggregation, relational field, backend-injected field, optimistic lock version,
+ * or multi-tenant partition key on an entity.
  *
  * @param name              the logical field name in the schema
  * @param javaType          the Java class type of this field (may be null if typeName is set)
@@ -27,6 +28,7 @@ import java.util.Objects;
  * @param isInjected        whether this field is backend-injected from security or execution context (via @injected)
  * @param injectedFrom      the context source key or provider identifier (e.g. "tenantId", "auth.username", "auth.role")
  * @param isVersion         whether this field is used for optimistic locking concurrency control (via @version)
+ * @param isTenantId        whether this field is a multi-tenant isolation key (via @tenantId)
  */
 public record FieldMetadata(
         String name,
@@ -46,7 +48,8 @@ public record FieldMetadata(
         List<String> authRoles,
         boolean isInjected,
         String injectedFrom,
-        boolean isVersion
+        boolean isVersion,
+        boolean isTenantId
 ) {
 
     /**
@@ -73,7 +76,53 @@ public record FieldMetadata(
     }
 
     /**
-     * Backward-compatible constructor without isVersion.
+     * Backward-compatible constructor without isTenantId.
+     */
+    public FieldMetadata(
+            String name,
+            Class<?> javaType,
+            String typeName,
+            String dbColumnName,
+            boolean isPrimaryKey,
+            boolean isNullable,
+            boolean isUnique,
+            boolean isGenerated,
+            String defaultValue,
+            boolean isAggregate,
+            String aggregateFunction,
+            String expression,
+            boolean isRelation,
+            String relationName,
+            List<String> authRoles,
+            boolean isInjected,
+            String injectedFrom,
+            boolean isVersion
+    ) {
+        this(
+                name,
+                javaType,
+                typeName,
+                dbColumnName,
+                isPrimaryKey,
+                isNullable,
+                isUnique,
+                isGenerated,
+                defaultValue,
+                isAggregate,
+                aggregateFunction,
+                expression,
+                isRelation,
+                relationName,
+                authRoles,
+                isInjected,
+                injectedFrom,
+                isVersion,
+                false
+        );
+    }
+
+    /**
+     * Backward-compatible constructor without isVersion and isTenantId.
      */
     public FieldMetadata(
             String name,
@@ -112,12 +161,13 @@ public record FieldMetadata(
                 authRoles,
                 isInjected,
                 injectedFrom,
+                false,
                 false
         );
     }
 
     /**
-     * Backward-compatible constructor without isInjected and injectedFrom.
+     * Backward-compatible constructor without isInjected, injectedFrom, isVersion, and isTenantId.
      */
     public FieldMetadata(
             String name,
@@ -154,6 +204,7 @@ public record FieldMetadata(
                 authRoles,
                 false,
                 null,
+                false,
                 false
         );
     }
@@ -195,6 +246,7 @@ public record FieldMetadata(
                 List.of(),
                 false,
                 null,
+                false,
                 false
         );
     }
@@ -230,6 +282,7 @@ public record FieldMetadata(
                 List.of(),
                 false,
                 null,
+                false,
                 false
         );
     }
@@ -308,6 +361,7 @@ public record FieldMetadata(
         private boolean isInjected;
         private String injectedFrom;
         private boolean isVersion;
+        private boolean isTenantId;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Field name must not be null");
@@ -419,6 +473,16 @@ public record FieldMetadata(
             return this;
         }
 
+        public Builder tenantId(boolean isTenantId) {
+            this.isTenantId = isTenantId;
+            return this;
+        }
+
+        public Builder tenantId() {
+            this.isTenantId = true;
+            return this;
+        }
+
         public FieldMetadata build() {
             return new FieldMetadata(
                     name,
@@ -438,7 +502,8 @@ public record FieldMetadata(
                     List.copyOf(authRoles),
                     isInjected,
                     injectedFrom,
-                    isVersion
+                    isVersion,
+                    isTenantId
             );
         }
     }

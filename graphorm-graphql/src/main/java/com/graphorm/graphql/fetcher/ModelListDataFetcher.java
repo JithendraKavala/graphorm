@@ -96,12 +96,9 @@ public class ModelListDataFetcher implements DataFetcher<List<Map<String, Object
             SecurityPlannerInterceptor.verifyFieldAccess(model, analyzed.requestedScalarFields(), authorizer);
         }
 
-        SelectQuery.Builder builder;
+        SelectQuery.Builder builder = SelectBuilder.forEntity(model, registry);
         if (analyzed != null && !analyzed.projectedColumns().isEmpty()) {
-            builder = SelectQuery.from(model.tableName());
             builder.columns(analyzed.projectedColumns());
-        } else {
-            builder = SelectBuilder.forEntity(model, registry);
         }
 
         WherePredicate where = argumentBinder.bindWhere(env, model);

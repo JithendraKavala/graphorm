@@ -8,7 +8,8 @@ import java.util.Optional;
 
 /**
  * Immutable metadata record representing a regular model mapped 1:1 to a physical database table.
- * Supports full CRUD operations (or read-only projection if annotated with @@readonly).
+ * Supports full CRUD operations (or read-only projection if annotated with @@readonly),
+ * and multi-tenant isolation.
  *
  * @param name              the declared model name (e.g. "Student")
  * @param tableName         the physical database table name (e.g. "students")
@@ -22,6 +23,8 @@ import java.util.Optional;
  * @param checkConstraints  the check constraint metadata (declared via @@check)
  * @param schemaName        the database schema/namespace (e.g. "public", "tenant_a")
  * @param exposure          granular exposure control for GraphQL APIs (declared via @@expose)
+ * @param isMultiTenant     whether this model is multi-tenant partitioned
+ * @param tenantColumn      the physical column name holding tenant IDs
  */
 public record ModelMetadata(
         String name,
@@ -35,7 +38,9 @@ public record ModelMetadata(
         List<IndexMetadata> indexes,
         List<CheckConstraintMetadata> checkConstraints,
         String schemaName,
-        ExposureMetadata exposure
+        ExposureMetadata exposure,
+        boolean isMultiTenant,
+        String tenantColumn
 ) implements EntityMetadata {
 
     /**
@@ -65,6 +70,37 @@ public record ModelMetadata(
         if (exposure == null) {
             exposure = ExposureMetadata.of(true, !isReadOnly);
         }
+        if (!isMultiTenant && fields.stream().anyMatch(FieldMetadata::isTenantId)) {
+            isMultiTenant = true;
+        }
+        if (tenantColumn == null && isMultiTenant) {
+            tenantColumn = fields.stream()
+                    .filter(FieldMetadata::isTenantId)
+                    .map(FieldMetadata::dbColumnName)
+                    .findFirst()
+                    .orElse(null);
+        }
+    }
+
+    /**
+     * Backward-compatible constructor without isMultiTenant and tenantColumn.
+     */
+    public ModelMetadata(
+            String name,
+            String tableName,
+            List<FieldMetadata> fields,
+            List<String> primaryKeyFields,
+            List<List<String>> uniqueConstraints,
+            List<RelationMetadata> relations,
+            boolean isReadOnly,
+            List<String> authRoles,
+            List<IndexMetadata> indexes,
+            List<CheckConstraintMetadata> checkConstraints,
+            String schemaName,
+            ExposureMetadata exposure
+    ) {
+        this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
+                indexes, checkConstraints, schemaName, exposure, false, null);
     }
 
     /**
@@ -84,7 +120,7 @@ public record ModelMetadata(
             String schemaName
     ) {
         this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
-                indexes, checkConstraints, schemaName, ExposureMetadata.of(true, !isReadOnly));
+                indexes, checkConstraints, schemaName, ExposureMetadata.of(true, !isReadOnly), false, null);
     }
 
     /**
@@ -101,7 +137,7 @@ public record ModelMetadata(
             List<String> authRoles
     ) {
         this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
-                List.of(), List.of(), null, ExposureMetadata.of(true, !isReadOnly));
+                List.of(), List.of(), null, ExposureMetadata.of(true, !isReadOnly), false, null);
     }
 
     /**
@@ -166,6 +202,19 @@ public record ModelMetadata(
     @Override
     public boolean exposeMutations() {
         return exposure.mutations() && !isReadOnly;
+    }
+
+    @Override
+    public boolean isMultiTenant() {
+        return isMultiTenant;
+    }
+
+    @Override
+    public String tenantColumn() {
+        if (tenantColumn != null) {
+            return tenantColumn;
+        }
+        return tenantField().map(FieldMetadata::dbColumnName).orElse(null);
     }
 
     /**
@@ -291,6 +340,8 @@ public record ModelMetadata(
         private final List<CheckConstraintMetadata> checkConstraints = new ArrayList<>();
         private String schemaName;
         private ExposureMetadata exposure;
+        private boolean isMultiTenant = false;
+        private String tenantColumn;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Model name must not be null");
@@ -440,6 +491,19 @@ public record ModelMetadata(
             return this;
         }
 
+        public Builder multiTenant(boolean isMultiTenant) {
+            this.isMultiTenant = isMultiTenant;
+            return this;
+        }
+
+        public Builder tenantColumn(String tenantColumn) {
+            this.tenantColumn = tenantColumn;
+            if (tenantColumn != null) {
+                this.isMultiTenant = true;
+            }
+            return this;
+        }
+
         public ModelMetadata build() {
             ExposureMetadata finalExposure = exposure != null
                     ? exposure
@@ -457,7 +521,9 @@ public record ModelMetadata(
                     indexes,
                     checkConstraints,
                     schemaName,
-                    finalExposure
+                    finalExposure,
+                    isMultiTenant,
+                    tenantColumn
             );
         }
     }

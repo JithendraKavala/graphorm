@@ -9,6 +9,7 @@ import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.ViewModelMetadata;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
+import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.OrderByClause;
 import com.graphorm.core.query.ProjectedColumn;
 import com.graphorm.core.query.SelectQuery;
@@ -170,6 +171,12 @@ public class GraphOrmClient {
     public Map<String, Object> create(String modelName, Map<String, Object> values) {
         ModelMetadata model = resolveModelForMutation(modelName, "create");
         Map<String, Object> dbValues = mapToDbColumns(model, values);
+        if (model.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(model, "create");
+            if (tenantId != null) {
+                dbValues.put(model.tenantColumn(), tenantId);
+            }
+        }
         InsertQuery query = InsertQuery.into(model.tableName())
                 .values(dbValues)
                 .build();
@@ -181,9 +188,17 @@ public class GraphOrmClient {
         ModelMetadata model = resolveModelForMutation(modelName, "update");
         String pkColumn = getPrimaryKeyColumn(model);
         Map<String, Object> dbValues = mapToDbColumns(model, values);
+        WherePredicate where = WherePredicate.eq(pkColumn, id);
+        if (model.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(model, "update");
+            if (tenantId != null) {
+                where = where.and(WherePredicate.eq(model.tenantColumn(), tenantId));
+                dbValues.put(model.tenantColumn(), tenantId);
+            }
+        }
         UpdateQuery query = UpdateQuery.table(model.tableName())
                 .values(dbValues)
-                .where(WherePredicate.eq(pkColumn, id))
+                .where(where)
                 .build();
         return executor.executeUpdate(query);
     }
@@ -191,8 +206,15 @@ public class GraphOrmClient {
     public int delete(String modelName, Object id) {
         ModelMetadata model = resolveModelForMutation(modelName, "delete");
         String pkColumn = getPrimaryKeyColumn(model);
+        WherePredicate where = WherePredicate.eq(pkColumn, id);
+        if (model.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(model, "delete");
+            if (tenantId != null) {
+                where = where.and(WherePredicate.eq(model.tenantColumn(), tenantId));
+            }
+        }
         DeleteQuery query = DeleteQuery.from(model.tableName())
-                .where(WherePredicate.eq(pkColumn, id))
+                .where(where)
                 .build();
         return executor.executeUpdate(query);
     }
@@ -203,10 +225,18 @@ public class GraphOrmClient {
 
     public long count(String entityName, WherePredicate filter) {
         EntityMetadata entity = resolveEntity(entityName);
+        WherePredicate effectiveFilter = filter;
+        if (entity.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(entity, "count");
+            if (tenantId != null) {
+                WherePredicate tenantPred = WherePredicate.eq(entity.tenantColumn(), tenantId);
+                effectiveFilter = effectiveFilter != null ? tenantPred.and(effectiveFilter) : tenantPred;
+            }
+        }
         if (entity instanceof ViewModelMetadata vm && (vm.isVirtual() || vm.isRawQuery())) {
             var planner = ViewQueryPlanner.plan(vm, registry, dialect);
-            if (filter != null) {
-                planner.where(filter);
+            if (effectiveFilter != null) {
+                planner.where(effectiveFilter);
             }
             SelectQuery query = planner.build();
             BoundSql innerSql = SelectBuilder.of(dialect).build(query);
@@ -217,8 +247,8 @@ public class GraphOrmClient {
 
         String sql = "SELECT COUNT(*) FROM " + dialect.quoteIdentifier(toSourceTable(entity).identifier());
         BoundSql boundSql;
-        if (filter != null) {
-            BoundSql whereClause = WhereClauseBuilder.buildWhereClause(filter, dialect);
+        if (effectiveFilter != null) {
+            BoundSql whereClause = WhereClauseBuilder.buildWhereClause(effectiveFilter, dialect);
             sql += whereClause.sql();
             boundSql = new BoundSql(sql, whereClause.parameters());
         } else {

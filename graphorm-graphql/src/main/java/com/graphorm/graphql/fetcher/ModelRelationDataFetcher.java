@@ -7,6 +7,8 @@ import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.RelationMetadata;
+import com.graphorm.core.tenant.TenantContext;
+import com.graphorm.core.tenant.TenantPartitionKey;
 import com.graphorm.graphql.loader.GraphOrmDataLoaderRegistryFactory;
 import com.graphorm.jdbc.relation.BatchRelationLoader;
 import graphql.schema.DataFetcher;
@@ -72,15 +74,50 @@ public class ModelRelationDataFetcher implements DataFetcher<Object> {
                     : CompletableFuture.completedFuture(Collections.emptyList());
         }
 
+        Object effectiveKey = key;
+        boolean isMultiTenantRelation = entity.isMultiTenant() ||
+                registry.findModel(relation.targetModel()).map(ModelMetadata::isMultiTenant).orElse(false);
+        if (isMultiTenantRelation) {
+            String tenantId = extractTenantId(source, entity);
+            if (tenantId == null) {
+                tenantId = TenantContext.getCurrentTenantId().orElse(null);
+            }
+            if (tenantId != null) {
+                effectiveKey = TenantPartitionKey.of(tenantId, key);
+            }
+        }
+
         DataLoader<Object, Object> dataLoader = env.getDataLoader(loaderKey);
         if (dataLoader != null) {
-            log.trace("Queuing DataLoader request for '{}.{}' with key: {}", entity.name(), relation.relationName(), key);
-            return dataLoader.load(key, env.getSelectionSet());
+            log.trace("Queuing DataLoader request for '{}.{}' with key: {}", entity.name(), relation.relationName(), effectiveKey);
+            return dataLoader.load(effectiveKey, env.getSelectionSet());
         }
 
         log.debug("DataLoader '{}' not found in execution context; executing synchronously", loaderKey);
-        Map<Object, Object> results = batchRelationLoader.loadByKeys(entity, relation, List.of(key), null);
-        return CompletableFuture.completedFuture(results.get(key));
+        Map<Object, Object> results = batchRelationLoader.loadByKeys(entity, relation, List.of(effectiveKey), null);
+        return CompletableFuture.completedFuture(results.get(effectiveKey));
+    }
+
+    private String extractTenantId(Object source, ModelMetadata entity) {
+        if (source instanceof Map<?, ?> map) {
+            if (entity.tenantField() != null && map.get(entity.tenantField()) != null) {
+                return String.valueOf(map.get(entity.tenantField()));
+            }
+            if (entity.tenantColumn() != null && map.get(entity.tenantColumn()) != null) {
+                return String.valueOf(map.get(entity.tenantColumn()));
+            }
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() instanceof String k) {
+                    if (k.equalsIgnoreCase("tenantId") || k.equalsIgnoreCase("tenant_id")) {
+                        Object val = entry.getValue();
+                        if (val != null) {
+                            return String.valueOf(val);
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private Object extractJoinKey(Object source) {

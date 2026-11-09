@@ -105,6 +105,12 @@ public class ModelCreateDataFetcher implements DataFetcher<Map<String, Object>> 
             }
         }
 
+        if (model.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(model, "create");
+            if (tenantId != null) {
+                dbValues.put(model.tenantColumn(), tenantId);
+            }
+        }
         InsertQuery insertQuery = new InsertQuery(SourceTable.table(model.tableName()), dbValues);
         Optional<Map<String, Object>> created = executor.executeInsertAndReturn(insertQuery);
 

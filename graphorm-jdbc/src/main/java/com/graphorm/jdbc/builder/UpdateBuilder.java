@@ -29,6 +29,7 @@ import java.util.Objects;
 public final class UpdateBuilder {
 
     private final SqlDialect dialect;
+    private EntityMetadata entity;
     private SourceTable.PhysicalTable table;
     private final Map<String, Object> values = new LinkedHashMap<>();
     private WherePredicate where;
@@ -74,6 +75,10 @@ public final class UpdateBuilder {
     public UpdateBuilder forEntity(EntityMetadata entity) {
         Objects.requireNonNull(entity, "Entity metadata must not be null");
         QueryGuards.assertWritable(entity, "UPDATE");
+        this.entity = entity;
+        if (entity.isMultiTenant()) {
+            QueryGuards.requireTenantContext(entity, "UPDATE");
+        }
         this.entityName = entity.name();
         if (entity instanceof ModelMetadata model) {
             this.table = SourceTable.table(model.tableName());
@@ -237,6 +242,15 @@ public final class UpdateBuilder {
     public BoundSql build() {
         if (table == null) {
             throw new IllegalStateException("Target table must be specified for UPDATE");
+        }
+
+        if (entity != null && entity.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(entity, "UPDATE");
+            if (tenantId != null) {
+                WherePredicate tenantPredicate = WherePredicate.equal(entity.tenantColumn(), tenantId);
+                where = (where == null) ? tenantPredicate : tenantPredicate.and(where);
+                values.put(entity.tenantColumn(), tenantId);
+            }
         }
 
         // Auto-detect version field from values if set

@@ -4,6 +4,7 @@ import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.exception.EntityNotFoundException;
 import com.graphorm.core.exception.GraphOrmException;
 import com.graphorm.core.exception.ReadOnlyViewException;
+import com.graphorm.core.exception.TenantContextMissingException;
 import graphql.ErrorType;
 import graphql.GraphQLError;
 import graphql.GraphqlErrorBuilder;
@@ -49,6 +50,18 @@ public class GraphOrmDataFetcherExceptionHandler implements DataFetcherException
      */
     public static GraphQLError sanitize(Throwable ex, SourceLocation location, ResultPath path) {
         Throwable root = unwrap(ex);
+
+        // Multi-Tenant Context Missing
+        if (root instanceof TenantContextMissingException tcme) {
+            return buildError(
+                    tcme.getMessage(),
+                    "TENANT_CONTEXT_MISSING",
+                    403,
+                    "FORBIDDEN",
+                    location,
+                    path
+            );
+        }
 
         // 1. Access Control / Security
         if (root instanceof AccessDeniedException ade) {

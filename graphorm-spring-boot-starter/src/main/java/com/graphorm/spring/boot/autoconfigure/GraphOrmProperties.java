@@ -72,6 +72,11 @@ public class GraphOrmProperties {
      */
     @NestedConfigurationProperty
     private MetricsProperties metrics = new MetricsProperties();
+    /**
+     * Multi-tenancy configuration properties (Phase 22).
+     */
+    @NestedConfigurationProperty
+    private TenantProperties tenant = new TenantProperties();
 
     public String getSchemaLocation() {
         return schemaLocation;
@@ -178,6 +183,14 @@ public class GraphOrmProperties {
 
     public void setMetrics(MetricsProperties metrics) {
         this.metrics = metrics;
+    }
+
+    public TenantProperties getTenant() {
+        return tenant;
+    }
+
+    public void setTenant(TenantProperties tenant) {
+        this.tenant = tenant;
     }
 
     public static class GraphqlProperties {
@@ -315,6 +328,45 @@ public class GraphOrmProperties {
 
         public void setDataloaderBatchSizeEnabled(boolean dataloaderBatchSizeEnabled) {
             this.dataloaderBatchSizeEnabled = dataloaderBatchSizeEnabled;
+        }
+    }
+
+    public static class TenantProperties {
+        private boolean enabled = true;
+        private String headerName = "X-Tenant-ID";
+        private String jwtClaim = "tenant_id";
+        private boolean allowBypass = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getHeaderName() {
+            return headerName;
+        }
+
+        public void setHeaderName(String headerName) {
+            this.headerName = headerName;
+        }
+
+        public String getJwtClaim() {
+            return jwtClaim;
+        }
+
+        public void setJwtClaim(String jwtClaim) {
+            this.jwtClaim = jwtClaim;
+        }
+
+        public boolean isAllowBypass() {
+            return allowBypass;
+        }
+
+        public void setAllowBypass(boolean allowBypass) {
+            this.allowBypass = allowBypass;
         }
     }
 }

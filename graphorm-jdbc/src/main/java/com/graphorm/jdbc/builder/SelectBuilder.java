@@ -13,6 +13,7 @@ import com.graphorm.core.query.GroupByClause;
 import com.graphorm.core.query.JoinClause;
 import com.graphorm.core.query.OrderByClause;
 import com.graphorm.core.query.ProjectedColumn;
+import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.WherePredicate;
@@ -90,6 +91,12 @@ public final class SelectBuilder {
         for (FieldMetadata field : entity.fields()) {
             if (!field.isRelation()) {
                 builder.column(field.dbColumnName(), field.name());
+            }
+        }
+        if (entity.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(entity, "SELECT");
+            if (tenantId != null) {
+                builder.tenantWhere(WherePredicate.equal(entity.tenantColumn(), tenantId));
             }
         }
         return builder;

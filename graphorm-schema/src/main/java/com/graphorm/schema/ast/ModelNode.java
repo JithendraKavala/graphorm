@@ -71,6 +71,48 @@ public record ModelNode(
         return findAttribute("expose");
     }
 
+    public boolean isMultiTenant() {
+        return hasAttribute("tenant") || fields.stream().anyMatch(FieldNode::isTenantId);
+    }
+
+    public Optional<BlockAttributeNode> tenantAttribute() {
+        return findAttribute("tenant");
+    }
+
+    public Optional<String> tenantFieldName() {
+        Optional<BlockAttributeNode> attrOpt = tenantAttribute();
+        if (attrOpt.isPresent()) {
+            BlockAttributeNode attr = attrOpt.get();
+            Optional<ExpressionNode> fieldArg = attr.getArgumentValue("field")
+                    .or(() -> attr.getPositionalArgumentValue(0));
+            if (fieldArg.isPresent()) {
+                String val = extractStringOrIdent(fieldArg.get());
+                if (val != null && !val.isBlank()) {
+                    return Optional.of(val.trim());
+                }
+            }
+        }
+        return fields.stream()
+                .filter(FieldNode::isTenantId)
+                .map(FieldNode::name)
+                .findFirst();
+    }
+
+    public Optional<String> tenantColumnName() {
+        Optional<BlockAttributeNode> attrOpt = tenantAttribute();
+        if (attrOpt.isPresent()) {
+            BlockAttributeNode attr = attrOpt.get();
+            Optional<ExpressionNode> colArg = attr.getArgumentValue("column");
+            if (colArg.isPresent()) {
+                String val = extractStringOrIdent(colArg.get());
+                if (val != null && !val.isBlank()) {
+                    return Optional.of(val.trim());
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     public ExposureMetadata exposure() {
         Optional<BlockAttributeNode> attrOpt = exposeAttribute();
         if (attrOpt.isEmpty()) {

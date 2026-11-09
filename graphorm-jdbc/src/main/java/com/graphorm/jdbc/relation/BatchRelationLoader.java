@@ -6,6 +6,8 @@ import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.RelationMetadata;
 import com.graphorm.core.query.relation.RelationPlan;
+import com.graphorm.core.tenant.TenantContext;
+import com.graphorm.core.tenant.TenantPartitionKey;
 import com.graphorm.core.query.relation.RelationPlanner;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.mapper.DynamicRowMapper;
@@ -268,6 +270,52 @@ public class BatchRelationLoader {
         Objects.requireNonNull(sourceModel, "Source model must not be null");
         Objects.requireNonNull(relation, "Relation metadata must not be null");
 
+        if (parentKeys == null || parentKeys.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        boolean hasTenantPartition = parentKeys.stream().anyMatch(k -> k instanceof TenantPartitionKey);
+        if (hasTenantPartition) {
+            Map<String, List<TenantPartitionKey>> byTenant = new LinkedHashMap<>();
+            List<Object> rawParentKeys = new ArrayList<>();
+            for (Object k : parentKeys) {
+                if (k instanceof TenantPartitionKey tpk) {
+                    byTenant.computeIfAbsent(tpk.tenantId(), t -> new ArrayList<>()).add(tpk);
+                } else if (k != null) {
+                    rawParentKeys.add(k);
+                }
+            }
+
+            Map<Object, Object> combinedResult = new LinkedHashMap<>();
+            for (Map.Entry<String, List<TenantPartitionKey>> entry : byTenant.entrySet()) {
+                String tenantId = entry.getKey();
+                List<TenantPartitionKey> tpks = entry.getValue();
+                List<Object> keysForTenant = tpks.stream().map(TenantPartitionKey::key).toList();
+
+                Map<Object, Object> tenantResults = TenantContext.supplyAsTenant(tenantId, () ->
+                        loadByRawKeys(sourceModel, relation, keysForTenant, selectedFields)
+                );
+                for (TenantPartitionKey tpk : tpks) {
+                    combinedResult.put(tpk, tenantResults.get(tpk.key()));
+                }
+            }
+
+            if (!rawParentKeys.isEmpty()) {
+                Map<Object, Object> rawResults = loadByRawKeys(sourceModel, relation, rawParentKeys, selectedFields);
+                combinedResult.putAll(rawResults);
+            }
+            return combinedResult;
+        }
+
+        return loadByRawKeys(sourceModel, relation, parentKeys, selectedFields);
+    }
+
+    private Map<Object, Object> loadByRawKeys(
+            ModelMetadata sourceModel,
+            RelationMetadata relation,
+            Collection<?> parentKeys,
+            Collection<String> selectedFields
+    ) {
         if (parentKeys == null || parentKeys.isEmpty()) {
             return Collections.emptyMap();
         }

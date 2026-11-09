@@ -21,6 +21,7 @@ import java.util.Objects;
 public final class DeleteBuilder {
 
     private final SqlDialect dialect;
+    private EntityMetadata entity;
     private SourceTable.PhysicalTable table;
     private WherePredicate where;
     private final List<String> returningColumns = new ArrayList<>();
@@ -57,6 +58,10 @@ public final class DeleteBuilder {
     public DeleteBuilder forEntity(EntityMetadata entity) {
         Objects.requireNonNull(entity, "Entity metadata must not be null");
         QueryGuards.assertWritable(entity, "DELETE");
+        this.entity = entity;
+        if (entity.isMultiTenant()) {
+            QueryGuards.requireTenantContext(entity, "DELETE");
+        }
         String tableName = entity instanceof ModelMetadata model ? model.tableName() : entity.name().toLowerCase();
         this.table = SourceTable.table(tableName);
         return this;
@@ -146,6 +151,14 @@ public final class DeleteBuilder {
     public BoundSql build() {
         if (table == null) {
             throw new IllegalStateException("Target table must be specified for DELETE");
+        }
+
+        if (entity != null && entity.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(entity, "DELETE");
+            if (tenantId != null) {
+                WherePredicate tenantPredicate = WherePredicate.equal(entity.tenantColumn(), tenantId);
+                where = (where == null) ? tenantPredicate : tenantPredicate.and(where);
+            }
         }
 
         StringBuilder sql = new StringBuilder("DELETE FROM ");

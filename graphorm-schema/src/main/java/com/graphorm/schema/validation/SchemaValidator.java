@@ -179,6 +179,9 @@ public final class SchemaValidator {
             // Version validation
             validateModelVersion(model, diagnostics);
 
+            // Multi-tenancy validation
+            validateModelTenancy(model, diagnostics);
+
             // Unique constraints validation
             validateModelUniqueConstraints(model, diagnostics);
 
@@ -190,6 +193,105 @@ public final class SchemaValidator {
 
             // Relation validation
             validateModelRelations(model, document, diagnostics);
+        }
+    }
+
+    private static void validateModelTenancy(ModelNode model, List<Diagnostic> diagnostics) {
+        List<FieldNode> tenantFields = model.fields().stream()
+                .filter(FieldNode::isTenantId)
+                .toList();
+
+        if (tenantFields.size() > 1) {
+            diagnostics.add(Diagnostic.error(
+                    "Model '" + model.name() + "' cannot have multiple @tenantId fields",
+                    tenantFields.get(1).tenantIdAttribute().get().position()
+            ));
+            return;
+        }
+
+        Optional<BlockAttributeNode> tenantBlockOpt = model.tenantAttribute();
+        String referencedFieldName = null;
+        if (tenantBlockOpt.isPresent()) {
+            BlockAttributeNode block = tenantBlockOpt.get();
+            Optional<ExpressionNode> fieldArg = block.getArgumentValue("field")
+                    .or(() -> block.getPositionalArgumentValue(0));
+            Optional<ExpressionNode> colArg = block.getArgumentValue("column");
+
+            if (fieldArg.isEmpty() && colArg.isEmpty()) {
+                diagnostics.add(Diagnostic.error(
+                        "Block @@tenant in model '" + model.name() + "' must specify \"field\" or \"column\", e.g. @@tenant(field: \"tenantId\")",
+                        block.position()
+                ));
+            }
+
+            if (fieldArg.isPresent()) {
+                referencedFieldName = extractIdentifierOrString(fieldArg.get());
+                if (referencedFieldName == null || !model.hasField(referencedFieldName)) {
+                    diagnostics.add(Diagnostic.error(
+                            "Field '" + (referencedFieldName != null ? referencedFieldName : "") + "' specified in @@tenant does not exist on model '" + model.name() + "'",
+                            fieldArg.get().position()
+                    ));
+                    return;
+                }
+                if (!tenantFields.isEmpty()) {
+                    FieldNode tf = tenantFields.get(0);
+                    if (!tf.name().equals(referencedFieldName)) {
+                        diagnostics.add(Diagnostic.error(
+                                "Model '" + model.name() + "' defines conflicting tenant fields: @" + tf.name() + " and @@tenant(field: \'" + referencedFieldName + "\")",
+                                block.position()
+                        ));
+                    }
+                }
+            } else if (colArg.isPresent()) {
+                String colName = extractIdentifierOrString(colArg.get());
+                Optional<FieldNode> matchingField = model.fields().stream()
+                        .filter(f -> {
+                            String fCol = f.mapAttribute()
+                                    .flatMap(m -> m.getPositionalArgumentValue(0).or(() -> m.getArgumentValue("name")))
+                                    .map(SchemaValidator::extractIdentifierOrString)
+                                    .orElse(f.name());
+                            return fCol.equals(colName) || f.name().equals(colName);
+                        })
+                        .findFirst();
+                if (matchingField.isPresent()) {
+                    referencedFieldName = matchingField.get().name();
+                }
+            }
+        }
+
+        FieldNode targetTenantField = null;
+        if (!tenantFields.isEmpty()) {
+            targetTenantField = tenantFields.get(0);
+        } else if (referencedFieldName != null) {
+            targetTenantField = model.findField(referencedFieldName).orElse(null);
+        }
+
+        if (targetTenantField != null) {
+            if (targetTenantField.isOptional()) {
+                diagnostics.add(Diagnostic.error(
+                        "Tenant field '" + targetTenantField.name() + "' in model '" + model.name() + "' cannot be optional",
+                        targetTenantField.position()
+                ));
+            }
+            if (targetTenantField.isList()) {
+                diagnostics.add(Diagnostic.error(
+                        "Tenant field '" + targetTenantField.name() + "' in model '" + model.name() + "' cannot be a list",
+                        targetTenantField.position()
+                ));
+            }
+            if (targetTenantField.relationAttribute().isPresent()) {
+                diagnostics.add(Diagnostic.error(
+                        "Relation field '" + targetTenantField.name() + "' cannot be used as a tenant field",
+                        targetTenantField.position()
+                ));
+            }
+            String type = targetTenantField.type().name();
+            if (!Set.of("String", "UUID", "Int", "BigInt").contains(type)) {
+                diagnostics.add(Diagnostic.error(
+                        "Field '" + targetTenantField.name() + "' used as tenant field must be of type String, UUID, Int, or BigInt, found '" + type + "'",
+                        targetTenantField.type().position()
+                ));
+            }
         }
     }
 

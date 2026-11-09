@@ -143,10 +143,18 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
                     .orElse(null);
         }
 
+        WherePredicate updateWhere = WherePredicate.eq(pkColumn, idValue);
+        if (model.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(model, "update");
+            if (tenantId != null) {
+                updateWhere = updateWhere.and(WherePredicate.eq(model.tenantColumn(), tenantId));
+                dbValues.put(model.tenantColumn(), tenantId);
+            }
+        }
         UpdateQuery updateQuery = new UpdateQuery(
                 SourceTable.table(model.tableName()),
                 dbValues,
-                WherePredicate.eq(pkColumn, idValue)
+                updateWhere
         );
         Optional<Map<String, Object>> result = executor.executeUpdateAndReturn(updateQuery);
 

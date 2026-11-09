@@ -140,6 +140,7 @@ public record SelectQuery(
         private final List<ProjectedColumn> columns = new ArrayList<>();
         private final List<JoinClause> joins = new ArrayList<>();
         private WherePredicate where;
+        private WherePredicate tenantWhere;
         private final List<GroupByClause> groupBy = new ArrayList<>();
         private HavingPredicate having;
         private final List<OrderByClause> orderBy = new ArrayList<>();
@@ -277,6 +278,15 @@ public record SelectQuery(
             return this;
         }
 
+        public Builder tenantWhere(WherePredicate tenantWhere) {
+            this.tenantWhere = tenantWhere;
+            return this;
+        }
+
+        public WherePredicate tenantWhere() {
+            return this.tenantWhere;
+        }
+
         public Builder andWhere(WherePredicate predicate) {
             Objects.requireNonNull(predicate, "Predicate must not be null");
             if (this.where == null) {
@@ -392,12 +402,16 @@ public record SelectQuery(
         }
 
         public SelectQuery build() {
+            WherePredicate finalWhere = this.where;
+            if (this.tenantWhere != null) {
+                finalWhere = finalWhere != null ? this.tenantWhere.and(finalWhere) : this.tenantWhere;
+            }
             return new SelectQuery(
                     source,
                     tableAlias,
                     columns,
                     joins,
-                    where,
+                    finalWhere,
                     groupBy,
                     having,
                     orderBy,

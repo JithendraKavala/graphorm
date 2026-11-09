@@ -82,7 +82,14 @@ public class ModelDeleteDataFetcher implements DataFetcher<Object> {
 
         idValue = EntityRowNormalizer.coerceToFieldType(idValue, pkFieldMeta);
 
-        DeleteQuery deleteQuery = new DeleteQuery(SourceTable.table(model.tableName()), WherePredicate.eq(pkColumn, idValue));
+        WherePredicate deleteWhere = WherePredicate.eq(pkColumn, idValue);
+        if (model.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(model, "delete");
+            if (tenantId != null) {
+                deleteWhere = deleteWhere.and(WherePredicate.eq(model.tenantColumn(), tenantId));
+            }
+        }
+        DeleteQuery deleteQuery = new DeleteQuery(SourceTable.table(model.tableName()), deleteWhere);
         int affected = executor.executeUpdate(deleteQuery);
 
         String returnTypeName = GraphQLTypeUtil.simplePrint(env.getFieldDefinition().getType());

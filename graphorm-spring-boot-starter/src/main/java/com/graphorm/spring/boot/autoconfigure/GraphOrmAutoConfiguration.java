@@ -1,6 +1,10 @@
 package com.graphorm.spring.boot.autoconfigure;
 
 import com.graphorm.core.metadata.ModelRegistry;
+import com.graphorm.core.tenant.TenantContext;
+import com.graphorm.core.tenant.TenantContextProvider;
+import com.graphorm.spring.boot.tenant.SpringTenantContextProvider;
+import com.graphorm.spring.boot.tenant.TenantHeaderFilter;
 import com.graphorm.graphql.binding.ArgumentBinder;
 import com.graphorm.graphql.loader.DataLoaderMetricsListener;
 import com.graphorm.graphql.security.FieldAuthorizer;
@@ -179,6 +183,26 @@ public class GraphOrmAutoConfiguration {
         @ConditionalOnMissingBean(DataLoaderMetricsListener.class)
         public DataLoaderMetricsListener micrometerDataLoaderMetricsListener(io.micrometer.core.instrument.MeterRegistry meterRegistry) {
             return new MicrometerDataLoaderMetricsListener(meterRegistry);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "graphorm.tenant", name = "enabled", havingValue = "true", matchIfMissing = true)
+    static class MultiTenancyConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(TenantContextProvider.class)
+        public TenantContextProvider tenantContextProvider(GraphOrmProperties properties) {
+            SpringTenantContextProvider provider = new SpringTenantContextProvider(properties.getTenant());
+            TenantContext.setProvider(provider);
+            return provider;
+        }
+
+        @Bean
+        @ConditionalOnClass(name = "jakarta.servlet.Filter")
+        @ConditionalOnMissingBean(TenantHeaderFilter.class)
+        public TenantHeaderFilter tenantHeaderFilter(GraphOrmProperties properties) {
+            return new TenantHeaderFilter(properties.getTenant().getHeaderName());
         }
     }
 

@@ -80,6 +80,33 @@ public interface EntityMetadata {
     }
 
     /**
+     * Indicates whether this entity is multi-tenant and requires tenant partition isolation.
+     *
+     * @return true if multi-tenant
+     */
+    default boolean isMultiTenant() {
+        return false;
+    }
+
+    /**
+     * Returns the physical database column name representing the tenant isolation key.
+     *
+     * @return the tenant column name, or null if not multi-tenant
+     */
+    default String tenantColumn() {
+        return null;
+    }
+
+    /**
+     * Looks up the tenant isolation field on this entity, if declared.
+     *
+     * @return an {@link Optional} containing the tenant field metadata if present
+     */
+    default Optional<FieldMetadata> tenantField() {
+        return fields().stream().filter(FieldMetadata::isTenantId).findFirst();
+    }
+
+    /**
      * Looks up a field by its logical name.
      *
      * @param fieldName the name of the field to find

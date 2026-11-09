@@ -1,15 +1,23 @@
 package com.graphorm.core.query;
 
 import com.graphorm.core.exception.ReadOnlyViewException;
+import com.graphorm.core.exception.TenantContextMissingException;
 import com.graphorm.core.metadata.EntityMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
+import com.graphorm.core.tenant.TenantBypassContext;
+import com.graphorm.core.tenant.TenantContext;
+import com.graphorm.core.tenant.TenantContextProvider;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
- * Defensive query guards and factories enforcing the architectural read-only invariant.
- * Ensures view models and read-only physical models are never targeted by write queries (INSERT, UPDATE, DELETE).
+ * Defensive query guards and factories enforcing the architectural read-only invariant
+ * and multi-tenant isolation guarantees.
+ * Ensures view models and read-only physical models are never targeted by write queries (INSERT, UPDATE, DELETE),
+ * and multi-tenant entities are never accessed without an active tenant context.
  */
 public final class QueryGuards {
 
@@ -85,51 +93,122 @@ public final class QueryGuards {
     }
 
     /**
-     * Safely constructs an {@link InsertQuery} for an entity after asserting writability.
+     * Requires an active tenant context if the entity is multi-tenant and not bypassed.
+     *
+     * @param entity    the entity metadata
+     * @param operation the query or mutation operation (e.g. "SELECT", "INSERT", "UPDATE", "DELETE")
+     * @return the resolved tenant ID, or null if entity is not multi-tenant or bypassed
+     * @throws TenantContextMissingException if multi-tenant and no tenant context is active
+     */
+    public static String requireTenantContext(EntityMetadata entity, String operation) {
+        return requireTenantContext(entity, operation, TenantContext.getProvider());
+    }
+
+    /**
+     * Requires an active tenant context from the specified provider if the entity is multi-tenant and not bypassed.
+     *
+     * @param entity    the entity metadata
+     * @param operation the query or mutation operation (e.g. "SELECT", "INSERT", "UPDATE", "DELETE")
+     * @param provider  the tenant context provider SPI
+     * @return the resolved tenant ID, or null if entity is not multi-tenant or bypassed
+     * @throws TenantContextMissingException if multi-tenant and no tenant context is active
+     */
+    public static String requireTenantContext(EntityMetadata entity, String operation, TenantContextProvider provider) {
+        Objects.requireNonNull(entity, "Entity must not be null");
+        Objects.requireNonNull(operation, "Operation must not be null");
+        if (!entity.isMultiTenant() || TenantBypassContext.isBypassed()) {
+            return null;
+        }
+
+        TenantContextProvider effectiveProvider = provider != null ? provider : TenantContext.getProvider();
+        Optional<String> tenantOpt = effectiveProvider != null
+                ? effectiveProvider.getCurrentTenantId()
+                : TenantContext.getTenantId();
+
+        if (tenantOpt.isEmpty() || tenantOpt.get().isBlank()) {
+            throw new TenantContextMissingException(entity.name(), operation);
+        }
+        return tenantOpt.get();
+    }
+
+    /**
+     * Safely constructs an {@link InsertQuery} for an entity after asserting writability
+     * and injecting the active tenant identifier if multi-tenant.
      *
      * @param entity the entity metadata (must be a regular ModelMetadata)
      * @param values column-to-value map
      * @return the constructed InsertQuery
-     * @throws ReadOnlyViewException if the entity is a read-only view
+     * @throws ReadOnlyViewException         if the entity is a read-only view
+     * @throws TenantContextMissingException if entity is multi-tenant and tenant context is missing
      */
     public static InsertQuery createInsert(EntityMetadata entity, Map<String, Object> values) {
         assertWritable(entity, "INSERT");
-        if (entity instanceof ModelMetadata model) {
-            return InsertQuery.into(model.tableName()).values(values).build();
+        Map<String, Object> effectiveValues = values != null ? new LinkedHashMap<>(values) : new LinkedHashMap<>();
+        if (entity.isMultiTenant() && !TenantBypassContext.isBypassed()) {
+            String tenantId = requireTenantContext(entity, "INSERT");
+            String col = entity.tenantColumn();
+            if (col != null && tenantId != null) {
+                effectiveValues.put(col, tenantId);
+            }
         }
-        return InsertQuery.into(entity.name().toLowerCase()).values(values).build();
+        if (entity instanceof ModelMetadata model) {
+            return InsertQuery.into(model.tableName()).values(effectiveValues).build();
+        }
+        return InsertQuery.into(entity.name().toLowerCase()).values(effectiveValues).build();
     }
 
     /**
-     * Safely constructs an {@link UpdateQuery} for an entity after asserting writability.
+     * Safely constructs an {@link UpdateQuery} for an entity after asserting writability
+     * and injecting the active tenant equality predicate if multi-tenant.
      *
      * @param entity the entity metadata (must be a regular ModelMetadata)
      * @param values column-to-value map
      * @param where  the filter condition
      * @return the constructed UpdateQuery
-     * @throws ReadOnlyViewException if the entity is a read-only view
+     * @throws ReadOnlyViewException         if the entity is a read-only view
+     * @throws TenantContextMissingException if entity is multi-tenant and tenant context is missing
      */
     public static UpdateQuery createUpdate(EntityMetadata entity, Map<String, Object> values, WherePredicate where) {
         assertWritable(entity, "UPDATE");
-        if (entity instanceof ModelMetadata model) {
-            return UpdateQuery.table(model.tableName()).values(values).where(where).build();
+        WherePredicate effectiveWhere = where;
+        if (entity.isMultiTenant() && !TenantBypassContext.isBypassed()) {
+            String tenantId = requireTenantContext(entity, "UPDATE");
+            String col = entity.tenantColumn();
+            if (col != null && tenantId != null) {
+                WherePredicate tenantPred = WherePredicate.equal(col, tenantId);
+                effectiveWhere = effectiveWhere != null ? tenantPred.and(effectiveWhere) : tenantPred;
+            }
         }
-        return UpdateQuery.table(entity.name().toLowerCase()).values(values).where(where).build();
+        if (entity instanceof ModelMetadata model) {
+            return UpdateQuery.table(model.tableName()).values(values).where(effectiveWhere).build();
+        }
+        return UpdateQuery.table(entity.name().toLowerCase()).values(values).where(effectiveWhere).build();
     }
 
     /**
-     * Safely constructs a {@link DeleteQuery} for an entity after asserting writability.
+     * Safely constructs a {@link DeleteQuery} for an entity after asserting writability
+     * and injecting the active tenant equality predicate if multi-tenant.
      *
      * @param entity the entity metadata (must be a regular ModelMetadata)
      * @param where  the filter condition
      * @return the constructed DeleteQuery
-     * @throws ReadOnlyViewException if the entity is a read-only view
+     * @throws ReadOnlyViewException         if the entity is a read-only view
+     * @throws TenantContextMissingException if entity is multi-tenant and tenant context is missing
      */
     public static DeleteQuery createDelete(EntityMetadata entity, WherePredicate where) {
         assertWritable(entity, "DELETE");
-        if (entity instanceof ModelMetadata model) {
-            return DeleteQuery.from(model.tableName()).where(where).build();
+        WherePredicate effectiveWhere = where;
+        if (entity.isMultiTenant() && !TenantBypassContext.isBypassed()) {
+            String tenantId = requireTenantContext(entity, "DELETE");
+            String col = entity.tenantColumn();
+            if (col != null && tenantId != null) {
+                WherePredicate tenantPred = WherePredicate.equal(col, tenantId);
+                effectiveWhere = effectiveWhere != null ? tenantPred.and(effectiveWhere) : tenantPred;
+            }
         }
-        return DeleteQuery.from(entity.name().toLowerCase()).where(where).build();
+        if (entity instanceof ModelMetadata model) {
+            return DeleteQuery.from(model.tableName()).where(effectiveWhere).build();
+        }
+        return DeleteQuery.from(entity.name().toLowerCase()).where(effectiveWhere).build();
     }
 }

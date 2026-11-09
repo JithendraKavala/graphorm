@@ -12,6 +12,7 @@ import com.graphorm.core.query.JoinClause;
 import com.graphorm.core.query.JoinConditionParser;
 import com.graphorm.core.query.OrderByClause;
 import com.graphorm.core.query.ProjectedColumn;
+import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.WherePredicate;
@@ -513,6 +514,13 @@ public final class ViewQueryPlanner {
                     }
                 }
                 WherePredicate mappedWhere = mapFilter(wherePredicate, view, aliasToModelMap, dialect);
+                if (view.isMultiTenant()) {
+                    String tenantId = QueryGuards.requireTenantContext(view, "SELECT");
+                    if (tenantId != null) {
+                        WherePredicate tenantPred = WherePredicate.equal(alias + "." + view.tenantColumn(), tenantId);
+                        mappedWhere = mappedWhere != null ? mappedWhere.and(tenantPred) : tenantPred;
+                    }
+                }
                 List<OrderByClause> mappedOrderBy = mapOrderBy(orderByList, view, aliasToModelMap, dialect);
 
                 return new SelectQuery(
@@ -541,6 +549,13 @@ public final class ViewQueryPlanner {
                     }
                 }
                 WherePredicate mappedWhere = mapFilter(wherePredicate, view, aliasToModelMap, dialect);
+                if (view.isMultiTenant()) {
+                    String tenantId = QueryGuards.requireTenantContext(view, "SELECT");
+                    if (tenantId != null) {
+                        WherePredicate tenantPred = WherePredicate.equal(view.tenantColumn(), tenantId);
+                        mappedWhere = mappedWhere != null ? mappedWhere.and(tenantPred) : tenantPred;
+                    }
+                }
                 List<OrderByClause> mappedOrderBy = mapOrderBy(orderByList, view, aliasToModelMap, dialect);
 
                 return new SelectQuery(
@@ -604,11 +619,26 @@ public final class ViewQueryPlanner {
                         ident -> resolveQualifiedColumn(ident, aliasToModelMap)
                 );
 
+                if (joinModel != null && joinModel.isMultiTenant()) {
+                    String joinTenantId = QueryGuards.requireTenantContext(joinModel, "SELECT");
+                    if (joinTenantId != null) {
+                        WherePredicate tenantJoinPred = WherePredicate.equal(joinMeta.alias() + "." + joinModel.tenantColumn(), joinTenantId);
+                        joinCondition = joinCondition != null ? joinCondition.and(tenantJoinPred) : tenantJoinPred;
+                    }
+                }
+
                 allJoins.add(new JoinClause(joinMeta.joinType(), targetTable, joinMeta.alias(), joinCondition));
             }
 
             // 3. Filter mapping & automatic HAVING separation
             WherePredicate mappedWhere = mapFilter(wherePredicate, view, aliasToModelMap, dialect);
+            if (sourceModel != null && sourceModel.isMultiTenant()) {
+                String sourceTenantId = QueryGuards.requireTenantContext(sourceModel, "SELECT");
+                if (sourceTenantId != null) {
+                    WherePredicate sourceTenantPred = WherePredicate.equal(sourceAlias + "." + sourceModel.tenantColumn(), sourceTenantId);
+                    mappedWhere = mappedWhere != null ? mappedWhere.and(sourceTenantPred) : sourceTenantPred;
+                }
+            }
             HavingPredicate mappedHaving = havingPredicate != null
                     ? HavingPredicate.of(mapFilter(havingPredicate.predicate(), view, aliasToModelMap, dialect))
                     : null;
@@ -679,7 +709,7 @@ public final class ViewQueryPlanner {
                 b.join(j);
             }
             if (sq.where() != null) {
-                b.where(sq.where());
+                b.tenantWhere(sq.where());
             }
             for (GroupByClause gb : sq.groupBy()) {
                 b.groupBy(gb);

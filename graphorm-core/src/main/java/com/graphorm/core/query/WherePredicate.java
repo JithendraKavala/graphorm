@@ -206,8 +206,16 @@ public sealed interface WherePredicate permits
         return new BinaryPredicate(column, ComparisonOperator.EQUALS, value);
     }
 
+    static WherePredicate equal(String column, Object value) {
+        return eq(column, value);
+    }
+
     static WherePredicate neq(String column, Object value) {
         return new BinaryPredicate(column, ComparisonOperator.NOT_EQUALS, value);
+    }
+
+    static WherePredicate notEqual(String column, Object value) {
+        return neq(column, value);
     }
 
     static WherePredicate gt(String column, Object value) {

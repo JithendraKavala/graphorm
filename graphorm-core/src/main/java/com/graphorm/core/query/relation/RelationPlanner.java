@@ -6,6 +6,7 @@ import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.RelationMetadata;
 import com.graphorm.core.query.ProjectedColumn;
+import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
 
@@ -211,6 +212,14 @@ public class RelationPlanner {
         }
 
         queryBuilder.where(WherePredicate.in(targetJoinColumn, distinctKeys));
+
+        if (targetModel.isMultiTenant()) {
+            String tenantId = QueryGuards.requireTenantContext(targetModel, "SELECT");
+            if (tenantId != null) {
+                queryBuilder.tenantWhere(WherePredicate.equal(targetModel.tenantColumn(), tenantId));
+            }
+        }
+
         SelectQuery selectQuery = queryBuilder.build();
 
         return new RelationPlan(

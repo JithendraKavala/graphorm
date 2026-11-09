@@ -59,6 +59,10 @@ public record FieldNode(
         return hasAttribute("version");
     }
 
+    public boolean isTenantId() {
+        return hasAttribute("tenantId");
+    }
+
     public boolean hasAttribute(String attributeName) {
         return findAttribute(attributeName).isPresent();
     }
@@ -94,6 +98,10 @@ public record FieldNode(
 
     public Optional<FieldAttributeNode> versionAttribute() {
         return findAttribute("version");
+    }
+
+    public Optional<FieldAttributeNode> tenantIdAttribute() {
+        return findAttribute("tenantId");
     }
 
     public Optional<FieldAttributeNode> authAttribute() {
