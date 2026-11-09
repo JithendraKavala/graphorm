@@ -3,6 +3,11 @@ datasource db {
   url      = "postgresql://localhost:5432/university_db"
 }
 
+generator client {
+  provider = "graphorm-client-java"
+  package  = "com.graphorm.example.university.generated"
+}
+
 model Department {
   id          Int          @id @default(autoincrement())
   name        String       @map("dept_name")
@@ -12,6 +17,7 @@ model Department {
   instructors Instructor[]
 
   @@map("departments")
+  @@index([code], name: "idx_departments_code")
 }
 
 model Instructor {
@@ -20,10 +26,11 @@ model Instructor {
   email        String     @unique
   salary       Float?     @auth(roles: ["ADMIN"])
   departmentId Int        @map("department_id")
-  department   Department @relation(fields: [departmentId], references: [id])
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   courses      Course[]
 
   @@map("instructors")
+  @@index([departmentId], name: "idx_instructors_department")
 }
 
 model Student {
@@ -31,11 +38,15 @@ model Student {
   name         String
   email        String       @unique
   gpa          Float?       @auth(roles: ["ADMIN", "INSTRUCTOR"])
+  version      Int          @default(1) @version
   departmentId Int?         @map("department_id")
-  department   Department?  @relation(fields: [departmentId], references: [id])
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   enrollments  Enrollment[]
 
   @@map("students")
+  @@index([departmentId], name: "idx_students_department")
+  @@index([email], name: "idx_students_email")
+  @@notify(on: [CREATE, UPDATE, DELETE])
 }
 
 model Course {
@@ -44,25 +55,31 @@ model Course {
   code         String       @unique
   credits      Int
   departmentId Int          @map("department_id")
-  department   Department   @relation(fields: [departmentId], references: [id])
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   instructorId Int?         @map("instructor_id")
-  instructor   Instructor?  @relation(fields: [instructorId], references: [id])
+  instructor   Instructor?  @relation(fields: [instructorId], references: [id], onDelete: SetNull)
   enrollments  Enrollment[]
 
   @@map("courses")
+  @@index([departmentId], name: "idx_courses_department")
+  @@index([instructorId], name: "idx_courses_instructor")
 }
 
 model Enrollment {
   id             Int      @id @default(autoincrement())
   studentId      Int      @map("student_id")
-  student        Student  @relation(fields: [studentId], references: [id])
+  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   courseId       Int      @map("course_id")
-  course         Course   @relation(fields: [courseId], references: [id])
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   grade          String?  @auth(roles: ["ADMIN", "INSTRUCTOR"])
   gradePoints    Float?   @map("grade_points")
   enrollmentDate String   @map("enrollment_date")
 
   @@map("enrollments")
+  @@unique([studentId, courseId], name: "uk_enrollment_student_course")
+  @@index([studentId], name: "idx_enrollments_student")
+  @@index([courseId], name: "idx_enrollments_course")
+  @@notify(on: [CREATE, UPDATE, DELETE])
 }
 
 model GradeScale {
@@ -79,11 +96,12 @@ model AuditLog {
   id          Int     @id @default(autoincrement())
   action      String
   details     String?
-  tenantId    String  @map("tenant_id") @injected(from: "tenantId")
+  tenantId    String  @map("tenant_id") @tenantId @injected(from: "tenantId")
   performedBy String  @map("performed_by") @injected(from: "auth.username")
 
   @@map("audit_logs")
   @@auth(roles: ["ADMIN"])
+  @@index([tenantId], name: "idx_audit_logs_tenant")
 }
 
 view DepartmentStats {
@@ -96,7 +114,7 @@ view DepartmentStats {
   @@map("v_department_stats")
 }
 
-view StudentDashboard {
+view StudentDashboard @cached(ttl: "60s", tags: ["Student", "Enrollment", "Department"]) {
   studentId       Int     @map("s.id")
   studentName     String  @map("s.name")
   departmentName  String? @map("d.dept_name")

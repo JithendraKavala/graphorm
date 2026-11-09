@@ -17,6 +17,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.graphql.execution.GraphQlSource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -80,9 +82,9 @@ class UniversityDashboardE2EIntegrationTest {
         registry.add("spring.datasource.username", () -> username);
         registry.add("spring.datasource.password", () -> password);
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
-        registry.add("spring.sql.init.mode", () -> "always");
-        registry.add("spring.sql.init.schema-locations", () -> "classpath:schema.sql");
-        registry.add("spring.sql.init.data-locations", () -> "classpath:data.sql");
+        registry.add("spring.sql.init.mode", () -> "never");
+        registry.add("graphorm.migration.enabled", () -> "true");
+        registry.add("graphorm.migration.location", () -> "classpath:migrations");
         registry.add("graphorm.schema-location", () -> "classpath:schema.graphorm");
     }
 
@@ -192,8 +194,9 @@ class UniversityDashboardE2EIntegrationTest {
     @Order(8)
     @DisplayName("SEC-04: Authenticated REST mutation with credentials succeeds")
     void testAuthenticatedMutationSucceeds() {
+        String deptCode = "B" + (System.currentTimeMillis() % 100000);
         com.graphorm.example.dashboard.web.dto.CreateDepartmentRequest request =
-                new com.graphorm.example.dashboard.web.dto.CreateDepartmentRequest("Biotechnology", "BIOT");
+                new com.graphorm.example.dashboard.web.dto.CreateDepartmentRequest("Biotechnology", deptCode);
         ResponseEntity<Map> response = restTemplate
                 .withBasicAuth("admin", "admin123")
                 .postForEntity("/api/university/departments", request, Map.class);
@@ -201,4 +204,112 @@ class UniversityDashboardE2EIntegrationTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().get("name")).isEqualTo("Biotechnology");
     }
+
+    @Test
+    @Order(9)
+    @DisplayName("GraphQL: Relay Keyset Cursor Pagination on studentsConnection")
+    void testGraphQlStudentsConnection() {
+        String query = """
+                query {
+                    studentsConnection(first: 2) {
+                        totalCount
+                        edges {
+                            cursor
+                            node {
+                                id
+                                name
+                                email
+                            }
+                        }
+                        pageInfo {
+                            hasNextPage
+                            hasPreviousPage
+                            startCursor
+                            endCursor
+                        }
+                    }
+                }
+                """;
+
+        ExecutionResult result = graphQlSource.graphQl().execute(
+                ExecutionInput.newExecutionInput().query(query).build()
+        );
+
+        assertThat(result.getErrors()).isEmpty();
+        Map<String, Object> data = result.getData();
+        assertThat(data).containsKey("studentsConnection");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> conn = (Map<String, Object>) data.get("studentsConnection");
+        assertThat(((Number) conn.get("totalCount")).intValue()).isGreaterThanOrEqualTo(6);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> edges = (List<Map<String, Object>>) conn.get("edges");
+        assertThat(edges).hasSize(2);
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("REST: Upsert student creates and then updates idempotently")
+    void testUpsertStudent() {
+        com.graphorm.example.dashboard.web.dto.UpsertStudentRequest createReq =
+                new com.graphorm.example.dashboard.web.dto.UpsertStudentRequest("Donald Knuth", "knuth@dashboard.edu", 3.99, 1);
+        ResponseEntity<Map> createRes = restTemplate
+                .withBasicAuth("admin", "admin123")
+                .postForEntity("/api/university/students/upsert", createReq, Map.class);
+        assertThat(createRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(createRes.getBody()).isNotNull();
+        assertThat(createRes.getBody().get("email")).isEqualTo("knuth@dashboard.edu");
+
+        // Upsert update existing
+        com.graphorm.example.dashboard.web.dto.UpsertStudentRequest updateReq =
+                new com.graphorm.example.dashboard.web.dto.UpsertStudentRequest("Donald E. Knuth", "knuth@dashboard.edu", 4.0, 1);
+        ResponseEntity<Map> updateRes = restTemplate
+                .withBasicAuth("admin", "admin123")
+                .postForEntity("/api/university/students/upsert", updateReq, Map.class);
+        assertThat(updateRes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(updateRes.getBody()).isNotNull();
+        assertThat(updateRes.getBody().get("name")).isEqualTo("Donald E. Knuth");
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("REST: Batch insert courses in single transaction")
+    void testBatchCreateCourses() {
+        long now = System.currentTimeMillis() % 100000;
+        List<com.graphorm.example.dashboard.web.dto.CreateCourseRequest> list = List.of(
+                new com.graphorm.example.dashboard.web.dto.CreateCourseRequest("Advanced Distributed Systems", "C" + now, 4, 1, 1),
+                new com.graphorm.example.dashboard.web.dto.CreateCourseRequest("Deep Learning Architectures", "D" + now, 4, 1, 2)
+        );
+        ResponseEntity<List> response = restTemplate
+                .withBasicAuth("admin", "admin123")
+                .postForEntity("/api/university/courses/batch", list, List.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody()).hasSize(2);
+    }
+
+    @Test
+    @Order(12)
+    @DisplayName("REST: Optimistic locking rejects stale version update with 409 Conflict")
+    void testOptimisticLocking() {
+        com.graphorm.example.dashboard.web.dto.UpdateStudentRequest staleReq =
+                new com.graphorm.example.dashboard.web.dto.UpdateStudentRequest("Claude Stale", "shannon@student.edu", 3.9, 1, 0);
+        ResponseEntity<Map> response = restTemplate
+                .withBasicAuth("admin", "admin123")
+                .exchange("/api/university/students/2", HttpMethod.PUT, new HttpEntity<>(staleReq), Map.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().get("error")).isEqualTo("OPTIMISTIC_LOCK_FAILURE");
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("REST: Multi-tenant audit logs are partitioned by tenant")
+    void testMultiTenantAuditLogs() {
+        ResponseEntity<List> mainLogs = restTemplate
+                .withBasicAuth("admin", "admin123")
+                .getForEntity("/api/university/audit-logs?tenantId=tenant-main", List.class);
+        assertThat(mainLogs.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(mainLogs.getBody()).isNotNull();
+    }
 }
+

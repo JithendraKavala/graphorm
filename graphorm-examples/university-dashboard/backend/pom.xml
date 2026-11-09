@@ -95,6 +95,25 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>com.graphorm</groupId>
+                <artifactId>graphorm-maven-plugin</artifactId>
+                <version>${project.version}</version>
+                <executions>
+                    <execution>
+                        <id>graphorm-generate</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <schemaFile>${project.basedir}/src/main/resources/schema.graphorm</schemaFile>
+                            <outputDirectory>${project.build.directory}/generated-sources/graphorm</outputDirectory>
+                            <basePackage>com.graphorm.example.dashboard.generated</basePackage>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring-boot.version}</version>

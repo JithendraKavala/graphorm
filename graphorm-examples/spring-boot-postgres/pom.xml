@@ -91,4 +91,30 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- GraphORM Code Generation Maven Plugin -->
+            <plugin>
+                <groupId>com.graphorm</groupId>
+                <artifactId>graphorm-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <schemaFile>${project.basedir}/src/main/resources/schema.graphorm</schemaFile>
+                            <basePackage>com.graphorm.example.university.generated</basePackage>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+            </plugin>
+        </plugins>
+    </build>
 </project>

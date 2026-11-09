@@ -52,12 +52,13 @@ import { EnrollmentFormModal } from './components/enrollments/EnrollmentFormModa
 import { AnalyticsView } from './components/analytics/AnalyticsView';
 import { SchemaInspector } from './components/schema-explorer/SchemaInspector';
 import { GraphQlPlayground } from './components/schema-explorer/GraphQlPlayground';
+import { LiveFeatureShowcase } from './components/showcase/LiveFeatureShowcase';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
       const hash = window.location.hash.replace('#', '');
-      if (['dashboard', 'students', 'departments', 'courses', 'enrollments', 'analytics', 'schema-explorer', 'graphql-playground'].includes(hash)) {
+      if (['dashboard', 'students', 'departments', 'courses', 'enrollments', 'analytics', 'schema-explorer', 'graphql-playground', 'features-showcase'].includes(hash)) {
         return hash as ActiveTab;
       }
     }
@@ -97,7 +98,7 @@ export function App() {
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash.replace("#", "");
-      if (["landing", "dashboard", "students", "departments", "courses", "enrollments", "analytics", "schema-explorer", "graphql-playground"].includes(hash)) {
+      if (["landing", "dashboard", "students", "departments", "courses", "enrollments", "analytics", "schema-explorer", "graphql-playground", "features-showcase"].includes(hash)) {
         setActiveTab(hash as ActiveTab);
       }
     };
@@ -341,6 +342,9 @@ export function App() {
 
           {/* TAB: GRAPHQL STUDIO PLAYGROUND */}
           {activeTab === 'graphql-playground' && <GraphQlPlayground />}
+
+          {/* TAB: LIVE FEATURE SHOWCASE */}
+          {activeTab === 'features-showcase' && <LiveFeatureShowcase />}
         </main>
       </div>
 

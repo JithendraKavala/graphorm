@@ -70,6 +70,22 @@ public final class MigrationManager {
         Objects.requireNonNull(conn, "Connection must not be null");
 
         List<MigrationFile> diskFiles = MigrationFile.loadAll(migrationsDir);
+        return status(diskFiles, conn);
+    }
+
+    /**
+     * Inspects a list of migration files and the database ledger to report applied,
+     * pending, and tampered migrations.
+     *
+     * @param diskFiles list of migration files
+     * @param conn      active JDBC connection
+     * @return the migration status report
+     * @throws SQLException if a database error occurs
+     */
+    public MigrationStatus status(List<MigrationFile> diskFiles, Connection conn) throws SQLException {
+        Objects.requireNonNull(diskFiles, "diskFiles must not be null");
+        Objects.requireNonNull(conn, "Connection must not be null");
+
         List<AppliedMigration> applied = ledger.getAppliedMigrations(conn);
 
         Map<String, AppliedMigration> appliedMap = new LinkedHashMap<>();
@@ -95,7 +111,7 @@ public final class MigrationManager {
     }
 
     /**
-     * Applies all pending migrations in alphabetical sequence within individual transactions
+     * Applies all pending migrations from the directory in alphabetical sequence within individual transactions
      * guarded by a session-level advisory lock.
      *
      * @param migrationsDir root directory where migration scripts are located
@@ -108,8 +124,26 @@ public final class MigrationManager {
         Objects.requireNonNull(migrationsDir, "migrationsDir must not be null");
         Objects.requireNonNull(conn, "Connection must not be null");
 
+        List<MigrationFile> diskFiles = MigrationFile.loadAll(migrationsDir);
+        return apply(diskFiles, conn);
+    }
+
+    /**
+     * Applies all pending migrations from the provided list in alphabetical sequence within individual transactions
+     * guarded by a session-level advisory lock.
+     *
+     * @param diskFiles list of migration files to apply
+     * @param conn      active JDBC connection
+     * @return result of applied migrations
+     * @throws SQLException if execution or locking fails
+     * @throws IOException  if execution fails
+     */
+    public MigrationResult apply(List<MigrationFile> diskFiles, Connection conn) throws SQLException, IOException {
+        Objects.requireNonNull(diskFiles, "diskFiles must not be null");
+        Objects.requireNonNull(conn, "Connection must not be null");
+
         return lockManager.withLock(conn, () -> {
-            MigrationStatus currentStatus = status(migrationsDir, conn);
+            MigrationStatus currentStatus = status(diskFiles, conn);
 
             if (currentStatus.hasTampered()) {
                 MigrationTamper t = currentStatus.tamperedMigrations().get(0);
@@ -161,8 +195,7 @@ public final class MigrationManager {
      * @param expectedRegistry target compiled ModelRegistry
      * @param conn             active JDBC connection
      * @param schemaName       database schema name (e.g. "public")
-     * @return the calculated schema diff (empty if no drift)
-     * @throws SQLException if catalog introspection fails
+     * @return the calculated schema diff (empty if no drift)\n     * @throws SQLException if catalog introspection fails
      */
     public SchemaDiff verify(ModelRegistry expectedRegistry, Connection conn, String schemaName) throws SQLException {
         Objects.requireNonNull(expectedRegistry, "ModelRegistry must not be null");

@@ -127,4 +127,71 @@ describe('UniversityDataService (api.ts)', () => {
       expect(service.getMode()).toBe('graphql');
     });
   });
+
+  describe('P1-P3 Feature Showcase & Resilient APIs', () => {
+    it('should support Relay cursor pagination with edges, nodes, and pageInfo', async () => {
+      const connection = await service.getStudentsConnection(3);
+      expect(connection.edges).toHaveLength(3);
+      expect(connection.edges[0].node.name).toBe('Grace Hopper');
+      expect(connection.pageInfo.hasNextPage).toBe(true);
+      expect(connection.pageInfo.hasPreviousPage).toBe(false);
+      expect(connection.pageInfo.endCursor).toBeDefined();
+
+      // Fetch next page
+      const nextConnection = await service.getStudentsConnection(3, connection.pageInfo.endCursor!);
+      expect(nextConnection.edges).toHaveLength(3);
+      expect(nextConnection.edges[0].node.name).toBe('Emmy Noether');
+      expect(nextConnection.pageInfo.hasPreviousPage).toBe(true);
+    });
+
+    it('should enforce @version optimistic locking conflict detection', async () => {
+      const student = (await service.getStudents())[0];
+      expect(student.version).toBe(1);
+
+      // Stale update with wrong version
+      await expect(
+        service.updateStudent(student.id, { name: 'Grace Updated', version: 999 })
+      ).rejects.toThrow('Optimistic lock conflict');
+
+      // Valid update with matching version
+      const updated = await service.updateStudent(student.id, { name: 'Grace Hopper PhD', version: 1 });
+      expect(updated.name).toBe('Grace Hopper PhD');
+      expect(updated.version).toBe(2);
+    });
+
+    it('should support upserting students idempotently', async () => {
+      const upserted = await service.upsertStudent({
+        name: 'Ada Lovelace Scholar',
+        email: 'lovelace_student@university.edu',
+        gpa: 4.0,
+        departmentId: 1,
+      });
+      expect(upserted.id).toBeDefined();
+      expect(upserted.email).toBe('lovelace_student@university.edu');
+
+      // Update existing via upsert
+      const updated = await service.upsertStudent({
+        id: upserted.id,
+        name: 'Ada Lovelace Senior Fellow',
+        email: 'lovelace_student@university.edu',
+        gpa: 4.0,
+      });
+      expect(updated.name).toBe('Ada Lovelace Senior Fellow');
+    });
+
+    it('should support batch course creation', async () => {
+      const batch = await service.batchCreateCourses([
+        { title: 'Quantum Computing II', code: 'PHYS401', credits: 4, departmentId: 3 },
+        { title: 'Graph Query Compilers', code: 'CS501', credits: 4, departmentId: 1 },
+      ]);
+      expect(batch).toHaveLength(2);
+      expect(batch[0].code).toBe('PHYS401');
+      expect(batch[1].code).toBe('CS501');
+    });
+
+    it('should initialize and close realtime SSE subscription gracefully', () => {
+      expect(() => service.initRealtimeSubscription()).not.toThrow();
+      expect(() => service.closeRealtimeSubscription()).not.toThrow();
+    });
+  });
 });

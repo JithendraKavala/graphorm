@@ -9,11 +9,6 @@ spring:
     username: postgres
     password: ""
     driver-class-name: org.postgresql.Driver
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:schema.sql
-      data-locations: classpath:data.sql
   graphql:
     graphiql:
       enabled: true
@@ -26,6 +21,21 @@ graphorm:
   schema-location: classpath:schema.graphorm
   dialect: postgresql
   sql-logging: true
+  migration:
+    enabled: true
+    location: classpath:migrations
+  cache:
+    enabled: true
+    l2-type: caffeine
+    caffeine:
+      maximum-size: 500
+      default-ttl: 60s
+  tenant:
+    enabled: true
+    header-name: X-Tenant-ID
+  subscriptions:
+    enabled: true
+    channel-name: graphorm_events
   graphql:
     enabled: true
     auto-fetchers: true

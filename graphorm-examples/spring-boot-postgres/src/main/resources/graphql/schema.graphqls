@@ -24,6 +24,7 @@ type Student {
   name: String!
   email: String!
   gpa: Float @auth(roles: ["ADMIN", "INSTRUCTOR"])
+  version: Int!
   departmentId: Int
   department: Department
   enrollments: [Enrollment!]!
@@ -89,6 +90,69 @@ type AuditSummary {
   performedBy: String!
 }
 
+# Relay Specification Pagination Types
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type StudentEdge {
+  node: Student!
+  cursor: String!
+}
+
+type StudentConnection {
+  edges: [StudentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+}
+
+type CourseEdge {
+  node: Course!
+  cursor: String!
+}
+
+type CourseConnection {
+  edges: [CourseEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+}
+
+type DepartmentEdge {
+  node: Department!
+  cursor: String!
+}
+
+type DepartmentConnection {
+  edges: [DepartmentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+}
+
+type StudentDashboardEdge {
+  node: StudentDashboard!
+  cursor: String!
+}
+
+type StudentDashboardConnection {
+  edges: [StudentDashboardEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+}
+
+type DepartmentStatsEdge {
+  node: DepartmentStats!
+  cursor: String!
+}
+
+type DepartmentStatsConnection {
+  edges: [DepartmentStatsEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+}
+
 input StudentInput {
   name: String!
   email: String!
@@ -117,10 +181,13 @@ input AuditLogInput {
 type Query {
   students: [Student!]!
   student(id: ID!): Student
+  studentsConnection(first: Int, after: String, last: Int, before: String): StudentConnection!
   departments: [Department!]!
   department(id: ID!): Department
+  departmentsConnection(first: Int, after: String, last: Int, before: String): DepartmentConnection!
   courses: [Course!]!
   course(id: ID!): Course
+  coursesConnection(first: Int, after: String, last: Int, before: String): CourseConnection!
   instructors: [Instructor!]!
   instructor(id: ID!): Instructor
   enrollments: [Enrollment!]!
@@ -130,8 +197,10 @@ type Query {
   auditLogs: [AuditLog!]! @auth(roles: ["ADMIN"])
   auditLog(id: ID!): AuditLog @auth(roles: ["ADMIN"])
   departmentStats: [DepartmentStats!]!
+  departmentStatsConnection(first: Int, after: String, last: Int, before: String): DepartmentStatsConnection!
   studentDashboards: [StudentDashboard!]!
   studentDashboard(id: ID!): StudentDashboard
+  studentDashboardsConnection(first: Int, after: String, last: Int, before: String): StudentDashboardConnection!
   auditSummaries: [AuditSummary!]! @auth(roles: ["ADMIN"])
   auditSummary(id: ID!): AuditSummary @auth(roles: ["ADMIN"])
 }
@@ -141,4 +210,10 @@ type Mutation {
   createCourse(input: CourseInput!): Course!
   createDepartment(input: DepartmentInput!): Department!
   createAuditLog(input: AuditLogInput!): AuditLog! @auth(roles: ["ADMIN"])
+}
+
+type Subscription {
+  studentCreated: Student!
+  studentUpdated(id: ID): Student!
+  studentDeleted: ID!
 }

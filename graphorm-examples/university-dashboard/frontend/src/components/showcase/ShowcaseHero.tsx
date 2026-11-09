@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Terminal, Copy, Check, ArrowRight, ShieldCheck, Zap, Play } from 'lucide-react';
+import { Terminal, Copy, Check, ArrowRight, ShieldCheck, Zap, Play, Sparkles } from 'lucide-react';
 
 interface ShowcaseHeroProps {
   onOpenPortal: () => void;
@@ -51,6 +51,16 @@ export const ShowcaseHero: React.FC<ShowcaseHeroProps> = ({ onOpenPortal }) => {
               <span>Explore Query Pipeline</span>
               <ArrowRight className="w-4 h-4" />
             </a>
+
+            <button
+              onClick={() => {
+                window.location.hash = 'features-showcase';
+              }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md text-sm font-semibold text-sky-300 bg-sky-950/40 hover:bg-sky-900/50 border border-sky-500/40 transition-colors cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-sky-400" />
+              <span>Interactive Feature Lab</span>
+            </button>
 
             <button
               onClick={onOpenPortal}

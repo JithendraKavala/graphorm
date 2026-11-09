@@ -17,6 +17,7 @@ import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.dialect.SqliteDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
+import com.graphorm.jdbc.migration.MigrationManager;
 import com.graphorm.jdbc.transaction.TransactionManager;
 import com.graphorm.jdbc.util.StatementInterceptor;
 import com.graphorm.core.event.EntityEventBroker;
@@ -28,6 +29,7 @@ import com.graphorm.spring.boot.graphql.GraphOrmExceptionHandler;
 import com.graphorm.spring.boot.graphql.GraphQlAutoConfigurationCustomizer;
 import com.graphorm.spring.boot.metrics.MicrometerDataLoaderMetricsListener;
 import com.graphorm.spring.boot.metrics.MicrometerStatementInterceptor;
+import com.graphorm.spring.boot.migration.GraphOrmMigrationInitializer;
 import com.graphorm.spring.boot.security.SpringSecurityFieldAuthorizer;
 import com.graphorm.spring.boot.tenant.SpringTenantContextProvider;
 import com.graphorm.spring.boot.tenant.TenantHeaderFilter;
@@ -66,7 +68,7 @@ import java.util.List;
 /**
  * Spring Boot 3+ Auto-Configuration for GraphORM.
  * Automatically configures {@link ModelRegistry}, {@link SqlDialect}, {@link JdbcExecutor},
- * {@link TransactionManager}, {@link GraphOrmClient}, caching, security, metrics, and GraphQL customizers.
+ * {@link TransactionManager}, {@link GraphOrmClient}, caching, security, metrics, migrations, and GraphQL customizers.
  */
 @AutoConfiguration(after = {DataSourceAutoConfiguration.class, GraphQlAutoConfiguration.class})
 @ConditionalOnClass(DataSource.class)
@@ -218,6 +220,28 @@ public class GraphOrmAutoConfiguration {
     }
 
     @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(MigrationManager.class)
+    @ConditionalOnProperty(prefix = "graphorm.migration", name = "enabled", havingValue = "true", matchIfMissing = true)
+    static class MigrationConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        public GraphOrmMigrationInitializer graphOrmMigrationInitializer(
+                ObjectProvider<DataSource> dataSourceProvider,
+                GraphOrmProperties properties,
+                BeanFactory beanFactory,
+                SqlDialect sqlDialect,
+                ResourceLoader resourceLoader
+        ) {
+            DataSource ds = resolveDataSource(dataSourceProvider, properties, beanFactory);
+            if (ds == null) {
+                return null;
+            }
+            return new GraphOrmMigrationInitializer(ds, sqlDialect, properties, resourceLoader);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(PostgresNotificationListener.class)
     @ConditionalOnProperty(prefix = "graphorm.subscriptions", name = "enabled", havingValue = "true", matchIfMissing = true)
     static class SubscriptionsConfiguration {
@@ -319,8 +343,12 @@ public class GraphOrmAutoConfiguration {
             ObjectProvider<QueryPlanCache> planCacheProvider,
             ObjectProvider<GraphOrmCacheManager> cacheManagerProvider,
             ObjectProvider<EntityEventBroker> eventBrokerProvider,
-            ObjectProvider<ModelRegistry> modelRegistryProvider
+            ObjectProvider<ModelRegistry> modelRegistryProvider,
+            ObjectProvider<GraphOrmMigrationInitializer> migrationInitializerProvider
     ) {
+        // Trigger migration initialization if configured
+        migrationInitializerProvider.ifAvailable(init -> {});
+
         DataSource dataSource = resolveDataSource(dataSourceProvider, properties, beanFactory);
         if (dataSource == null) {
             throw new IllegalStateException(

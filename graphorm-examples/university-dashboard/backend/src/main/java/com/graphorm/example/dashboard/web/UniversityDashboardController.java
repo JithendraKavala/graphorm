@@ -1,5 +1,15 @@
 package com.graphorm.example.dashboard.web;
 
+import com.graphorm.core.event.EntityEvent;
+import com.graphorm.core.event.EntityEventBroker;
+import com.graphorm.core.exception.DuplicateKeyException;
+import com.graphorm.core.exception.OptimisticLockException;
+import com.graphorm.example.dashboard.generated.model.AuditLog;
+import com.graphorm.example.dashboard.generated.model.AuditSummary;
+import com.graphorm.example.dashboard.web.dto.UpsertStudentRequest;
+import org.springframework.http.MediaType;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import java.util.function.Consumer;
 import com.graphorm.example.dashboard.generated.model.Course;
 import com.graphorm.example.dashboard.generated.model.Department;
 import com.graphorm.example.dashboard.generated.model.DepartmentStats;
@@ -35,9 +45,54 @@ import java.util.Map;
 public class UniversityDashboardController {
 
     private final UniversityDashboardService service;
+    private final EntityEventBroker broker;
 
-    public UniversityDashboardController(UniversityDashboardService service) {
+    public UniversityDashboardController(UniversityDashboardService service, EntityEventBroker broker) {
         this.service = service;
+        this.broker = broker;
+    }
+
+    /**
+     * Real-time Server-Sent Events (SSE) endpoint broadcasting GraphORM EntityEvents
+     * triggered via @@notify annotations to the React frontend.
+     */
+    @GetMapping(value = "/live-events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamEvents() {
+        SseEmitter emitter = new SseEmitter(300_000L); // 5 minute timeout
+        java.util.concurrent.Flow.Subscriber<EntityEvent> subscriber = new java.util.concurrent.Flow.Subscriber<>() {
+            private java.util.concurrent.Flow.Subscription sub;
+
+            @Override
+            public void onSubscribe(java.util.concurrent.Flow.Subscription subscription) {
+                this.sub = subscription;
+                subscription.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(EntityEvent event) {
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name(event.eventType().name().toLowerCase())
+                            .data(event));
+                } catch (Exception e) {
+                    if (sub != null) sub.cancel();
+                    emitter.completeWithError(e);
+                }
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                emitter.completeWithError(throwable);
+            }
+
+            @Override
+            public void onComplete() {
+                emitter.complete();
+            }
+        };
+
+        broker.publisher().subscribe(subscriber);
+        return emitter;
     }
 
     @GetMapping("/health")
@@ -366,5 +421,47 @@ public class UniversityDashboardController {
     @QueryMapping
     public int studentDashboardsCount() {
         return (int) service.getStudentDashboardCount();
+    }
+
+    @PostMapping("/students/upsert")
+    public ResponseEntity<Student> upsertStudent(@RequestBody UpsertStudentRequest request) {
+        Student student = service.upsertStudent(request);
+        return ResponseEntity.ok(student);
+    }
+
+    @PostMapping("/courses/batch")
+    public ResponseEntity<List<Course>> batchCreateCourses(@RequestBody List<CreateCourseRequest> requests) {
+        List<Course> created = service.batchCreateCourses(requests);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @GetMapping("/audit-logs")
+    public List<AuditLog> getAuditLogs(
+            @RequestHeader(value = "X-Tenant-ID", defaultValue = "tenant-main") String tenantId
+    ) {
+        return service.getAuditLogsForTenant(tenantId);
+    }
+
+    @GetMapping("/audit-summaries")
+    public List<AuditSummary> getAuditSummaries() {
+        return service.getAuditSummaries();
+    }
+
+    @ExceptionHandler(OptimisticLockException.class)
+    public ResponseEntity<Map<String, Object>> handleOptimisticLock(OptimisticLockException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "error", "OPTIMISTIC_LOCK_FAILURE",
+                "message", ex.getMessage(),
+                "entityName", ex.entityName() != null ? ex.entityName() : "unknown",
+                "expectedVersion", ex.expectedVersion() != null ? ex.expectedVersion() : -1
+        ));
+    }
+
+    @ExceptionHandler(DuplicateKeyException.class)
+    public ResponseEntity<Map<String, Object>> handleDuplicateKey(DuplicateKeyException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "error", "DUPLICATE_KEY",
+                "message", ex.getMessage()
+        ));
     }
 }

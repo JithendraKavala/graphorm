@@ -91,6 +91,12 @@ public class GraphOrmProperties {
     @NestedConfigurationProperty
     private SubscriptionsProperties subscriptions = new SubscriptionsProperties();
 
+    /**
+     * Schema migration configuration properties (P0 / Phase 16).
+     */
+    @NestedConfigurationProperty
+    private MigrationProperties migration = new MigrationProperties();
+
     public String getSchemaLocation() {
         return schemaLocation;
     }
@@ -220,6 +226,14 @@ public class GraphOrmProperties {
 
     public void setSubscriptions(SubscriptionsProperties subscriptions) {
         this.subscriptions = subscriptions;
+    }
+
+    public MigrationProperties getMigration() {
+        return migration;
+    }
+
+    public void setMigration(MigrationProperties migration) {
+        this.migration = migration;
     }
 
     public static class GraphqlProperties {
@@ -454,6 +468,34 @@ public class GraphOrmProperties {
 
         public void setChannelName(String channelName) {
             this.channelName = channelName;
+        }
+    }
+
+    public static class MigrationProperties {
+        /**
+         * Whether automatic schema migration execution is enabled on application startup.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Location containing GraphORM migration SQL scripts (e.g. classpath:migrations or migrations).
+         */
+        private String location = "classpath:migrations";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getLocation() {
+            return location;
+        }
+
+        public void setLocation(String location) {
+            this.location = location;
         }
     }
 }

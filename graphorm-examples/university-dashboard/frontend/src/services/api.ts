@@ -20,6 +20,11 @@ import {
   ROLE_PROFILES,
   QueryOptions,
   PaginatedResult,
+  PageInfo,
+  Edge,
+  Connection,
+  EntityEvent,
+  AuditLog,
 } from '../types/graphorm';
 
 // Initial seed data mirroring GraphORM schema.graphorm / data.sql
@@ -39,14 +44,14 @@ const initialInstructors: Instructor[] = [
 ];
 
 const initialStudents: Student[] = [
-  { id: 1, name: 'Grace Hopper', email: 'hopper@student.edu', gpa: 3.95, departmentId: 1 },
-  { id: 2, name: 'Claude Shannon', email: 'shannon@student.edu', gpa: 3.90, departmentId: 1 },
-  { id: 3, name: 'John von Neumann', email: 'neumann@student.edu', gpa: 4.00, departmentId: 2 },
-  { id: 4, name: 'Emmy Noether', email: 'noether@student.edu', gpa: 3.98, departmentId: 2 },
-  { id: 5, name: 'Marie Curie', email: 'curie@student.edu', gpa: 3.92, departmentId: 3 },
-  { id: 6, name: 'Independent Scholar', email: 'scholar@student.edu', gpa: 3.50, departmentId: null },
-  { id: 7, name: 'Katherine Johnson', email: 'kjohnson@student.edu', gpa: 3.97, departmentId: 2 },
-  { id: 8, name: 'Margaret Hamilton', email: 'hamilton@student.edu', gpa: 3.99, departmentId: 1 },
+  { id: 1, name: 'Grace Hopper', email: 'hopper@student.edu', gpa: 3.95, version: 1, departmentId: 1 },
+  { id: 2, name: 'Claude Shannon', email: 'shannon@student.edu', gpa: 3.90, version: 1, departmentId: 1 },
+  { id: 3, name: 'John von Neumann', email: 'neumann@student.edu', gpa: 4.00, version: 1, departmentId: 2 },
+  { id: 4, name: 'Emmy Noether', email: 'noether@student.edu', gpa: 3.98, version: 1, departmentId: 2 },
+  { id: 5, name: 'Marie Curie', email: 'curie@student.edu', gpa: 3.92, version: 1, departmentId: 3 },
+  { id: 6, name: 'Independent Scholar', email: 'scholar@student.edu', gpa: 3.50, version: 1, departmentId: null },
+  { id: 7, name: 'Katherine Johnson', email: 'kjohnson@student.edu', gpa: 3.97, version: 1, departmentId: 2 },
+  { id: 8, name: 'Margaret Hamilton', email: 'hamilton@student.edu', gpa: 3.99, version: 1, departmentId: 1 },
 ];
 
 const initialCourses: Course[] = [
@@ -144,9 +149,61 @@ class UniversityDataService {
   private enrollments: Enrollment[] = [...initialEnrollments];
   private activities: ActivityItem[] = [...initialActivity];
   private listeners: Set<() => void> = new Set();
+  private eventSource: EventSource | null = null;
+  private auditLogs: AuditLog[] = [
+    { id: 1, tenantId: 'tenant-main', action: 'CURRICULUM_AUDIT', entityName: 'Course', entityId: 'CS101', details: 'Accreditation review passed', performedAt: '2026-11-09 10:00:00' },
+    { id: 2, tenantId: 'tenant-main', action: 'STUDENT_MATRICULATION', entityName: 'Student', entityId: '1', details: 'Matriculated Grace Hopper', performedAt: '2026-11-09 10:15:00' },
+    { id: 3, tenantId: 'tenant-science', action: 'LAB_EQUIPMENT_CHECK', entityName: 'Department', entityId: '3', details: 'Quantum optics lab calibrated', performedAt: '2026-11-09 11:00:00' },
+    { id: 4, tenantId: 'tenant-engineering', action: 'SYSTEM_BENCHMARK', entityName: 'ComputeCluster', entityId: 'C1', details: 'HPC compiler nodes online', performedAt: '2026-11-09 11:30:00' },
+  ];
 
   constructor() {
     this.checkBackendConnection();
+    this.initRealtimeSubscription();
+  }
+
+  public initRealtimeSubscription(): void {
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
+      return;
+    }
+    if (this.eventSource) {
+      return;
+    }
+    try {
+      this.eventSource = new EventSource(`${this.baseUrl}/live-events`);
+      this.eventSource.addEventListener('entity-event', (event: MessageEvent) => {
+        try {
+          const entityEvent: EntityEvent = JSON.parse(event.data);
+          this.handleLiveEvent(entityEvent);
+        } catch (e) {
+          console.error('Failed to parse SSE entity-event', e);
+        }
+      });
+      this.eventSource.onerror = () => {
+        // EventSource handles reconnection automatically
+      };
+    } catch (e) {
+      console.warn('Unable to initialize EventSource:', e);
+    }
+  }
+
+  public closeRealtimeSubscription(): void {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+  }
+
+  private handleLiveEvent(evt: EntityEvent): void {
+    const actionLabel = evt.action === 'CREATE' ? 'Created' : evt.action === 'UPDATE' ? 'Updated' : 'Deleted';
+    const badge = evt.model === 'Student' ? 'Admissions' : evt.model === 'Enrollment' ? 'Enrollment' : 'Curriculum';
+    this.logActivity(
+      evt.model === 'Enrollment' ? 'enrollment' : 'student_created',
+      `Live Event: ${evt.model} ${actionLabel}`,
+      `ID: ${evt.entityId}${evt.tenantId ? ` [Tenant: ${evt.tenantId}]` : ''}`,
+      badge
+    );
+    this.notify();
   }
 
   public setAuth(auth: string | null): void {
@@ -791,18 +848,195 @@ class UniversityDataService {
         this.notify();
         return updated;
       }
+      if (res.status === 409) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.message || 'Optimistic lock conflict: Student was modified concurrently by another transaction');
+      }
     }
     const idx = this.students.findIndex((s) => s.id === id);
     if (idx === -1) throw new Error('Student not found');
+    const current = this.students[idx];
+    if (input.version !== undefined && current.version !== undefined && input.version !== current.version) {
+      throw new Error('Optimistic lock conflict: Student was modified concurrently by another transaction');
+    }
+    const nextVersion = (current.version ?? 1) + 1;
     this.students[idx] = {
       ...this.students[idx],
       ...input,
+      version: nextVersion,
       department: input.departmentId !== undefined
         ? this.departments.find((d) => d.id === input.departmentId) || null
         : this.students[idx].department,
     };
     this.notify();
     return this.students[idx];
+  }
+
+  public async upsertStudent(student: { id?: number; name: string; email: string; gpa?: number; departmentId?: number }): Promise<Student> {
+    if (this.backendConnected) {
+      const res = await fetch(`${this.baseUrl}/students/upsert`, {
+        method: 'POST',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(student),
+      });
+      if (res.ok) {
+        const saved: Student = await res.json();
+        const idx = this.students.findIndex((s) => s.id === saved.id || s.email === saved.email);
+        if (idx !== -1) {
+          this.students[idx] = saved;
+        } else {
+          this.students.push(saved);
+        }
+        this.notify();
+        return saved;
+      }
+      throw new Error(`Failed to upsert student: ${res.statusText}`);
+    }
+
+    let existing = this.students.find((s) => (student.id && s.id === student.id) || s.email === student.email);
+    if (existing) {
+      Object.assign(existing, student);
+      this.notify();
+      return existing;
+    }
+    const newId = student.id ?? Math.max(...this.students.map((s) => s.id), 0) + 1;
+    const created: Student = { id: newId, version: 1, ...student };
+    this.students.push(created);
+    this.notify();
+    return created;
+  }
+
+  public async batchCreateCourses(courses: CreateCourseInput[]): Promise<Course[]> {
+    if (this.backendConnected) {
+      const res = await fetch(`${this.baseUrl}/courses/batch`, {
+        method: 'POST',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(courses),
+      });
+      if (res.ok) {
+        const saved: Course[] = await res.json();
+        this.courses.push(...saved);
+        this.notify();
+        return saved;
+      }
+    }
+    const created: Course[] = courses.map((c, i) => ({
+      id: Math.max(...this.courses.map((x) => x.id), 0) + 1 + i,
+      ...c,
+    }));
+    this.courses.push(...created);
+    this.notify();
+    return created;
+  }
+
+  public async getStudentsConnection(first: number = 5, after?: string): Promise<Connection<Student>> {
+    if (this.backendConnected && this.mode === 'graphql') {
+      const query = `
+        query GetStudentsConnection($first: Int, $after: String) {
+          studentsConnection(first: $first, after: $after) {
+            edges {
+              cursor
+              node {
+                id
+                name
+                email
+                gpa
+                version
+                departmentId
+              }
+            }
+            pageInfo {
+              hasNextPage
+              hasPreviousPage
+              startCursor
+              endCursor
+            }
+            totalCount
+          }
+        }
+      `;
+      try {
+        const res = await this.executeGraphQl<{ studentsConnection: Connection<Student> }>(query, {
+          first,
+          after: after || null,
+        });
+        if (res.data?.studentsConnection) {
+          return res.data.studentsConnection;
+        }
+      } catch (err) {
+        console.error('getStudentsConnection error:', err);
+      }
+    }
+
+    let startIndex = 0;
+    if (after) {
+      try {
+        const decoded = typeof atob === 'function' ? atob(after) : typeof (globalThis as any).Buffer !== 'undefined' ? (globalThis as any).Buffer.from(after, 'base64').toString('ascii') : after;
+        const match = decoded.match(/(\d+)$/);
+        if (match) {
+          startIndex = parseInt(match[1], 10) + 1;
+        }
+      } catch {
+        startIndex = 0;
+      }
+    }
+    const slice = this.students.slice(startIndex, startIndex + first);
+    const edges: Edge<Student>[] = slice.map((student, idx) => ({
+      node: student,
+      cursor: typeof btoa === 'function' ? btoa(`cursor:${startIndex + idx}`) : `cursor:${startIndex + idx}`,
+    }));
+    const hasNextPage = startIndex + first < this.students.length;
+    const hasPreviousPage = startIndex > 0;
+    return {
+      edges,
+      pageInfo: {
+        hasNextPage,
+        hasPreviousPage,
+        startCursor: edges.length > 0 ? edges[0].cursor : null,
+        endCursor: edges.length > 0 ? edges[edges.length - 1].cursor : null,
+      },
+      totalCount: this.students.length,
+    };
+  }
+
+  public async getAuditLogs(tenantId: string = 'tenant-main'): Promise<AuditLog[]> {
+    if (this.backendConnected) {
+      const res = await fetch(`${this.baseUrl}/audit-logs?tenantId=${encodeURIComponent(tenantId)}`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    }
+    return this.auditLogs.filter(a => !tenantId || a.tenantId === tenantId);
+  }
+
+  public async createAuditLog(input: { action: string; details?: string; tenantId: string }): Promise<AuditLog> {
+    const newLog: AuditLog = {
+      id: Math.max(...this.auditLogs.map(a => a.id), 0) + 1,
+      tenantId: input.tenantId,
+      action: input.action,
+      entityName: 'AuditEntry',
+      entityId: String(Date.now()).slice(-4),
+      details: input.details || 'Showcase action recorded',
+      performedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    };
+    this.auditLogs.unshift(newLog);
+    this.notify();
+    return newLog;
+  }
+
+  public triggerShowcaseLiveEvent(evt: Partial<EntityEvent>): void {
+    const fullEvent: EntityEvent = {
+      id: `evt-${Date.now()}`,
+      action: evt.action || 'UPDATE',
+      model: evt.model || 'Student',
+      entityId: evt.entityId || '1',
+      tenantId: evt.tenantId || 'tenant-main',
+      timestamp: Date.now(),
+      payload: evt.payload || {},
+    };
+    this.handleLiveEvent(fullEvent);
   }
 
   public async deleteStudent(id: number): Promise<boolean> {
@@ -1788,6 +2022,22 @@ class UniversityDataService {
   private simulateClientGraphQl(query: string, durationMs: number): { data?: any; errors?: any[]; durationMs: number } {
     const clean = query.replace(/\s+/g, ' ');
     const data: Record<string, any> = {};
+
+    if (clean.includes('studentsConnection')) {
+      data.studentsConnection = {
+        edges: this.students.slice(0, 5).map((s, idx) => ({
+          cursor: `cursor:${idx}`,
+          node: s,
+        })),
+        pageInfo: {
+          hasNextPage: this.students.length > 5,
+          hasPreviousPage: false,
+          startCursor: 'cursor:0',
+          endCursor: 'cursor:4',
+        },
+        totalCount: this.students.length,
+      };
+    }
 
     if (clean.includes('students')) {
       data.students = this.students.map((s) => ({

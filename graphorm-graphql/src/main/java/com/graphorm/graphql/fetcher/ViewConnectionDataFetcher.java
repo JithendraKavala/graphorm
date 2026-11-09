@@ -79,9 +79,14 @@ public class ViewConnectionDataFetcher implements DataFetcher<Connection<Map<Str
         }
 
         FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
-        for (FieldMetadata field : view.fields()) {
-            if (field.hasAuthRoles()) {
-                SecurityPlannerInterceptor.verifyFieldAccess(view, List.of(field.name()), authorizer);
+        if (env.getSelectionSet() != null && env.getSelectionSet().getFields() != null) {
+            java.util.Set<String> requested = env.getSelectionSet().getFields().stream()
+                    .map(graphql.schema.SelectedField::getName)
+                    .collect(java.util.stream.Collectors.toSet());
+            for (FieldMetadata field : view.fields()) {
+                if (field.hasAuthRoles() && requested.contains(field.name())) {
+                    SecurityPlannerInterceptor.verifyFieldAccess(view, List.of(field.name()), authorizer);
+                }
             }
         }
 

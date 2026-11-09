@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Represents a migration script file stored on disk.
+ * Represents a migration script file stored on disk or loaded from resources.
  *
  * @param path     the path to the SQL migration file
  * @param name     the migration identifier (e.g. "20261108120000_init" or "001_create_users")
@@ -29,6 +29,16 @@ public record MigrationFile(
         Objects.requireNonNull(name, "Migration name must not be null");
         Objects.requireNonNull(content, "Migration content must not be null");
         Objects.requireNonNull(checksum, "Migration checksum must not be null");
+    }
+
+    /**
+     * Creates a MigrationFile from in-memory content.
+     */
+    public static MigrationFile of(String name, String content) {
+        Objects.requireNonNull(name, "Migration name must not be null");
+        Objects.requireNonNull(content, "Migration content must not be null");
+        String checksum = ChecksumCalculator.calculateChecksum(content);
+        return new MigrationFile(Path.of(name + ".sql"), name, content, checksum);
     }
 
     /**

@@ -24,6 +24,7 @@ type Student {
   name: String!
   email: String!
   gpa: Float @auth(roles: ["ADMIN", "INSTRUCTOR"])
+  version: Int!
   departmentId: Int
   department: Department
   enrollments(limit: Int, offset: Int): [Enrollment!]!
@@ -52,6 +53,28 @@ type Enrollment {
   enrollmentDate: String!
 }
 
+type GradeScale {
+  id: ID!
+  letter: String!
+  minScore: Float!
+  gpaPoint: Float!
+}
+
+type AuditLog {
+  id: ID!
+  action: String!
+  details: String
+  tenantId: String!
+  performedBy: String!
+}
+
+type AuditSummary {
+  id: ID!
+  action: String!
+  tenantId: String!
+  performedBy: String!
+}
+
 type DepartmentStats {
   id: ID!
   departmentName: String!
@@ -65,6 +88,70 @@ type StudentDashboard {
   departmentName: String
   enrolledCourses: Int!
   avgGradePoints: Float
+}
+
+# --- Relay-Specification Cursor Pagination Types ---
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type StudentEdge {
+  cursor: String!
+  node: Student!
+}
+
+type StudentConnection {
+  edges: [StudentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CourseEdge {
+  cursor: String!
+  node: Course!
+}
+
+type CourseConnection {
+  edges: [CourseEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DepartmentEdge {
+  cursor: String!
+  node: Department!
+}
+
+type DepartmentConnection {
+  edges: [DepartmentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type StudentDashboardEdge {
+  cursor: String!
+  node: StudentDashboard!
+}
+
+type StudentDashboardConnection {
+  edges: [StudentDashboardEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DepartmentStatsEdge {
+  cursor: String!
+  node: DepartmentStats!
+}
+
+type DepartmentStatsConnection {
+  edges: [DepartmentStatsEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
 }
 
 input StudentInput {
@@ -87,6 +174,11 @@ input DepartmentInput {
   code: String!
 }
 
+input AuditLogInput {
+  action: String!
+  details: String
+}
+
 type Query {
   students(limit: Int, offset: Int): [Student!]!
   studentsCount: Int!
@@ -103,14 +195,31 @@ type Query {
   enrollments(limit: Int, offset: Int): [Enrollment!]!
   enrollmentsCount: Int!
   enrollment(id: ID!): Enrollment
+  gradeScales: [GradeScale!]!
+  auditLogs: [AuditLog!]!
+  auditSummaries: [AuditSummary!]!
   departmentStats: [DepartmentStats!]!
   studentDashboards(limit: Int, offset: Int): [StudentDashboard!]!
   studentDashboardsCount: Int!
   studentDashboard(id: ID!): StudentDashboard
+
+  # Relay Keyset Cursor Connections
+  studentsConnection(first: Int, after: String, last: Int, before: String): StudentConnection!
+  coursesConnection(first: Int, after: String, last: Int, before: String): CourseConnection!
+  departmentsConnection(first: Int, after: String, last: Int, before: String): DepartmentConnection!
+  studentDashboardsConnection(first: Int, after: String, last: Int, before: String): StudentDashboardConnection!
+  departmentStatsConnection(first: Int, after: String, last: Int, before: String): DepartmentStatsConnection!
 }
 
 type Mutation {
   createStudent(input: StudentInput!): Student!
   createCourse(input: CourseInput!): Course!
   createDepartment(input: DepartmentInput!): Department!
+  createAuditLog(input: AuditLogInput!): AuditLog!
+}
+
+type Subscription {
+  studentCreated: Student!
+  studentUpdated: Student!
+  studentDeleted: ID!
 }

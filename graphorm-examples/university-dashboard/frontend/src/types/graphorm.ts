@@ -26,6 +26,7 @@ export interface Student {
   name: string;
   email: string;
   gpa?: number | null;
+  version?: number;
   departmentId?: number | null;
   department?: Department | null;
   enrollments?: Enrollment[];
@@ -82,6 +83,7 @@ export interface UpdateStudentInput {
   name?: string;
   email?: string;
   gpa?: number;
+  version?: number;
   departmentId?: number;
 }
 
@@ -130,6 +132,7 @@ export interface UpdateEnrollmentInput {
 // Navigation & View State
 export type ActiveTab =
   | 'landing'
+  | 'features-showcase'
   | 'dashboard'
   | 'students'
   | 'departments'
@@ -288,6 +291,52 @@ export type SortDirection = 'asc' | 'desc';
 export interface SortState<T> {
   field: keyof T;
   order: SortDirection;
+}
+
+// ==========================================
+// RELAY CONNECTION SPECIFICATION
+// ==========================================
+
+export interface PageInfo {
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  startCursor?: string | null;
+  endCursor?: string | null;
+}
+
+export interface Edge<T> {
+  node: T;
+  cursor: string;
+}
+
+export interface Connection<T> {
+  edges: Edge<T>[];
+  pageInfo: PageInfo;
+  totalCount?: number;
+}
+
+// ==========================================
+// REAL-TIME NOTIFICATIONS & MULTI-TENANCY
+// ==========================================
+
+export interface EntityEvent {
+  id: string;
+  action: 'CREATE' | 'UPDATE' | 'DELETE';
+  model: string;
+  entityId: string;
+  tenantId?: string | null;
+  timestamp: number;
+  payload?: Record<string, unknown>;
+}
+
+export interface AuditLog {
+  id: number;
+  tenantId: string;
+  action: string;
+  entityName: string;
+  entityId: string;
+  details?: string | null;
+  performedAt: string;
 }
 
 // ==========================================

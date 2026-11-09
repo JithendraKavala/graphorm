@@ -1,6 +1,17 @@
 package com.graphorm.example.dashboard.service;
 
 import com.graphorm.core.query.WherePredicate;
+import com.graphorm.core.query.BatchInsertQuery;
+import com.graphorm.core.query.UpsertQuery;
+import com.graphorm.core.tenant.TenantContext;
+import com.graphorm.example.dashboard.generated.model.AuditLog;
+import com.graphorm.example.dashboard.generated.model.AuditSummary;
+import com.graphorm.example.dashboard.web.dto.UpsertStudentRequest;
+import com.graphorm.jdbc.builder.UpdateBuilder;
+import com.graphorm.jdbc.dialect.SqlDialect;
+import com.graphorm.jdbc.executor.JdbcExecutor;
+import java.util.LinkedHashMap;
+
 import com.graphorm.example.dashboard.generated.client.GraphOrmClient;
 import com.graphorm.example.dashboard.generated.filter.CourseFilter;
 import com.graphorm.example.dashboard.generated.filter.DepartmentFilter;
@@ -51,9 +62,13 @@ import java.util.function.Consumer;
 public class UniversityDashboardService {
 
     private final GraphOrmClient db;
+    private final JdbcExecutor executor;
+    private final SqlDialect dialect;
 
-    public UniversityDashboardService(GraphOrmClient db) {
+    public UniversityDashboardService(GraphOrmClient db, JdbcExecutor executor, SqlDialect dialect) {
         this.db = db;
+        this.executor = executor;
+        this.dialect = dialect;
     }
 
     // ==========================================
@@ -208,6 +223,18 @@ public class UniversityDashboardService {
 
     @Transactional
     public Student updateStudent(int id, UpdateStudentRequest req) {
+        if (req.version() != null) {
+            UpdateBuilder ub = UpdateBuilder.of(dialect)
+                    .table("students")
+                    .id("id", id)
+                    .optimisticLock("version", req.version());
+            if (req.name() != null) ub.set("name", req.name());
+            if (req.email() != null) ub.set("email", req.email());
+            if (req.gpa() != null) ub.set("gpa", req.gpa());
+            if (req.departmentId() != null) ub.set("department_id", req.departmentId());
+            executor.executeUpdate(ub);
+            return db.student().findById(id).orElseThrow();
+        }
         StudentUpdateInput input = StudentUpdateInput.builder()
                 .name(req.name())
                 .email(req.email())
@@ -215,6 +242,64 @@ public class UniversityDashboardService {
                 .departmentId(req.departmentId())
                 .build();
         return db.student().update(id, input);
+    }
+
+    @Transactional
+    public Student upsertStudent(UpsertStudentRequest req) {
+        java.util.Map<String, Object> values = new LinkedHashMap<>();
+        values.put("name", req.name());
+        values.put("email", req.email());
+        if (req.gpa() != null) values.put("gpa", req.gpa());
+        if (req.departmentId() != null) values.put("department_id", req.departmentId());
+        values.put("version", 1);
+
+        java.util.Map<String, Object> updateValues = new LinkedHashMap<>();
+        updateValues.put("name", req.name());
+        if (req.gpa() != null) updateValues.put("gpa", req.gpa());
+        if (req.departmentId() != null) updateValues.put("department_id", req.departmentId());
+
+        UpsertQuery query = UpsertQuery.into("students")
+                .values(values)
+                .onConflict("email")
+                .doUpdate(updateValues)
+                .returningAll()
+                .build();
+
+        return executor.executeUpsertAndReturn(query, Student.class)
+                .orElseThrow(() -> new IllegalStateException("Failed to upsert student"));
+    }
+
+    @Transactional
+    public List<Course> batchCreateCourses(List<CreateCourseRequest> requests) {
+        List<List<Object>> rows = requests.stream()
+                .map(r -> List.<Object>of(
+                        r.title(),
+                        r.code(),
+                        r.credits(),
+                        r.departmentId(),
+                        r.instructorId()
+                ))
+                .toList();
+
+        BatchInsertQuery query = BatchInsertQuery.into("courses")
+                .columns("title", "code", "credits", "department_id", "instructor_id")
+                .rows(rows)
+                .returningAll()
+                .build();
+
+        return executor.executeBatchInsertAndReturn(query, Course.class);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AuditLog> getAuditLogsForTenant(String tenantId) {
+        return TenantContext.supplyAsTenant(tenantId, () ->
+                db.auditLog().findMany(q -> q.where(f -> f.tenantId().eq(tenantId)))
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<AuditSummary> getAuditSummaries() {
+        return db.auditSummary().findMany();
     }
 
     @Transactional

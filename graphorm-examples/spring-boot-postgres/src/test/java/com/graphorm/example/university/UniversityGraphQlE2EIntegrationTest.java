@@ -36,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Verifies:
  * <ul>
  *     <li>Auto-registered queries for models and views</li>
+ *     <li>Relay-spec cursor pagination connections (Connection/Edge/PageInfo)</li>
  *     <li>Nested relationship resolution with DataLoader batching</li>
  *     <li>Database-backed physical view queries</li>
  *     <li>Virtual aggregated view queries</li>
@@ -89,6 +90,12 @@ class UniversityGraphQlE2EIntegrationTest {
     static void tearDown() {
         if (container != null && container.isRunning()) {
             container.stop();
+        } else {
+            try (java.sql.Connection conn = java.sql.DriverManager.getConnection(jdbcUrl, username, password);
+                 java.sql.Statement stmt = conn.createStatement()) {
+                stmt.execute("DELETE FROM students WHERE email = 'kjohnson@nasa.gov'");
+                stmt.execute("DELETE FROM audit_logs WHERE action = 'CURRICULUM_REVISION'");
+            } catch (Exception ignored) {}
         }
     }
 
@@ -103,10 +110,9 @@ class UniversityGraphQlE2EIntegrationTest {
         registry.add("spring.datasource.username", () -> username);
         registry.add("spring.datasource.password", () -> password);
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
-        registry.add("spring.sql.init.mode", () -> "always");
-        registry.add("spring.sql.init.schema-locations", () -> "classpath:schema.sql");
-        registry.add("spring.sql.init.data-locations", () -> "classpath:data.sql");
         registry.add("graphorm.schema-location", () -> "classpath:schema.graphorm");
+        registry.add("graphorm.migration.enabled", () -> "true");
+        registry.add("graphorm.migration.location", () -> "classpath:migrations");
         registry.add("graphorm.security.max-query-depth", () -> "6");
         registry.add("graphorm.security.max-query-complexity", () -> "80");
     }
@@ -120,10 +126,20 @@ class UniversityGraphQlE2EIntegrationTest {
 
     private ExecutionResult executeQuery(String query, Map<String, Object> context) {
         ExecutionInput.Builder builder = ExecutionInput.newExecutionInput().query(query);
+        String tenantId = context != null ? (String) context.get("tenantId") : null;
+        if (tenantId != null) {
+            com.graphorm.core.tenant.TenantContext.setTenantId(tenantId);
+        }
         if (context != null && !context.isEmpty()) {
             builder.graphQLContext(context);
         }
-        return graphQlSource.graphQl().execute(builder.build());
+        try {
+            return graphQlSource.graphQl().execute(builder.build());
+        } finally {
+            if (tenantId != null) {
+                com.graphorm.core.tenant.TenantContext.clear();
+            }
+        }
     }
 
     @Test
@@ -136,6 +152,7 @@ class UniversityGraphQlE2EIntegrationTest {
                         id
                         name
                         email
+                        version
                         department {
                             id
                             name
@@ -168,6 +185,7 @@ class UniversityGraphQlE2EIntegrationTest {
                 .findFirst()
                 .orElseThrow();
         assertThat(grace.get("email")).isEqualTo("hopper@student.edu");
+        assertThat(grace.get("version")).isNotNull();
 
         @SuppressWarnings("unchecked")
         Map<String, Object> dept = (Map<String, Object>) grace.get("department");
@@ -181,6 +199,80 @@ class UniversityGraphQlE2EIntegrationTest {
 
     @Test
     @Order(2)
+    @DisplayName("Relay Connection: Keyset cursor pagination on studentsConnection")
+    void testRelayCursorPaginationStudents() {
+        String queryFirstPage = """
+                query {
+                    studentsConnection(first: 2) {
+                        totalCount
+                        edges {
+                            cursor
+                            node {
+                                id
+                                name
+                                email
+                            }
+                        }
+                        pageInfo {
+                            hasNextPage
+                            hasPreviousPage
+                            startCursor
+                            endCursor
+                        }
+                    }
+                }
+                """;
+
+        ExecutionResult result = executeQuery(queryFirstPage);
+        assertThat(result.getErrors()).isEmpty();
+        Map<String, Object> data = result.getData();
+        assertThat(data).containsKey("studentsConnection");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> connection = (Map<String, Object>) data.get("studentsConnection");
+        assertThat(connection.get("totalCount")).isEqualTo(6);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> edges = (List<Map<String, Object>>) connection.get("edges");
+        assertThat(edges).hasSize(2);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> pageInfo = (Map<String, Object>) connection.get("pageInfo");
+        assertThat(pageInfo.get("hasNextPage")).isEqualTo(true);
+        String endCursor = (String) pageInfo.get("endCursor");
+        assertThat(endCursor).isNotEmpty();
+
+        // Query second page using after: endCursor
+        String querySecondPage = String.format("""
+                query {
+                    studentsConnection(first: 2, after: "%s") {
+                        edges {
+                            cursor
+                            node {
+                                id
+                                name
+                            }
+                        }
+                        pageInfo {
+                            hasNextPage
+                            hasPreviousPage
+                        }
+                    }
+                }
+                """, endCursor);
+
+        ExecutionResult page2Result = executeQuery(querySecondPage);
+        assertThat(page2Result.getErrors()).isEmpty();
+        Map<String, Object> page2Data = page2Result.getData();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> page2Conn = (Map<String, Object>) page2Data.get("studentsConnection");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> page2Edges = (List<Map<String, Object>>) page2Conn.get("edges");
+        assertThat(page2Edges).hasSize(2);
+    }
+
+    @Test
+    @Order(3)
     @DisplayName("Query database-backed view (DepartmentStats)")
     void testQueryDepartmentStats_DatabaseBackedView() {
         String query = """
@@ -212,7 +304,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(3)
+    @Order(4)
     @DisplayName("Query virtual aggregated view (StudentDashboard)")
     void testQueryStudentDashboard_VirtualAggregatedView() {
         String query = """
@@ -246,7 +338,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(4)
+    @Order(5)
     @DisplayName("Model mutation: create new Student via createStudent")
     void testCreateStudentMutation() {
         String mutation = """
@@ -259,6 +351,7 @@ class UniversityGraphQlE2EIntegrationTest {
                         id
                         name
                         email
+                        version
                     }
                 }
                 """;
@@ -272,10 +365,11 @@ class UniversityGraphQlE2EIntegrationTest {
         Map<String, Object> created = (Map<String, Object>) data.get("createStudent");
         assertThat(created.get("name")).isEqualTo("Katherine Johnson");
         assertThat(created.get("email")).isEqualTo("kjohnson@nasa.gov");
+        assertThat(created.get("version")).isEqualTo(1);
     }
 
     @Test
-    @Order(5)
+    @Order(6)
     @DisplayName("Strict Read-Only Invariant: view mutations must NOT exist in GraphQL schema")
     void testReadOnlyViewsHaveNoMutations() {
         GraphQLObjectType mutationType = graphQlSource.schema().getMutationType();
@@ -296,7 +390,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(6)
+    @Order(7)
     @DisplayName("@auth: rejects access to Instructor salary without ADMIN role")
     void testAuthRejectsInstructorSalaryWithoutAdminRole() {
         // Authenticated as regular STUDENT
@@ -323,7 +417,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(7)
+    @Order(8)
     @DisplayName("@auth: permits access to Instructor salary with ADMIN role")
     void testAuthPermitsInstructorSalaryWithAdminRole() {
         // Authenticated as ADMIN
@@ -354,7 +448,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(8)
+    @Order(9)
     @DisplayName("Security: rejects queries exceeding max query depth")
     void testRejectsExceededQueryDepth() {
         String deepQuery = """
@@ -383,7 +477,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(9)
+    @Order(10)
     @DisplayName("Security: rejects queries exceeding max query complexity")
     void testRejectsExceededQueryComplexity() {
         String complexQuery = """
@@ -403,7 +497,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(10)
+    @Order(11)
     @DisplayName("@@readonly: GradeScale queries succeed and mutations are strictly omitted from GraphQL schema")
     void testReadOnlyPhysicalModelGradeScale() {
         GraphQLObjectType mutationType = graphQlSource.schema().getMutationType();
@@ -444,7 +538,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(11)
+    @Order(12)
     @DisplayName("@@auth on Model: rejects access to auditLogs query without ADMIN role")
     void testModelLevelAuthRejectsUnauthorized() {
         // Authenticated as regular STUDENT
@@ -472,7 +566,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(12)
+    @Order(13)
     @DisplayName("@@auth on Model: permits access to auditLogs query with ADMIN role")
     void testModelLevelAuthPermitsAdmin() {
         SecurityContextHolder.getContext().setAuthentication(
@@ -491,7 +585,7 @@ class UniversityGraphQlE2EIntegrationTest {
                 }
                 """;
 
-        ExecutionResult result = executeQuery(query);
+        ExecutionResult result = executeQuery(query, Map.of("tenantId", "tenant-main"));
         assertThat(result.getErrors()).isEmpty();
         Map<String, Object> data = result.getData();
         assertThat(data).containsKey("auditLogs");
@@ -502,7 +596,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(13)
+    @Order(14)
     @DisplayName("@@auth on View: rejects access to auditSummaries query without ADMIN role")
     void testViewLevelAuthRejectsUnauthorized() {
         SecurityContextHolder.getContext().setAuthentication(
@@ -529,7 +623,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(14)
+    @Order(15)
     @DisplayName("@@auth on View: permits access to auditSummaries query with ADMIN role")
     void testViewLevelAuthPermitsAdmin() {
         SecurityContextHolder.getContext().setAuthentication(
@@ -548,7 +642,7 @@ class UniversityGraphQlE2EIntegrationTest {
                 }
                 """;
 
-        ExecutionResult result = executeQuery(query);
+        ExecutionResult result = executeQuery(query, Map.of("tenantId", "tenant-main"));
         assertThat(result.getErrors()).isEmpty();
         Map<String, Object> data = result.getData();
         assertThat(data).containsKey("auditSummaries");
@@ -559,7 +653,7 @@ class UniversityGraphQlE2EIntegrationTest {
     }
 
     @Test
-    @Order(15)
+    @Order(16)
     @DisplayName("@injected: backend automatically injects context and security values on createAuditLog mutation")
     void testInjectedColumnsOnCreateAuditLogMutation() {
         // Authenticated as ADMIN with username "auditor_clara"

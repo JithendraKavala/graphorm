@@ -1,6 +1,8 @@
 package com.graphorm.core.event;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -27,7 +29,17 @@ public record EntityEvent(
     public EntityEvent {
         Objects.requireNonNull(entityName, "entityName must not be null");
         Objects.requireNonNull(eventType, "eventType must not be null");
-        payload = payload == null ? Map.of() : Map.copyOf(payload);
+        if (payload == null || payload.isEmpty()) {
+            payload = Map.of();
+        } else {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            payload.forEach((k, v) -> {
+                if (k != null) {
+                    copy.put(k, v);
+                }
+            });
+            payload = Collections.unmodifiableMap(copy);
+        }
         if (timestamp == null) {
             timestamp = Instant.now();
         }

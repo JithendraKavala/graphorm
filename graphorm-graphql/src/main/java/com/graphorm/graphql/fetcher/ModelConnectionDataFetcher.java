@@ -76,11 +76,16 @@ public class ModelConnectionDataFetcher implements DataFetcher<Connection<Map<St
             }
         }
 
-        // Verify field-level authorization
+        // Verify field-level authorization for requested fields
         FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
-        for (FieldMetadata field : model.fields()) {
-            if (field.hasAuthRoles()) {
-                SecurityPlannerInterceptor.verifyFieldAccess(model, List.of(field.name()), authorizer);
+        if (env.getSelectionSet() != null && env.getSelectionSet().getFields() != null) {
+            java.util.Set<String> requested = env.getSelectionSet().getFields().stream()
+                    .map(graphql.schema.SelectedField::getName)
+                    .collect(java.util.stream.Collectors.toSet());
+            for (FieldMetadata field : model.fields()) {
+                if (field.hasAuthRoles() && requested.contains(field.name())) {
+                    SecurityPlannerInterceptor.verifyFieldAccess(model, List.of(field.name()), authorizer);
+                }
             }
         }
 
