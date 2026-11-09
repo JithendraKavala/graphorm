@@ -5,6 +5,9 @@ import com.graphorm.graphql.binding.ArgumentBinder;
 import com.graphorm.graphql.loader.DataLoaderMetricsListener;
 import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+import com.graphorm.core.execution.QueryExecutionEngine;
+import com.graphorm.jdbc.dialect.MySqlDialect;
+import com.graphorm.jdbc.dialect.SqliteDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.client.GraphOrmClient;
 import com.graphorm.jdbc.executor.JdbcExecutor;
@@ -64,18 +67,40 @@ public class GraphOrmAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public SqlDialect sqlDialect(GraphOrmProperties properties) {
+    public SqlDialect sqlDialect(
+            GraphOrmProperties properties,
+            ObjectProvider<DataSource> dataSourceProvider,
+            BeanFactory beanFactory
+    ) {
         String dialectName = properties.getDialect();
-        if (dialectName == null || dialectName.isBlank()) {
-            throw new IllegalArgumentException("Property 'graphorm.dialect' must not be blank");
+        if (dialectName != null && !dialectName.isBlank() && !"auto".equalsIgnoreCase(dialectName)) {
+            if ("postgresql".equalsIgnoreCase(dialectName) || "postgres".equalsIgnoreCase(dialectName)) {
+                return new PostgreSqlDialect();
+            }
+            if ("mysql".equalsIgnoreCase(dialectName) || "mariadb".equalsIgnoreCase(dialectName)) {
+                return new MySqlDialect();
+            }
+            if ("sqlite".equalsIgnoreCase(dialectName)) {
+                return new SqliteDialect();
+            }
+            throw new IllegalArgumentException(
+                    "Unsupported SQL dialect '" + dialectName + "'. Supported dialects: [postgresql, postgres, mysql, sqlite, auto]. " +
+                    "To use a custom dialect, register a custom SqlDialect bean in the application context."
+            );
         }
-        if ("postgresql".equalsIgnoreCase(dialectName) || "postgres".equalsIgnoreCase(dialectName)) {
-            return new PostgreSqlDialect();
+
+        DataSource ds = resolveDataSource(dataSourceProvider, properties, beanFactory);
+        if (ds != null) {
+            try (java.sql.Connection conn = ds.getConnection()) {
+                String productName = conn.getMetaData().getDatabaseProductName();
+                SqlDialect detected = SqlDialect.fromDatabaseProductName(productName);
+                log.info("Auto-detected SQL dialect '{}' for database product '{}'", detected.getClass().getSimpleName(), productName);
+                return detected;
+            } catch (Exception e) {
+                log.warn("Failed to auto-detect SQL dialect from DataSource metadata ({}); defaulting to PostgreSqlDialect", e.getMessage());
+            }
         }
-        throw new IllegalArgumentException(
-                "Unsupported SQL dialect '" + dialectName + "'. Supported dialects: [postgresql, postgres]. " +
-                "To use a custom dialect, register a custom SqlDialect bean in the application context."
-        );
+        return new PostgreSqlDialect();
     }
 
     @Bean
@@ -225,6 +250,12 @@ public class GraphOrmAutoConfiguration {
                 connectionProvider,
                 interceptors.toArray(StatementInterceptor[]::new)
         );
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(QueryExecutionEngine.class)
+    public QueryExecutionEngine queryExecutionEngine(JdbcExecutor jdbcExecutor) {
+        return jdbcExecutor;
     }
 
     @Bean

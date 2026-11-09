@@ -32,6 +32,7 @@ import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -151,6 +152,11 @@ public class GraphQlAutoConfigurationCustomizer implements GraphQlSourceBuilderC
         GraphOrmDataLoaderRegistryFactory factory = metricsListener != null
                 ? new GraphOrmDataLoaderRegistryFactory(modelRegistry, executor, dialect, metricsListener)
                 : new GraphOrmDataLoaderRegistryFactory(modelRegistry, executor, dialect);
+
+        if (properties.isVirtualThreads() || properties.getGraphql().isVirtualThreads()) {
+            factory.asyncExecutor(Executors.newVirtualThreadPerTaskExecutor());
+            log.info("Enabled Project Loom virtual-thread executor for DataLoader batch hydration");
+        }
 
         List<Instrumentation> instrumentations = new ArrayList<>();
         instrumentations.add(new GraphOrmDataLoaderInstrumentation(factory));

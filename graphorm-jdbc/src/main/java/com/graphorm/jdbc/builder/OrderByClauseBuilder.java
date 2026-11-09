@@ -37,10 +37,12 @@ public final class OrderByClauseBuilder {
             Objects.requireNonNull(clause, "OrderByClause element must not be null");
             String quotedExpr = dialect.quoteIdentifier(clause.expression());
             sql.append(quotedExpr).append(" ").append(clause.direction().name());
-            if (clause.nullsOrder() == NullsOrder.FIRST) {
-                sql.append(" NULLS FIRST");
-            } else if (clause.nullsOrder() == NullsOrder.LAST) {
-                sql.append(" NULLS LAST");
+            if (dialect.supportsNullsOrdering()) {
+                if (clause.nullsOrder() == NullsOrder.FIRST) {
+                    sql.append(" NULLS FIRST");
+                } else if (clause.nullsOrder() == NullsOrder.LAST) {
+                    sql.append(" NULLS LAST");
+                }
             }
         }
         return sql.toString();

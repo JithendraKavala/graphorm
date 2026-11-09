@@ -156,12 +156,48 @@ class GraphOrmAutoConfigurationTest {
     @DisplayName("[DB-01] Unsupported SQL dialect throws IllegalArgumentException during context startup")
     void testUnsupportedDialectFailsFast() {
         contextRunner
-                .withPropertyValues("graphorm.dialect=mysql")
+                .withPropertyValues("graphorm.dialect=oracle")
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())
                             .hasRootCauseInstanceOf(IllegalArgumentException.class)
-                            .hasMessageContaining("Unsupported SQL dialect 'mysql'");
+                            .hasMessageContaining("Unsupported SQL dialect 'oracle'");
+                });
+    }
+
+    @Test
+    @DisplayName("[DB-02] Configured MySQL dialect registers MySqlDialect bean")
+    void testMySqlDialectConfigured() {
+        contextRunner
+                .withPropertyValues("graphorm.dialect=mysql")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(SqlDialect.class);
+                    assertThat(context.getBean(SqlDialect.class)).isInstanceOf(com.graphorm.jdbc.dialect.MySqlDialect.class);
+                });
+    }
+
+    @Test
+    @DisplayName("[DB-03] Configured SQLite dialect registers SqliteDialect bean")
+    void testSqliteDialectConfigured() {
+        contextRunner
+                .withPropertyValues("graphorm.dialect=sqlite")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(SqlDialect.class);
+                    assertThat(context.getBean(SqlDialect.class)).isInstanceOf(com.graphorm.jdbc.dialect.SqliteDialect.class);
+                });
+    }
+
+    @Test
+    @DisplayName("[DB-04] Virtual threads configuration enables virtual threads on properties")
+    void testVirtualThreadsConfiguration() {
+        contextRunner
+                .withPropertyValues("graphorm.virtual-threads=true")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    GraphOrmProperties props = context.getBean(GraphOrmProperties.class);
+                    assertThat(props.isVirtualThreads()).isTrue();
                 });
     }
 

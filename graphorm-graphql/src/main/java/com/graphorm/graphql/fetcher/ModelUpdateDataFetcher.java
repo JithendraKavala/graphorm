@@ -1,5 +1,11 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.core.query.SourceTable;
+
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+
+import com.graphorm.core.execution.QueryExecutionEngine;
+
 import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
@@ -36,7 +42,7 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
 
     private final ModelMetadata model;
     private final ModelRegistry registry;
-    private final JdbcExecutor executor;
+    private final QueryExecutionEngine executor;
     private final SqlDialect dialect;
     private final String idArgumentName;
     private final String inputArgumentName;
@@ -44,21 +50,21 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
     public ModelUpdateDataFetcher(
             ModelMetadata model,
             ModelRegistry registry,
-            JdbcExecutor executor,
+            QueryExecutionEngine executor,
             SqlDialect dialect,
             String idArgumentName,
             String inputArgumentName
     ) {
         this.model = Objects.requireNonNull(model, "ModelMetadata must not be null");
         this.registry = registry;
-        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
-        this.dialect = dialect != null ? dialect : executor.dialect();
+        this.executor = Objects.requireNonNull(executor, "QueryExecutionEngine must not be null");
+        this.dialect = dialect != null ? dialect : (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect());
         this.idArgumentName = idArgumentName != null ? idArgumentName : "id";
         this.inputArgumentName = inputArgumentName != null ? inputArgumentName : "input";
     }
 
-    public ModelUpdateDataFetcher(ModelMetadata model, ModelRegistry registry, JdbcExecutor executor) {
-        this(model, registry, executor, executor.dialect(), "id", "input");
+    public ModelUpdateDataFetcher(ModelMetadata model, ModelRegistry registry, QueryExecutionEngine executor) {
+        this(model, registry, executor, (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect()), "id", "input");
     }
 
     @Override
@@ -137,29 +143,12 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
                     .orElse(null);
         }
 
-        Optional<Map<String, Object>> result;
-        if (dialect.supportsReturning()) {
-            BoundSql updateBoundSql = UpdateBuilder.of(dialect)
-                    .table(model.tableName())
-                    .values(dbValues)
-                    .where(WherePredicate.eq(pkColumn, idValue))
-                    .returningAll()
-                    .build();
-            result = executor.queryForObject(updateBoundSql);
-        } else {
-            BoundSql updateBoundSql = UpdateBuilder.of(dialect)
-                    .table(model.tableName())
-                    .values(dbValues)
-                    .where(WherePredicate.eq(pkColumn, idValue))
-                    .build();
-            executor.executeUpdate(updateBoundSql);
-
-            SelectQuery selectQuery = SelectBuilder.forEntity(model, registry)
-                    .where(WherePredicate.eq(pkColumn, idValue))
-                    .limit(1)
-                    .build();
-            result = executor.queryForObject(selectQuery);
-        }
+        UpdateQuery updateQuery = new UpdateQuery(
+                SourceTable.table(model.tableName()),
+                dbValues,
+                WherePredicate.eq(pkColumn, idValue)
+        );
+        Optional<Map<String, Object>> result = executor.executeUpdateAndReturn(updateQuery);
 
         return result.map(r -> EntityRowNormalizer.normalize(r, model)).orElse(null);
     }

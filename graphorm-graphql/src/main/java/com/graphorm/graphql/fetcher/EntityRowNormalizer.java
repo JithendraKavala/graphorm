@@ -1,5 +1,7 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+
 import com.graphorm.core.metadata.EntityMetadata;
 import com.graphorm.core.metadata.FieldMetadata;
 

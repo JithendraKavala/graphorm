@@ -1,8 +1,10 @@
 package com.graphorm.graphql.loader;
 
+import com.graphorm.core.execution.QueryExecutionEngine;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.RelationMetadata;
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.relation.BatchRelationLoader;
@@ -14,40 +16,43 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
+import java.util.concurrent.Executor;
 
 /**
- * Factory for creating configured per-request {@link DataLoaderRegistry} instances
- * pre-wired with {@link BatchRelationDataLoader} instances for every entity relationship (TASK-11.4).
+ * Factory for creating configured {@link DataLoaderRegistry} instances with auto-registered
+ * relationship {@link BatchRelationDataLoader} instances for every relation across all schema models (TASK-11.4).
+ * Supports optional virtual thread execution for DataLoader batch hydration.
  */
 public class GraphOrmDataLoaderRegistryFactory {
 
     private static final Logger log = LoggerFactory.getLogger(GraphOrmDataLoaderRegistryFactory.class);
 
     private final ModelRegistry registry;
-    private final JdbcExecutor executor;
+    private final QueryExecutionEngine executionEngine;
     private final SqlDialect dialect;
     private final BatchRelationLoader batchRelationLoader;
     private DataLoaderMetricsListener metricsListener = DataLoaderMetricsListener.NO_OP;
     private int maxBatchSize = 1000;
+    private Executor asyncExecutor;
 
     public GraphOrmDataLoaderRegistryFactory(
             ModelRegistry registry,
-            JdbcExecutor executor,
+            QueryExecutionEngine executionEngine,
             SqlDialect dialect
     ) {
-        this(registry, executor, dialect, DataLoaderMetricsListener.NO_OP);
+        this(registry, executionEngine, dialect, DataLoaderMetricsListener.NO_OP);
     }
 
     public GraphOrmDataLoaderRegistryFactory(
             ModelRegistry registry,
-            JdbcExecutor executor,
+            QueryExecutionEngine executionEngine,
             SqlDialect dialect,
             DataLoaderMetricsListener metricsListener
     ) {
         this.registry = Objects.requireNonNull(registry, "ModelRegistry must not be null");
-        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
-        this.dialect = dialect != null ? dialect : executor.dialect();
-        this.batchRelationLoader = new BatchRelationLoader(executor, registry);
+        this.executionEngine = Objects.requireNonNull(executionEngine, "QueryExecutionEngine must not be null");
+        this.dialect = dialect != null ? dialect : (executionEngine instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect());
+        this.batchRelationLoader = new BatchRelationLoader(executionEngine, registry);
         this.metricsListener = metricsListener != null ? metricsListener : DataLoaderMetricsListener.NO_OP;
     }
 
@@ -59,6 +64,15 @@ public class GraphOrmDataLoaderRegistryFactory {
     public GraphOrmDataLoaderRegistryFactory metricsListener(DataLoaderMetricsListener metricsListener) {
         this.metricsListener = metricsListener != null ? metricsListener : DataLoaderMetricsListener.NO_OP;
         return this;
+    }
+
+    public GraphOrmDataLoaderRegistryFactory asyncExecutor(Executor asyncExecutor) {
+        this.asyncExecutor = asyncExecutor;
+        return this;
+    }
+
+    public Executor asyncExecutor() {
+        return asyncExecutor;
     }
 
     /**
@@ -105,7 +119,8 @@ public class GraphOrmDataLoaderRegistryFactory {
                             relation,
                             registry,
                             batchRelationLoader,
-                            metricsListener
+                            metricsListener,
+                            asyncExecutor
                     );
                     DataLoader<Object, Object> dataLoader = DataLoaderFactory.newMappedDataLoader(batchLoader, options);
                     targetRegistry.register(key, dataLoader);
@@ -119,8 +134,12 @@ public class GraphOrmDataLoaderRegistryFactory {
         return registry;
     }
 
+    public QueryExecutionEngine executionEngine() {
+        return executionEngine;
+    }
+
     public JdbcExecutor executor() {
-        return executor;
+        return executionEngine instanceof JdbcExecutor je ? je : null;
     }
 
     public SqlDialect dialect() {
@@ -129,5 +148,13 @@ public class GraphOrmDataLoaderRegistryFactory {
 
     public DataLoaderMetricsListener metricsListener() {
         return metricsListener;
+    }
+
+    public int maxBatchSize() {
+        return maxBatchSize;
+    }
+
+    public BatchRelationLoader batchRelationLoader() {
+        return batchRelationLoader;
     }
 }

@@ -22,7 +22,7 @@ public class GraphOrmProperties {
     /**
      * Target SQL dialect (e.g. "postgresql").
      */
-    private String dialect = "postgresql";
+    private String dialect = "auto";
 
     /**
      * Optional bean name of the DataSource to bind to. If not specified, the primary or unique DataSource bean is used.
@@ -43,6 +43,11 @@ public class GraphOrmProperties {
      * Default batch size for batched IN query loading.
      */
     private int batchSize = 100;
+
+    /**
+     * Whether to enable Project Loom virtual threads for async executor operations (e.g. DataLoader batch hydration).
+     */
+    private boolean virtualThreads = false;
 
     /**
      * GraphQL specific auto-configuration properties.
@@ -127,6 +132,14 @@ public class GraphOrmProperties {
         return sqlLogging || (logging != null && logging.isShowSql());
     }
 
+    public boolean isVirtualThreads() {
+        return virtualThreads;
+    }
+
+    public void setVirtualThreads(boolean virtualThreads) {
+        this.virtualThreads = virtualThreads;
+    }
+
     public int getBatchSize() {
         return batchSize;
     }
@@ -172,6 +185,7 @@ public class GraphOrmProperties {
         private boolean autoFetchers = true;
         private int batchSize = 100;
         private boolean failFastOnViewMutation = true;
+        private boolean virtualThreads = false;
 
         public boolean isEnabled() {
             return enabled;
@@ -203,6 +217,14 @@ public class GraphOrmProperties {
 
         public void setFailFastOnViewMutation(boolean failFastOnViewMutation) {
             this.failFastOnViewMutation = failFastOnViewMutation;
+        }
+
+        public boolean isVirtualThreads() {
+            return virtualThreads;
+        }
+
+        public void setVirtualThreads(boolean virtualThreads) {
+            this.virtualThreads = virtualThreads;
         }
     }
 

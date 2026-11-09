@@ -1,5 +1,9 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+
+import com.graphorm.core.execution.QueryExecutionEngine;
+
 import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
@@ -34,26 +38,26 @@ public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> 
 
     private final ModelMetadata model;
     private final ModelRegistry registry;
-    private final JdbcExecutor executor;
+    private final QueryExecutionEngine executor;
     private final SqlDialect dialect;
     private final String idArgumentName;
 
     public ModelSingleDataFetcher(
             ModelMetadata model,
             ModelRegistry registry,
-            JdbcExecutor executor,
+            QueryExecutionEngine executor,
             SqlDialect dialect,
             String idArgumentName
     ) {
         this.model = Objects.requireNonNull(model, "ModelMetadata must not be null");
         this.registry = registry;
-        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
-        this.dialect = dialect != null ? dialect : executor.dialect();
+        this.executor = Objects.requireNonNull(executor, "QueryExecutionEngine must not be null");
+        this.dialect = dialect != null ? dialect : (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect());
         this.idArgumentName = idArgumentName != null ? idArgumentName : "id";
     }
 
-    public ModelSingleDataFetcher(ModelMetadata model, ModelRegistry registry, JdbcExecutor executor) {
-        this(model, registry, executor, executor.dialect(), "id");
+    public ModelSingleDataFetcher(ModelMetadata model, ModelRegistry registry, QueryExecutionEngine executor) {
+        this(model, registry, executor, (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect()), "id");
     }
 
     @Override

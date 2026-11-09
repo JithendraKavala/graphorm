@@ -1,5 +1,9 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+
+import com.graphorm.core.execution.QueryExecutionEngine;
+
 import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
@@ -30,24 +34,24 @@ public class ModelCreateDataFetcher implements DataFetcher<Map<String, Object>> 
     private static final Logger log = LoggerFactory.getLogger(ModelCreateDataFetcher.class);
 
     private final ModelMetadata model;
-    private final JdbcExecutor executor;
+    private final QueryExecutionEngine executor;
     private final SqlDialect dialect;
     private final String inputArgumentName;
 
     public ModelCreateDataFetcher(
             ModelMetadata model,
-            JdbcExecutor executor,
+            QueryExecutionEngine executor,
             SqlDialect dialect,
             String inputArgumentName
     ) {
         this.model = Objects.requireNonNull(model, "ModelMetadata must not be null");
-        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
-        this.dialect = dialect != null ? dialect : executor.dialect();
+        this.executor = Objects.requireNonNull(executor, "QueryExecutionEngine must not be null");
+        this.dialect = dialect != null ? dialect : (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect());
         this.inputArgumentName = inputArgumentName != null ? inputArgumentName : "input";
     }
 
-    public ModelCreateDataFetcher(ModelMetadata model, JdbcExecutor executor) {
-        this(model, executor, executor.dialect(), "input");
+    public ModelCreateDataFetcher(ModelMetadata model, QueryExecutionEngine executor) {
+        this(model, executor, (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect()), "input");
     }
 
     @Override

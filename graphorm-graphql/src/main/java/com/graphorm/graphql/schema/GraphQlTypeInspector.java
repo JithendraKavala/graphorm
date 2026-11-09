@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Inspects GraphQL SDL definitions (via {@link TypeDefinitionRegistry}) and automatically matches
@@ -37,6 +38,7 @@ public class GraphQlTypeInspector {
     private final ModelRegistry modelRegistry;
     private final List<GraphQlOperationBinding> bindings = new ArrayList<>();
     private final List<GraphQlOperationBinding> rejectedViewMutations = new ArrayList<>();
+    private final ReentrantLock lock = new ReentrantLock();
     private boolean inspected = false;
 
     public GraphQlTypeInspector(TypeDefinitionRegistry typeRegistry, ModelRegistry modelRegistry) {
@@ -63,26 +65,36 @@ public class GraphQlTypeInspector {
      *
      * @return immutable list of operation bindings
      */
-    public synchronized List<GraphQlOperationBinding> inspect() {
-        if (inspected) {
+    public List<GraphQlOperationBinding> inspect() {
+        lock.lock();
+        try {
+            if (inspected) {
+                return Collections.unmodifiableList(bindings);
+            }
+
+            inspectQueryOperations();
+            inspectMutationOperations();
+
+            inspected = true;
             return Collections.unmodifiableList(bindings);
+        } finally {
+            lock.unlock();
         }
-
-        inspectQueryOperations();
-        inspectMutationOperations();
-
-        inspected = true;
-        return Collections.unmodifiableList(bindings);
     }
 
     /**
      * Returns any attempted mutation operations targeting read-only views that were rejected.
      */
-    public synchronized List<GraphQlOperationBinding> getRejectedViewMutations() {
-        if (!inspected) {
-            inspect();
+    public List<GraphQlOperationBinding> getRejectedViewMutations() {
+        lock.lock();
+        try {
+            if (!inspected) {
+                inspect();
+            }
+            return Collections.unmodifiableList(rejectedViewMutations);
+        } finally {
+            lock.unlock();
         }
-        return Collections.unmodifiableList(rejectedViewMutations);
     }
 
     public Optional<GraphQlOperationBinding> findBinding(String parentType, String fieldName) {

@@ -1,5 +1,6 @@
 package com.graphorm.jdbc.relation;
 
+import com.graphorm.core.execution.QueryExecutionEngine;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
@@ -10,39 +11,66 @@ import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.mapper.DynamicRowMapper;
 import com.graphorm.jdbc.mapper.RowMapper;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Batched relationship loading engine executing {@code WHERE target_col IN (?, ...)} queries
  * and correlating child entities back to their corresponding parents in memory with zero N+1 queries.
- * Supports selective column projection and hidden dependency foreign key injection.
+ * Supports selective column projection, hidden dependency foreign key injection, and decoupled
+ * {@link QueryExecutionEngine} execution.
+ * Hardened for Virtual Threads (Project Loom) using {@link ReentrantLock} to avoid carrier thread pinning.
  */
 public class BatchRelationLoader {
 
-    private final JdbcExecutor jdbcExecutor;
+    private final QueryExecutionEngine executionEngine;
     private final RelationPlanner relationPlanner;
 
-    public BatchRelationLoader(JdbcExecutor jdbcExecutor, RelationPlanner relationPlanner) {
-        this.jdbcExecutor = Objects.requireNonNull(jdbcExecutor, "JdbcExecutor must not be null");
+    @FunctionalInterface
+    private interface PropertyAccessor {
+        Object get(Object target) throws Exception;
+    }
+
+    private record AccessorKey(Class<?> targetClass, String fieldName, String dbColumnName) {}
+
+    private static final Map<AccessorKey, PropertyAccessor> ACCESSOR_CACHE = new HashMap<>();
+    private static final ReentrantLock ACCESSOR_LOCK = new ReentrantLock();
+
+    public BatchRelationLoader(QueryExecutionEngine executionEngine, RelationPlanner relationPlanner) {
+        this.executionEngine = Objects.requireNonNull(executionEngine, "QueryExecutionEngine must not be null");
         this.relationPlanner = Objects.requireNonNull(relationPlanner, "RelationPlanner must not be null");
     }
 
+    public BatchRelationLoader(QueryExecutionEngine executionEngine, ModelRegistry modelRegistry) {
+        this(executionEngine, new RelationPlanner(modelRegistry));
+    }
+
+    public BatchRelationLoader(JdbcExecutor jdbcExecutor, RelationPlanner relationPlanner) {
+        this((QueryExecutionEngine) jdbcExecutor, relationPlanner);
+    }
+
     public BatchRelationLoader(JdbcExecutor jdbcExecutor, ModelRegistry modelRegistry) {
-        this(jdbcExecutor, new RelationPlanner(modelRegistry));
+        this((QueryExecutionEngine) jdbcExecutor, new RelationPlanner(modelRegistry));
     }
 
     public JdbcExecutor jdbcExecutor() {
-        return jdbcExecutor;
+        return executionEngine instanceof JdbcExecutor je ? je : null;
+    }
+
+    public QueryExecutionEngine executionEngine() {
+        return executionEngine;
     }
 
     public RelationPlanner relationPlanner() {
@@ -139,6 +167,7 @@ public class BatchRelationLoader {
      * @param <C>            child type
      * @return batch load result with mapped associations
      */
+    @SuppressWarnings("unchecked")
     public <P, C> BatchLoadResult<P, C> load(
             ModelMetadata sourceModel,
             RelationMetadata relation,
@@ -179,7 +208,13 @@ public class BatchRelationLoader {
         }
 
         // Execute batched SQL query
-        List<C> children = jdbcExecutor.queryForList(plan.selectQuery(), childMapper);
+        List<C> children;
+        if (executionEngine instanceof JdbcExecutor je) {
+            children = je.queryForList(plan.selectQuery(), childMapper);
+        } else {
+            List<Map<String, Object>> rows = executionEngine.queryForList(plan.selectQuery());
+            children = (List<C>) rows;
+        }
 
         // Group children by normalized join key
         Map<Object, List<C>> childrenByKey = new LinkedHashMap<>();
@@ -242,7 +277,7 @@ public class BatchRelationLoader {
             return Collections.emptyMap();
         }
 
-        List<Map<String, Object>> children = jdbcExecutor.queryForList(plan.selectQuery());
+        List<Map<String, Object>> children = executionEngine.queryForList(plan.selectQuery());
 
         // Group children by normalized join key
         Map<Object, List<Map<String, Object>>> childrenByKey = new LinkedHashMap<>();
@@ -383,6 +418,54 @@ public class BatchRelationLoader {
         return key;
     }
 
+    private static PropertyAccessor getAccessor(Class<?> clazz, String fieldName, String dbColumnName) {
+        AccessorKey key = new AccessorKey(clazz, fieldName, dbColumnName);
+        ACCESSOR_LOCK.lock();
+        try {
+            PropertyAccessor existing = ACCESSOR_CACHE.get(key);
+            if (existing != null) {
+                return existing;
+            }
+            PropertyAccessor resolved = resolveAccessor(clazz, fieldName, dbColumnName);
+            ACCESSOR_CACHE.put(key, resolved);
+            return resolved;
+        } finally {
+            ACCESSOR_LOCK.unlock();
+        }
+    }
+
+    private static PropertyAccessor resolveAccessor(Class<?> clazz, String fieldName, String dbColumnName) {
+        if (clazz.isRecord()) {
+            for (RecordComponent rc : clazz.getRecordComponents()) {
+                if (rc.getName().equals(fieldName) || (dbColumnName != null && rc.getName().equalsIgnoreCase(dbColumnName))) {
+                    Method accessor = rc.getAccessor();
+                    accessor.setAccessible(true);
+                    return accessor::invoke;
+                }
+            }
+        }
+
+        String capitalized = fieldName.substring(0, 1).toUpperCase(Locale.ROOT) + fieldName.substring(1);
+        String[] candidateMethodNames = {"get" + capitalized, fieldName, "is" + capitalized};
+        for (String mName : candidateMethodNames) {
+            try {
+                Method m = clazz.getMethod(mName);
+                m.setAccessible(true);
+                return m::invoke;
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+
+        try {
+            Field field = clazz.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return field::get;
+        } catch (NoSuchFieldException ignored) {
+        }
+
+        return target -> null;
+    }
+
     private static Object extractFieldValue(Object entity, String fieldName, String dbColumnName) {
         if (entity == null) {
             return null;
@@ -406,42 +489,12 @@ public class BatchRelationLoader {
             return null;
         }
 
-        // 2. If Java Record
-        Class<?> clazz = entity.getClass();
-        if (clazz.isRecord()) {
-            for (RecordComponent rc : clazz.getRecordComponents()) {
-                if (rc.getName().equals(fieldName) || (dbColumnName != null && rc.getName().equalsIgnoreCase(dbColumnName))) {
-                    try {
-                        return rc.getAccessor().invoke(entity);
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to access record component '" + rc.getName() + "'", e);
-                    }
-                }
-            }
-        }
-
-        // 3. Regular POJO via getter method or direct field
-        String capitalized = fieldName.substring(0, 1).toUpperCase(Locale.ROOT) + fieldName.substring(1);
-        String[] candidateMethodNames = {"get" + capitalized, fieldName, "is" + capitalized};
-        for (String mName : candidateMethodNames) {
-            try {
-                Method m = clazz.getMethod(mName);
-                return m.invoke(entity);
-            } catch (NoSuchMethodException ignored) {
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to invoke getter '" + mName + "'", e);
-            }
-        }
-
+        // 2. Cached POJO / Record Accessor (Hardened against carrier thread pinning)
         try {
-            var field = clazz.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return field.get(entity);
-        } catch (NoSuchFieldException ignored) {
+            PropertyAccessor accessor = getAccessor(entity.getClass(), fieldName, dbColumnName);
+            return accessor.get(entity);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to read field '" + fieldName + "'", e);
+            throw new RuntimeException("Failed to access property '" + fieldName + "' on " + entity.getClass().getName(), e);
         }
-
-        return null;
     }
 }

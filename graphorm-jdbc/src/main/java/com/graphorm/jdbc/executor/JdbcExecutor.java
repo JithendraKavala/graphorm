@@ -1,5 +1,6 @@
 package com.graphorm.jdbc.executor;
 
+import com.graphorm.core.execution.QueryExecutionEngine;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
 import com.graphorm.core.query.SelectQuery;
@@ -53,8 +54,9 @@ import java.util.stream.Stream;
 /**
  * Core JDBC query execution engine managing database connections, prepared statement binding,
  * result set iteration, and resource cleanup with zero connection leaks.
+ * Implements the decoupled {@link QueryExecutionEngine} SPI.
  */
-public class JdbcExecutor {
+public class JdbcExecutor implements QueryExecutionEngine {
 
     private static final Logger log = LoggerFactory.getLogger(JdbcExecutor.class);
 
@@ -126,7 +128,44 @@ public class JdbcExecutor {
     }
 
     public JdbcExecutor(DataSource dataSource) {
-        this(dataSource, new PostgreSqlDialect(), DEFAULT_CONNECTION_PROVIDER);
+        this(dataSource, detectDialect(dataSource), DEFAULT_CONNECTION_PROVIDER);
+    }
+
+    /**
+     * Auto-detects the appropriate {@link SqlDialect} by inspecting DataSource connection metadata.
+     *
+     * @param dataSource the DataSource to inspect
+     * @return auto-detected dialect, or PostgreSqlDialect fallback
+     */
+    public static SqlDialect detectDialect(DataSource dataSource) {
+        if (dataSource == null) {
+            return new PostgreSqlDialect();
+        }
+        try (Connection conn = dataSource.getConnection()) {
+            return detectDialect(conn);
+        } catch (SQLException e) {
+            log.warn("Failed to inspect Connection metadata from DataSource for dialect auto-detection: {}. Defaulting to PostgreSqlDialect.", e.getMessage());
+            return new PostgreSqlDialect();
+        }
+    }
+
+    /**
+     * Auto-detects the appropriate {@link SqlDialect} by inspecting Connection metadata product name.
+     *
+     * @param connection the active database Connection
+     * @return auto-detected dialect, or PostgreSqlDialect fallback
+     */
+    public static SqlDialect detectDialect(Connection connection) {
+        if (connection == null) {
+            return new PostgreSqlDialect();
+        }
+        try {
+            String prodName = connection.getMetaData().getDatabaseProductName();
+            return SqlDialect.fromDatabaseProductName(prodName);
+        } catch (SQLException e) {
+            log.warn("Failed to get database product name from Connection: {}. Defaulting to PostgreSqlDialect.", e.getMessage());
+            return new PostgreSqlDialect();
+        }
     }
 
     public SqlDialect dialect() {
@@ -198,8 +237,14 @@ public class JdbcExecutor {
         return queryForList(boundSql, DynamicRowMapper.mapToMap());
     }
 
+    @Override
     public List<Map<String, Object>> queryForList(SelectQuery query) {
         return queryForList(dialect.buildSelectSql(query));
+    }
+
+    @Override
+    public List<Map<String, Object>> executeSelect(SelectQuery query) {
+        return queryForList(query);
     }
 
     public <T> List<T> queryForList(BoundSql boundSql, Class<T> recordClass) {
@@ -271,8 +316,14 @@ public class JdbcExecutor {
         return queryForObject(boundSql, DynamicRowMapper.mapToMap());
     }
 
+    @Override
     public Optional<Map<String, Object>> queryForObject(SelectQuery query) {
         return queryForObject(dialect.buildSelectSql(query));
+    }
+
+    @Override
+    public Optional<Map<String, Object>> executeSelectOne(SelectQuery query) {
+        return queryForObject(query);
     }
 
     public <T> Optional<T> queryForObject(BoundSql boundSql, Class<T> recordClass) {
@@ -448,8 +499,42 @@ public class JdbcExecutor {
         return executeUpdate(dialect.buildInsertSql(query));
     }
 
+    @Override
+    public int executeInsert(InsertQuery query) {
+        return executeUpdate(query);
+    }
+
+    @Override
     public int executeUpdate(UpdateQuery query) {
         return executeUpdate(dialect.buildUpdateSql(query));
+    }
+
+    @Override
+    public Optional<Map<String, Object>> executeUpdateAndReturn(UpdateQuery query) {
+        Objects.requireNonNull(query, "UpdateQuery must not be null");
+        if (dialect.supportsReturning()) {
+            BoundSql boundSql = UpdateBuilder.of(dialect)
+                    .table(query.table())
+                    .values(query.values())
+                    .where(query.where())
+                    .returningAll()
+                    .build();
+            return queryForObject(boundSql);
+        }
+        BoundSql updateBoundSql = dialect.buildUpdateSql(query);
+        int affected = executeUpdate(updateBoundSql);
+        if (affected == 0) {
+            return Optional.empty();
+        }
+        if (query.where() != null) {
+            SelectQuery selectQuery = SelectQuery.from(query.table().tableName())
+                    .column("*")
+                    .where(query.where())
+                    .limit(1)
+                    .build();
+            return queryForObject(selectQuery);
+        }
+        return Optional.of(new LinkedHashMap<>(query.values()));
     }
 
     /**
@@ -464,8 +549,14 @@ public class JdbcExecutor {
         return affected;
     }
 
+    @Override
     public int executeUpdate(DeleteQuery query) {
         return executeUpdate(dialect.buildDeleteSql(query));
+    }
+
+    @Override
+    public int executeDelete(DeleteQuery query) {
+        return executeUpdate(query);
     }
 
     public int executeUpsert(UpsertQuery query) {
@@ -490,8 +581,9 @@ public class JdbcExecutor {
 
     /**
      * Executes a batch INSERT query, transparently partitioning large row sets into
-     * chunks to safeguard against PostgreSQL's 65,535 bind parameter limit.
+     * chunks to safeguard against bind parameter limits.
      */
+    @Override
     public int executeBatchInsert(BatchInsertQuery query) {
         Objects.requireNonNull(query, "BatchInsertQuery must not be null");
         int rowCount = query.rows().size();
@@ -520,6 +612,7 @@ public class JdbcExecutor {
     /**
      * Executes a batch INSERT query with RETURNING clause, chunking large batches transparently.
      */
+    @Override
     public List<Map<String, Object>> executeBatchInsertAndReturn(BatchInsertQuery query) {
         Objects.requireNonNull(query, "BatchInsertQuery must not be null");
         int rowCount = query.rows().size();
@@ -675,6 +768,7 @@ public class JdbcExecutor {
      * @param query the insert query AST
      * @return map of returned column values
      */
+    @Override
     public Optional<Map<String, Object>> executeInsertAndReturn(InsertQuery query) {
         if (dialect.supportsReturning()) {
             BoundSql boundSql = InsertBuilder.of(dialect)

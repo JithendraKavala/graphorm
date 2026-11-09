@@ -20,15 +20,17 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Dynamic row mapper converting JDBC {@link ResultSet} rows into generic {@link Map Maps},
  * Java 21 immutable records, or entity-conforming structures with scalar type conversions.
+ * Hardened for Virtual Threads (Project Loom) using {@link ReentrantLock} to avoid carrier thread pinning.
  */
 public final class DynamicRowMapper {
 
@@ -41,29 +43,44 @@ public final class DynamicRowMapper {
             String[] snakeCaseNormalizedNames
     ) {}
 
-    private static final Map<Class<?>, CachedRecordMetadata<?>> RECORD_METADATA_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, CachedRecordMetadata<?>> RECORD_METADATA_CACHE = new HashMap<>();
+    private static final ReentrantLock CACHE_LOCK = new ReentrantLock();
 
     @SuppressWarnings("unchecked")
     private static <T> CachedRecordMetadata<T> getRecordMetadata(Class<T> recordClass) {
-        return (CachedRecordMetadata<T>) RECORD_METADATA_CACHE.computeIfAbsent(recordClass, cls -> {
-            RecordComponent[] components = cls.getRecordComponents();
-            Class<?>[] paramTypes = new Class<?>[components.length];
-            String[] normalizedNames = new String[components.length];
-            String[] snakeCaseNormalizedNames = new String[components.length];
-            for (int i = 0; i < components.length; i++) {
-                paramTypes[i] = components[i].getType();
-                String compName = components[i].getName();
-                normalizedNames[i] = normalizeKey(compName);
-                snakeCaseNormalizedNames[i] = normalizeKey(toSnakeCase(compName));
+        CACHE_LOCK.lock();
+        try {
+            CachedRecordMetadata<?> existing = RECORD_METADATA_CACHE.get(recordClass);
+            if (existing != null) {
+                return (CachedRecordMetadata<T>) existing;
             }
-            try {
-                Constructor<?> ctor = cls.getDeclaredConstructor(paramTypes);
-                ctor.setAccessible(true);
-                return new CachedRecordMetadata<>(ctor, components, normalizedNames, snakeCaseNormalizedNames);
-            } catch (NoSuchMethodException e) {
-                throw new QueryExecutionException("Failed to find canonical constructor for record: " + cls.getName(), e);
-            }
-        });
+            CachedRecordMetadata<T> created = buildRecordMetadata(recordClass);
+            RECORD_METADATA_CACHE.put(recordClass, created);
+            return created;
+        } finally {
+            CACHE_LOCK.unlock();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> CachedRecordMetadata<T> buildRecordMetadata(Class<T> cls) {
+        RecordComponent[] components = cls.getRecordComponents();
+        Class<?>[] paramTypes = new Class<?>[components.length];
+        String[] normalizedNames = new String[components.length];
+        String[] snakeCaseNormalizedNames = new String[components.length];
+        for (int i = 0; i < components.length; i++) {
+            paramTypes[i] = components[i].getType();
+            String compName = components[i].getName();
+            normalizedNames[i] = normalizeKey(compName);
+            snakeCaseNormalizedNames[i] = normalizeKey(toSnakeCase(compName));
+        }
+        try {
+            Constructor<T> ctor = (Constructor<T>) cls.getDeclaredConstructor(paramTypes);
+            ctor.setAccessible(true);
+            return new CachedRecordMetadata<>(ctor, components, normalizedNames, snakeCaseNormalizedNames);
+        } catch (NoSuchMethodException e) {
+            throw new QueryExecutionException("Failed to find canonical constructor for record: " + cls.getName(), e);
+        }
     }
 
     /**

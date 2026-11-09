@@ -1,5 +1,9 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+
+import com.graphorm.core.execution.QueryExecutionEngine;
+
 import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
@@ -38,22 +42,22 @@ public class ModelConnectionDataFetcher implements DataFetcher<Connection<Map<St
 
     private final ModelMetadata model;
     private final ModelRegistry registry;
-    private final JdbcExecutor executor;
+    private final QueryExecutionEngine executor;
     private final ArgumentBinder argumentBinder;
     private final SqlDialect dialect;
 
     public ModelConnectionDataFetcher(
             ModelMetadata model,
             ModelRegistry registry,
-            JdbcExecutor executor,
+            QueryExecutionEngine executor,
             ArgumentBinder argumentBinder,
             SqlDialect dialect
     ) {
         this.model = Objects.requireNonNull(model, "ModelMetadata must not be null");
         this.registry = registry;
-        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
+        this.executor = Objects.requireNonNull(executor, "QueryExecutionEngine must not be null");
         this.argumentBinder = argumentBinder != null ? argumentBinder : new ArgumentBinder();
-        this.dialect = dialect != null ? dialect : executor.dialect();
+        this.dialect = dialect != null ? dialect : (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect());
     }
 
     @Override

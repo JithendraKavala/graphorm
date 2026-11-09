@@ -206,6 +206,15 @@ public interface SqlDialect {
     boolean supportsReturning();
 
     /**
+     * Indicates whether this dialect supports explicit NULLS FIRST / NULLS LAST ordering.
+     *
+     * @return true if supported, false otherwise
+     */
+    default boolean supportsNullsOrdering() {
+        return true;
+    }
+
+    /**
      * Formats a RETURNING clause for the given columns.
      *
      * @param columns the columns to return, or empty for all columns (*)
@@ -337,5 +346,28 @@ public interface SqlDialect {
      */
     default SqlErrorTranslator errorTranslator() {
         return new PostgreSqlErrorTranslator();
+    }
+
+    /**
+     * Auto-detects the appropriate {@link SqlDialect} based on the JDBC database product name.
+     *
+     * @param databaseProductName database product name from DatabaseMetaData
+     * @return matching SqlDialect (PostgreSQL, MySQL, SQLite, or PostgreSqlDialect as fallback)
+     */
+    static SqlDialect fromDatabaseProductName(String databaseProductName) {
+        if (databaseProductName == null || databaseProductName.isBlank()) {
+            return new PostgreSqlDialect();
+        }
+        String lower = databaseProductName.toLowerCase();
+        if (lower.contains("mysql") || lower.contains("mariadb")) {
+            return new MySqlDialect();
+        }
+        if (lower.contains("sqlite")) {
+            return new SqliteDialect();
+        }
+        if (lower.contains("postgres")) {
+            return new PostgreSqlDialect();
+        }
+        return new PostgreSqlDialect();
     }
 }

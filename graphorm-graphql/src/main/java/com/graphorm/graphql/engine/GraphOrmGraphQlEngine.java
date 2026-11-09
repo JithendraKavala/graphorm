@@ -13,6 +13,7 @@ import com.graphorm.graphql.security.MaxQueryDepthInstrumentation;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
+import com.graphorm.core.execution.QueryExecutionEngine;
 import graphql.ExecutionInput;
 import graphql.ExecutionResult;
 import graphql.GraphQL;
@@ -138,6 +139,7 @@ public final class GraphOrmGraphQlEngine {
 
     public static final class Builder {
         private ModelRegistry modelRegistry;
+        private QueryExecutionEngine executionEngine;
         private JdbcExecutor executor;
         private DataSource dataSource;
         private SqlDialect dialect = new PostgreSqlDialect();
@@ -160,8 +162,17 @@ public final class GraphOrmGraphQlEngine {
             return this;
         }
 
+        public Builder executionEngine(QueryExecutionEngine executionEngine) {
+            this.executionEngine = executionEngine;
+            if (executionEngine instanceof JdbcExecutor je) {
+                this.executor = je;
+            }
+            return this;
+        }
+
         public Builder executor(JdbcExecutor executor) {
             this.executor = executor;
+            this.executionEngine = executor;
             return this;
         }
 
@@ -245,11 +256,15 @@ public final class GraphOrmGraphQlEngine {
         public GraphOrmGraphQlEngine build() {
             Objects.requireNonNull(modelRegistry, "ModelRegistry must not be null");
 
-            if (executor == null) {
-                if (dataSource == null) {
-                    throw new IllegalStateException("Either JdbcExecutor or DataSource must be provided");
+            if (executionEngine == null) {
+                if (executor != null) {
+                    executionEngine = executor;
+                } else if (dataSource != null) {
+                    executor = new JdbcExecutor(dataSource, dialect);
+                    executionEngine = executor;
+                } else {
+                    throw new IllegalStateException("Either QueryExecutionEngine, JdbcExecutor or DataSource must be provided");
                 }
-                executor = new JdbcExecutor(dataSource, dialect);
             }
 
             if (typeRegistry == null) {
@@ -273,7 +288,7 @@ public final class GraphOrmGraphQlEngine {
                 typeRegistry.add(authDirective);
             }
 
-            GraphOrmGraphQlRegistrar registrar = new GraphOrmGraphQlRegistrar(modelRegistry, executor, dialect, argumentBinder)
+            GraphOrmGraphQlRegistrar registrar = new GraphOrmGraphQlRegistrar(modelRegistry, executionEngine, dialect, argumentBinder)
                     .failFastOnViewMutation(failFastOnViewMutation);
 
             RuntimeWiring.Builder wiringBuilder = RuntimeWiring.newRuntimeWiring();
@@ -295,7 +310,7 @@ public final class GraphOrmGraphQlEngine {
 
             GraphOrmDataLoaderRegistryFactory dataLoaderRegistryFactory = new GraphOrmDataLoaderRegistryFactory(
                     modelRegistry,
-                    executor,
+                    executionEngine,
                     dialect,
                     dataLoaderMetricsListener
             );

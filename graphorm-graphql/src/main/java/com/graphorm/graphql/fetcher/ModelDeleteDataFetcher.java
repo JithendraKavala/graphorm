@@ -1,5 +1,9 @@
 package com.graphorm.graphql.fetcher;
 
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+
+import com.graphorm.core.execution.QueryExecutionEngine;
+
 import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
@@ -29,24 +33,24 @@ public class ModelDeleteDataFetcher implements DataFetcher<Object> {
     private static final Logger log = LoggerFactory.getLogger(ModelDeleteDataFetcher.class);
 
     private final ModelMetadata model;
-    private final JdbcExecutor executor;
+    private final QueryExecutionEngine executor;
     private final SqlDialect dialect;
     private final String idArgumentName;
 
     public ModelDeleteDataFetcher(
             ModelMetadata model,
-            JdbcExecutor executor,
+            QueryExecutionEngine executor,
             SqlDialect dialect,
             String idArgumentName
     ) {
         this.model = Objects.requireNonNull(model, "ModelMetadata must not be null");
-        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
-        this.dialect = dialect != null ? dialect : executor.dialect();
+        this.executor = Objects.requireNonNull(executor, "QueryExecutionEngine must not be null");
+        this.dialect = dialect != null ? dialect : (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect());
         this.idArgumentName = idArgumentName != null ? idArgumentName : "id";
     }
 
-    public ModelDeleteDataFetcher(ModelMetadata model, JdbcExecutor executor) {
-        this(model, executor, executor.dialect(), "id");
+    public ModelDeleteDataFetcher(ModelMetadata model, QueryExecutionEngine executor) {
+        this(model, executor, (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect()), "id");
     }
 
     @Override

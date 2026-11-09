@@ -22,6 +22,7 @@ import com.graphorm.graphql.schema.GraphQlTypeInspector;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
+import com.graphorm.core.execution.QueryExecutionEngine;
 import com.graphorm.jdbc.relation.BatchRelationLoader;
 import graphql.schema.DataFetcher;
 import graphql.schema.FieldCoordinates;
@@ -61,6 +62,7 @@ public class GraphOrmGraphQlRegistrar {
     private static final Logger log = LoggerFactory.getLogger(GraphOrmGraphQlRegistrar.class);
 
     private final ModelRegistry modelRegistry;
+    private final QueryExecutionEngine executionEngine;
     private final JdbcExecutor executor;
     private final SqlDialect dialect;
     private final ArgumentBinder argumentBinder;
@@ -71,19 +73,20 @@ public class GraphOrmGraphQlRegistrar {
 
     public GraphOrmGraphQlRegistrar(
             ModelRegistry modelRegistry,
-            JdbcExecutor executor,
+            QueryExecutionEngine executionEngine,
             SqlDialect dialect,
             ArgumentBinder argumentBinder
     ) {
         this.modelRegistry = Objects.requireNonNull(modelRegistry, "ModelRegistry must not be null");
-        this.executor = Objects.requireNonNull(executor, "JdbcExecutor must not be null");
-        this.dialect = dialect != null ? dialect : executor.dialect();
+        this.executionEngine = Objects.requireNonNull(executionEngine, "QueryExecutionEngine must not be null");
+        this.executor = executionEngine instanceof JdbcExecutor je ? je : null;
+        this.dialect = dialect != null ? dialect : (executor != null ? executor.dialect() : new PostgreSqlDialect());
         this.argumentBinder = argumentBinder != null ? argumentBinder : new ArgumentBinder();
-        this.batchRelationLoader = new BatchRelationLoader(this.executor, this.modelRegistry);
+        this.batchRelationLoader = new BatchRelationLoader(this.executionEngine, this.modelRegistry);
     }
 
-    public GraphOrmGraphQlRegistrar(ModelRegistry modelRegistry, JdbcExecutor executor) {
-        this(modelRegistry, executor, executor.dialect(), new ArgumentBinder());
+    public GraphOrmGraphQlRegistrar(ModelRegistry modelRegistry, QueryExecutionEngine executionEngine) {
+        this(modelRegistry, executionEngine, executionEngine instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect(), new ArgumentBinder());
     }
 
     public GraphOrmGraphQlRegistrar(ModelRegistry modelRegistry, DataSource dataSource) {
@@ -307,8 +310,8 @@ public class GraphOrmGraphQlRegistrar {
                     dialect
             );
             case VIEW_CONNECTION_QUERY -> binding.entity() instanceof ViewModelMetadata vm
-                    ? new ViewConnectionDataFetcher(vm, modelRegistry, executor, argumentBinder, dialect)
-                    : new ModelConnectionDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executor, argumentBinder, dialect);
+                    ? new ViewConnectionDataFetcher(vm, modelRegistry, executionEngine, argumentBinder, dialect)
+                    : new ModelConnectionDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executionEngine, argumentBinder, dialect);
             case MODEL_DELETE_MUTATION -> new ModelDeleteDataFetcher(
                     (ModelMetadata) binding.entity(),
                     executor,
@@ -316,11 +319,11 @@ public class GraphOrmGraphQlRegistrar {
                     binding.idArgumentName()
             );
             case VIEW_LIST_QUERY -> binding.entity() instanceof ViewModelMetadata vm
-                    ? new ViewListDataFetcher(vm, modelRegistry, executor, argumentBinder, dialect)
-                    : new ModelListDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executor, argumentBinder, dialect);
+                    ? new ViewListDataFetcher(vm, modelRegistry, executionEngine, argumentBinder, dialect)
+                    : new ModelListDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executionEngine, argumentBinder, dialect);
             case VIEW_SINGLE_QUERY -> binding.entity() instanceof ViewModelMetadata vm
-                    ? new ViewSingleDataFetcher(vm, modelRegistry, executor, dialect, binding.idArgumentName())
-                    : new ModelSingleDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executor, dialect, binding.idArgumentName());
+                    ? new ViewSingleDataFetcher(vm, modelRegistry, executionEngine, dialect, binding.idArgumentName())
+                    : new ModelSingleDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executionEngine, dialect, binding.idArgumentName());
             case VIEW_MUTATION_REJECTED -> throw new ReadOnlyViewException(
                     binding.entity().name(),
                     "Attempted to register write mutation '" + binding.fieldName()
@@ -353,6 +356,10 @@ public class GraphOrmGraphQlRegistrar {
 
     public ModelRegistry modelRegistry() {
         return modelRegistry;
+    }
+
+    public QueryExecutionEngine executionEngine() {
+        return executionEngine;
     }
 
     public JdbcExecutor executor() {
