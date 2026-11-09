@@ -13,6 +13,7 @@ import com.graphorm.core.query.SourceTable;
 import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.graphql.security.FieldAuthorizerContext;
 import com.graphorm.graphql.security.InjectedValueResolver;
+import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import graphql.schema.DataFetcher;
@@ -21,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -28,7 +30,7 @@ import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for creating a model entity (e.g. {@code Mutation.createStudent(input: StudentInput!)}).
- * Enforces writability, model authorization, hydrates backend-injected fields from context,
+ * Enforces writability, model authorization, field-level authorization on input fields, hydrates backend-injected fields from context,
  * and invalidates tag-dependent L2 entity/view caches upon insertion.
  */
 public class ModelCreateDataFetcher implements DataFetcher<Map<String, Object>> {
@@ -63,8 +65,8 @@ public class ModelCreateDataFetcher implements DataFetcher<Map<String, Object>> 
 
         QueryGuards.ensureWritable(model, "INSERT");
 
+        FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
         if (model.hasAuthRoles()) {
-            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
             if (!authorizer.isAuthorized(model.authRoles())) {
                 log.warn("Access denied to model '{}'. Required roles: {}, user roles: {}",
                         model.name(), model.authRoles(), authorizer.getCurrentRoles());
@@ -87,11 +89,11 @@ public class ModelCreateDataFetcher implements DataFetcher<Map<String, Object>> 
             if (field.isRelation() || field.isInjected()) {
                 continue;
             }
-            if (inputMap.containsKey(field.name())) {
-                Object raw = inputMap.get(field.name());
-                dbValues.put(field.dbColumnName(), EntityRowNormalizer.coerceToFieldType(raw, field));
-            } else if (inputMap.containsKey(field.dbColumnName())) {
-                Object raw = inputMap.get(field.dbColumnName());
+            if (inputMap.containsKey(field.name()) || inputMap.containsKey(field.dbColumnName())) {
+                if (field.hasAuthRoles()) {
+                    SecurityPlannerInterceptor.verifyFieldAccess(model, List.of(field.name()), authorizer);
+                }
+                Object raw = inputMap.containsKey(field.name()) ? inputMap.get(field.name()) : inputMap.get(field.dbColumnName());
                 dbValues.put(field.dbColumnName(), EntityRowNormalizer.coerceToFieldType(raw, field));
             }
         }

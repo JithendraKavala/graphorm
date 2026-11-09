@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -99,17 +100,25 @@ public class GraphOrmMigrationInitializer implements InitializingBean {
     public List<MigrationFile> loadMigrationFiles(String location) throws IOException {
         List<MigrationFile> files = new ArrayList<>();
 
-        // 1. Check if location points to a local directory on the filesystem
-        Path directPath = Path.of(location.replaceFirst("^file:", ""));
-        if (Files.exists(directPath) && Files.isDirectory(directPath)) {
-            return MigrationFile.loadAll(directPath);
+        // 1. Check if location points to a local directory on the filesystem (avoid InvalidPathException on Windows)
+        if (!location.startsWith("classpath:") && !location.startsWith("classpath*:")) {
+            try {
+                Path directPath = Path.of(location.replaceFirst("^file:", ""));
+                if (Files.exists(directPath) && Files.isDirectory(directPath)) {
+                    return MigrationFile.loadAll(directPath);
+                }
+            } catch (InvalidPathException e) {
+                log.debug("Location '{}' is not a valid filesystem path: {}", location, e.getMessage());
+            }
         }
 
-        // 2. Discover via Spring Resource Pattern Resolver
+        // 2. Discover via Spring Resource Pattern Resolver (using classpath*: to support fat JARs)
         PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver(resourceLoader);
         String cleanLocation = location.endsWith("/") ? location.substring(0, location.length() - 1) : location;
         if (!cleanLocation.startsWith("classpath:") && !cleanLocation.startsWith("classpath*:")) {
-            cleanLocation = "classpath:" + cleanLocation;
+            cleanLocation = "classpath*:" + cleanLocation;
+        } else if (cleanLocation.startsWith("classpath:")) {
+            cleanLocation = "classpath*:" + cleanLocation.substring("classpath:".length());
         }
 
         // Search both flat (*.sql) and nested (* /migration.sql)

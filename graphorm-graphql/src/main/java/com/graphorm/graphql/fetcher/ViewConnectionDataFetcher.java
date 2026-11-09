@@ -22,15 +22,18 @@ import com.graphorm.graphql.security.FieldAuthorizerContext;
 import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
+import com.graphorm.jdbc.view.ViewQueryPlanner;
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Relay-spec compliant GraphQL {@link DataFetcher} for keyset cursor-paginated queries
@@ -79,10 +82,22 @@ public class ViewConnectionDataFetcher implements DataFetcher<Connection<Map<Str
         }
 
         FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+        Set<String> requested = new HashSet<>();
         if (env.getSelectionSet() != null && env.getSelectionSet().getFields() != null) {
-            java.util.Set<String> requested = env.getSelectionSet().getFields().stream()
+            env.getSelectionSet().getFields().stream()
                     .map(graphql.schema.SelectedField::getName)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .forEach(requested::add);
+
+            try {
+                List<graphql.schema.SelectedField> nodeFields = env.getSelectionSet().getFields("edges/node/*");
+                if (nodeFields != null) {
+                    nodeFields.stream()
+                            .map(graphql.schema.SelectedField::getName)
+                            .forEach(requested::add);
+                }
+            } catch (Exception ignored) {
+            }
+
             for (FieldMetadata field : view.fields()) {
                 if (field.hasAuthRoles() && requested.contains(field.name())) {
                     SecurityPlannerInterceptor.verifyFieldAccess(view, List.of(field.name()), authorizer);
@@ -90,20 +105,20 @@ public class ViewConnectionDataFetcher implements DataFetcher<Connection<Map<Str
             }
         }
 
-        SelectQuery.Builder builder = SelectQuery.from(view.viewName());
-        for (FieldMetadata f : view.fields()) {
-            builder.column(f.name());
-        }
+        Set<String> selectedFieldNames = requested.isEmpty() ? null : requested;
+        ViewQueryPlanner.ViewQueryBuilder viewBuilder = ViewQueryPlanner.plan(view, registry, selectedFieldNames, dialect);
 
         WherePredicate where = argumentBinder.bindWhere(env, view);
         if (where != null) {
-            builder.where(where);
+            viewBuilder.where(where);
         }
 
         List<OrderByClause> orderBy = argumentBinder.bindOrderBy(env, view);
         String tieBreaker = view.fields().isEmpty() ? "id" : view.fields().get(0).name();
         List<OrderByClause> effectiveOrderBy = KeysetPredicateGenerator.ensureTieBreaker(orderBy, tieBreaker);
-        builder.orderBy(effectiveOrderBy);
+        if (!effectiveOrderBy.isEmpty()) {
+            viewBuilder.orderBy(effectiveOrderBy.toArray(new OrderByClause[0]));
+        }
 
         String after = argumentBinder.bindAfter(env);
         String before = argumentBinder.bindBefore(env);
@@ -113,6 +128,7 @@ public class ViewConnectionDataFetcher implements DataFetcher<Connection<Map<Str
         int requestedSize = first != null && first > 0 ? first : (last != null && last > 0 ? last : DEFAULT_PAGE_SIZE);
         int pageSize = Math.min(requestedSize, MAX_PAGE_SIZE);
 
+        SelectQuery.Builder builder = viewBuilder.toSelectQueryBuilder();
         if (after != null) {
             builder.after(after);
         }
@@ -152,9 +168,8 @@ public class ViewConnectionDataFetcher implements DataFetcher<Connection<Map<Str
 
         Integer totalCount = null;
         if (env.getSelectionSet() != null && env.getSelectionSet().contains("totalCount")) {
-            SelectQuery countQuery = SelectQuery.from(view.viewName())
-                    .columns("COUNT(*) as cnt")
-                    .where(where)
+            SelectQuery.Builder countBuilder = viewBuilder.toSelectQueryBuilder();
+            SelectQuery countQuery = countBuilder.columns("COUNT(*) as cnt")
                     .build();
             totalCount = executor.queryForObject(countQuery)
                     .map(m -> ((Number) m.get("cnt")).intValue())

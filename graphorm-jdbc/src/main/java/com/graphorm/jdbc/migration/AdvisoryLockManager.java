@@ -7,11 +7,12 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Objects;
 
 /**
- * Manages PostgreSQL advisory locks to guarantee that concurrent migration runners
+ * Manages database advisory locks to guarantee that concurrent migration runners
  * do not execute simultaneously or corrupt the migration ledger.
  */
 public final class AdvisoryLockManager {
@@ -35,13 +36,24 @@ public final class AdvisoryLockManager {
      * Blocks until the session-level advisory lock is acquired.
      *
      * @param conn the JDBC connection
-     * @throws SQLException if a database error occurs
+     * @throws SQLException if a database error occurs or lock acquisition fails
      */
     public void acquireLock(Connection conn) throws SQLException {
         log.debug("Acquiring migration advisory lock ({})", lockKey);
         String sql = dialect.buildAdvisoryLockSql(lockKey);
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.execute();
+            if (ps.execute()) {
+                try (ResultSet rs = ps.getResultSet()) {
+                    if (rs != null && rs.next()) {
+                        Object val = rs.getObject(1);
+                        if (val instanceof Number num && num.intValue() != 1) {
+                            throw new SQLException("Failed to acquire advisory lock (" + lockKey + "); database lock function returned " + val);
+                        } else if (val instanceof Boolean b && !b) {
+                            throw new SQLException("Failed to acquire advisory lock (" + lockKey + "); database lock function returned false");
+                        }
+                    }
+                }
+            }
         }
         log.debug("Acquired migration advisory lock ({})", lockKey);
     }

@@ -140,6 +140,11 @@ public class MySqlDialect implements SqlDialect {
     @Override
     public BoundSql buildUpsertSql(UpsertQuery query) {
         Objects.requireNonNull(query, "UpsertQuery must not be null");
+        if (query.updateWhere() != null) {
+            throw new UnsupportedOperationException(
+                    "MySQL does not support conditional WHERE clauses in ON DUPLICATE KEY UPDATE. Query: " + query);
+        }
+
         StringBuilder sql = new StringBuilder();
         List<Object> parameters = new ArrayList<>();
 
@@ -170,6 +175,12 @@ public class MySqlDialect implements SqlDialect {
                     String quotedCol = quoteIdentifier(col);
                     sql.append(quotedCol).append(" = VALUES(").append(quotedCol).append(")");
                     u++;
+                }
+                if (u == 0) {
+                    // All columns were conflict columns; update first column to itself to act as valid SQL no-op
+                    String firstCol = query.values().keySet().iterator().next();
+                    String quoted = quoteIdentifier(firstCol);
+                    sql.append(quoted).append(" = ").append(quoted);
                 }
             }
         } else {

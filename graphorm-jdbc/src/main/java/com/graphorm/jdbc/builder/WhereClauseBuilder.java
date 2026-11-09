@@ -170,8 +170,7 @@ public final class WhereClauseBuilder {
             case GREATER_THAN_OR_EQUAL -> ">=";
             case LESS_THAN -> "<";
             case LESS_THAN_OR_EQUAL -> "<=";
-            case LIKE -> "LIKE";
-            case ILIKE -> "ILIKE";
+            case LIKE, ILIKE -> throw new IllegalArgumentException("Row constructor comparison does not support " + rowComp.operator());
         };
         sql.append(opSymbol).append(" (");
         for (int i = 0; i < rowComp.values().size(); i++) {

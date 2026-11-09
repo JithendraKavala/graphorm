@@ -1,8 +1,11 @@
 package com.graphorm.jdbc.dialect;
 
+import com.graphorm.core.exception.CannotAcquireLockException;
 import com.graphorm.core.exception.CheckConstraintViolationException;
+import com.graphorm.core.exception.ConcurrencyFailureException;
 import com.graphorm.core.exception.DataAccessException;
 import com.graphorm.core.exception.DataIntegrityViolationException;
+import com.graphorm.core.exception.DeadlockDetectedException;
 import com.graphorm.core.exception.DuplicateKeyException;
 import com.graphorm.core.exception.ForeignKeyViolationException;
 import com.graphorm.jdbc.exception.QueryExecutionException;
@@ -17,6 +20,8 @@ import java.sql.SQLException;
  *     <li>Error 1216, 1217, 1451, 1452: {@link ForeignKeyViolationException}</li>
  *     <li>Error 3819, 4025: {@link CheckConstraintViolationException}</li>
  *     <li>Error 1048, 1364 or SQLSTATE 23*: {@link DataIntegrityViolationException}</li>
+ *     <li>Error 1205, 3572: {@link CannotAcquireLockException}</li>
+ *     <li>Error 1213: {@link DeadlockDetectedException}</li>
  *     <li>Other: {@link QueryExecutionException}</li>
  * </ul>
  */
@@ -47,6 +52,11 @@ public class MySqlErrorTranslator implements SqlErrorTranslator {
             case 1048:
             case 1364:
                 return new DataIntegrityViolationException(message, sql, sqlState, ex);
+            case 1205:
+            case 3572:
+                return new CannotAcquireLockException(message, sql, sqlState, ex);
+            case 1213:
+                return new DeadlockDetectedException(message, sql, sqlState, ex);
             default:
                 break;
         }
@@ -62,9 +72,21 @@ public class MySqlErrorTranslator implements SqlErrorTranslator {
         if (rawMsg.contains("Check constraint") && rawMsg.contains("is violated")) {
             return new CheckConstraintViolationException(message, sql, sqlState, ex);
         }
+        if (rawMsg.contains("Lock wait timeout exceeded")) {
+            return new CannotAcquireLockException(message, sql, sqlState, ex);
+        }
+        if (rawMsg.contains("Deadlock found")) {
+            return new DeadlockDetectedException(message, sql, sqlState, ex);
+        }
 
         // 3. Check SQLSTATE
         if (sqlState != null) {
+            if ("40001".equals(sqlState)) {
+                return new ConcurrencyFailureException(message, sql, sqlState, ex);
+            }
+            if ("40P01".equals(sqlState)) {
+                return new DeadlockDetectedException(message, sql, sqlState, ex);
+            }
             if ("23000".equals(sqlState)) {
                 return new DataIntegrityViolationException(message, sql, sqlState, ex);
             }

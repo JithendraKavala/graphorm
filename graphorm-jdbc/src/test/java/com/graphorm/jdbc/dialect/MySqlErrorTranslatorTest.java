@@ -1,8 +1,10 @@
 package com.graphorm.jdbc.dialect;
 
+import com.graphorm.core.exception.CannotAcquireLockException;
 import com.graphorm.core.exception.CheckConstraintViolationException;
 import com.graphorm.core.exception.DataAccessException;
 import com.graphorm.core.exception.DataIntegrityViolationException;
+import com.graphorm.core.exception.DeadlockDetectedException;
 import com.graphorm.core.exception.DuplicateKeyException;
 import com.graphorm.core.exception.ForeignKeyViolationException;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +66,21 @@ class MySqlErrorTranslatorTest {
         SQLException ex3819 = new SQLException("Check constraint 'chk_age' is violated.", "HY000", 3819);
         assertThat(translator.translate("Insert", "INSERT...", ex3819))
                 .isInstanceOf(CheckConstraintViolationException.class);
+    }
+
+    @Test
+    @DisplayName("Should translate MySQL lock timeout and deadlock error codes (1205, 3572, 1213)")
+    void shouldTranslateLockAndDeadlock() {
+        SQLException ex1205 = new SQLException("Lock wait timeout exceeded", "HY000", 1205);
+        SQLException ex3572 = new SQLException("Statement interrupted, timeout exceeded", "HY000", 3572);
+        SQLException ex1213 = new SQLException("Deadlock found when trying to get lock", "40001", 1213);
+
+        assertThat(translator.translate("Update", "UPDATE...", ex1205))
+                .isInstanceOf(CannotAcquireLockException.class);
+        assertThat(translator.translate("Update", "UPDATE...", ex3572))
+                .isInstanceOf(CannotAcquireLockException.class);
+        assertThat(translator.translate("Update", "UPDATE...", ex1213))
+                .isInstanceOf(DeadlockDetectedException.class);
     }
 
     @Test

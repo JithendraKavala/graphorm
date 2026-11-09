@@ -59,6 +59,22 @@ class PostgreSqlErrorTranslatorTest {
     }
 
     @Test
+    @DisplayName("Translates SQLSTATE 40001, 40P01, and 55P03 to Concurrency / Lock / Deadlock exceptions")
+    void translatesConcurrencyExceptions() {
+        SQLException sqlEx40001 = new SQLException("could not serialize access due to concurrent update", "40001", 0);
+        assertThat(translator.translate("execute tx", "UPDATE...", sqlEx40001))
+                .isInstanceOf(ConcurrencyFailureException.class);
+
+        SQLException sqlEx40P01 = new SQLException("deadlock detected", "40P01", 0);
+        assertThat(translator.translate("execute tx", "UPDATE...", sqlEx40P01))
+                .isInstanceOf(DeadlockDetectedException.class);
+
+        SQLException sqlEx55P03 = new SQLException("could not obtain lock on row in relation", "55P03", 0);
+        assertThat(translator.translate("execute tx", "SELECT FOR UPDATE...", sqlEx55P03))
+                .isInstanceOf(CannotAcquireLockException.class);
+    }
+
+    @Test
     @DisplayName("Translates general SQLSTATE to DataAccessException")
     void translatesGeneralSqlException() {
         SQLException sqlEx = new SQLException("connection terminated", "08006", 0);

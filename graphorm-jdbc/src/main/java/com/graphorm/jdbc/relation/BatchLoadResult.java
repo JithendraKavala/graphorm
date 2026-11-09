@@ -1,6 +1,7 @@
 package com.graphorm.jdbc.relation;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,9 +23,9 @@ public record BatchLoadResult<P, C>(
 ) {
 
     public BatchLoadResult {
-        oneToOne = oneToOne == null ? Map.of() : Map.copyOf(oneToOne);
-        oneToMany = oneToMany == null ? Map.of() : Map.copyOf(oneToMany);
-        byKey = byKey == null ? Map.of() : Map.copyOf(byKey);
+        oneToOne = oneToOne == null ? Collections.emptyMap() : Collections.unmodifiableMap(new LinkedHashMap<>(oneToOne));
+        oneToMany = oneToMany == null ? Collections.emptyMap() : Collections.unmodifiableMap(new LinkedHashMap<>(oneToMany));
+        byKey = byKey == null ? Collections.emptyMap() : Collections.unmodifiableMap(new LinkedHashMap<>(byKey));
     }
 
     /**

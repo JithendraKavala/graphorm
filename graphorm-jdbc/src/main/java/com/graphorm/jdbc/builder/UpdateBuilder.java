@@ -158,9 +158,16 @@ public final class UpdateBuilder {
         return this;
     }
 
+    /**
+     * Enables optimistic locking concurrency control with the given version column and expected version.
+     *
+     * @param versionColumn   the name of the version column in the database table
+     * @param expectedVersion the expected version value prior to update
+     * @return this builder
+     */
     public UpdateBuilder optimisticLock(String versionColumn, Object expectedVersion) {
         this.versionColumn = Objects.requireNonNull(versionColumn, "versionColumn must not be null");
-        this.expectedVersion = expectedVersion;
+        this.expectedVersion = Objects.requireNonNull(expectedVersion, "expectedVersion must not be null");
         this.optimisticLocking = true;
         return this;
     }
@@ -244,46 +251,53 @@ public final class UpdateBuilder {
             throw new IllegalStateException("Target table must be specified for UPDATE");
         }
 
+        Map<String, Object> effectiveValues = new LinkedHashMap<>(this.values);
+        WherePredicate effectiveWhere = this.where;
+        Object currentExpectedVersion = this.expectedVersion;
+        boolean isOptimistic = this.optimisticLocking;
+
         if (entity != null && entity.isMultiTenant()) {
             String tenantId = QueryGuards.requireTenantContext(entity, "UPDATE");
             if (tenantId != null) {
                 WherePredicate tenantPredicate = WherePredicate.equal(entity.tenantColumn(), tenantId);
-                where = (where == null) ? tenantPredicate : tenantPredicate.and(where);
-                values.put(entity.tenantColumn(), tenantId);
+                effectiveWhere = (effectiveWhere == null) ? tenantPredicate : tenantPredicate.and(effectiveWhere);
+                effectiveValues.put(entity.tenantColumn(), tenantId);
             }
         }
 
         // Auto-detect version field from values if set
-        if (versionColumn != null && expectedVersion == null && values.containsKey(versionColumn)) {
-            this.expectedVersion = values.get(versionColumn);
+        if (versionColumn != null && currentExpectedVersion == null && effectiveValues.containsKey(versionColumn)) {
+            currentExpectedVersion = effectiveValues.get(versionColumn);
+            isOptimistic = true;
+            this.expectedVersion = currentExpectedVersion;
             this.optimisticLocking = true;
         }
 
         // Apply optimistic locking version increment and WHERE condition
-        if (optimisticLocking && versionColumn != null && expectedVersion != null) {
-            Object nextVersion = computeNextVersion(expectedVersion);
-            values.put(versionColumn, nextVersion);
+        if (isOptimistic && versionColumn != null && currentExpectedVersion != null) {
+            Object nextVersion = computeNextVersion(currentExpectedVersion);
+            effectiveValues.put(versionColumn, nextVersion);
 
-            WherePredicate verPredicate = WherePredicate.eq(versionColumn, expectedVersion);
-            if (where == null) {
+            WherePredicate verPredicate = WherePredicate.eq(versionColumn, currentExpectedVersion);
+            if (effectiveWhere == null) {
                 if (idValue != null) {
-                    where = WherePredicate.eq(idColumn, idValue).and(verPredicate);
+                    effectiveWhere = WherePredicate.eq(idColumn, idValue).and(verPredicate);
                 } else {
-                    where = verPredicate;
+                    effectiveWhere = verPredicate;
                 }
             } else {
                 if (idValue != null) {
-                    where = where.and(WherePredicate.eq(idColumn, idValue)).and(verPredicate);
+                    effectiveWhere = effectiveWhere.and(WherePredicate.eq(idColumn, idValue)).and(verPredicate);
                 } else {
-                    where = where.and(verPredicate);
+                    effectiveWhere = effectiveWhere.and(verPredicate);
                 }
             }
         } else if (idValue != null) {
             WherePredicate idPredicate = WherePredicate.eq(idColumn, idValue);
-            where = (where == null) ? idPredicate : where.and(idPredicate);
+            effectiveWhere = (effectiveWhere == null) ? idPredicate : effectiveWhere.and(idPredicate);
         }
 
-        if (values.isEmpty()) {
+        if (effectiveValues.isEmpty()) {
             throw new IllegalStateException("At least one column value must be specified for UPDATE");
         }
 
@@ -293,7 +307,7 @@ public final class UpdateBuilder {
 
         List<Object> parameters = new ArrayList<>();
         int i = 0;
-        for (Map.Entry<String, Object> entry : values.entrySet()) {
+        for (Map.Entry<String, Object> entry : effectiveValues.entrySet()) {
             if (i > 0) {
                 sql.append(", ");
             }
@@ -302,8 +316,8 @@ public final class UpdateBuilder {
             i++;
         }
 
-        if (where != null) {
-            BoundSql whereSql = WhereClauseBuilder.buildWhereClause(where, dialect);
+        if (effectiveWhere != null) {
+            BoundSql whereSql = WhereClauseBuilder.buildWhereClause(effectiveWhere, dialect);
             sql.append(whereSql.sql());
             parameters.addAll(whereSql.parameters());
         }

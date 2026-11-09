@@ -1,5 +1,8 @@
 package com.graphorm.jdbc.executor;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -16,7 +19,9 @@ public record BoundSql(String sql, List<Object> parameters) {
 
     public BoundSql {
         Objects.requireNonNull(sql, "SQL statement must not be null");
-        parameters = parameters == null ? List.of() : List.copyOf(parameters);
+        parameters = (parameters == null)
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(new ArrayList<>(parameters));
     }
 
     /**
@@ -35,7 +40,7 @@ public record BoundSql(String sql, List<Object> parameters) {
      * @return a new BoundSql instance
      */
     public static BoundSql of(String sql) {
-        return new BoundSql(sql, List.of());
+        return new BoundSql(sql, Collections.emptyList());
     }
 
     /**
@@ -57,6 +62,9 @@ public record BoundSql(String sql, List<Object> parameters) {
      * @return a new BoundSql instance
      */
     public static BoundSql of(String sql, Object... parameters) {
-        return new BoundSql(sql, parameters != null ? List.of(parameters) : List.of());
+        if (parameters == null || parameters.length == 0) {
+            return new BoundSql(sql, Collections.emptyList());
+        }
+        return new BoundSql(sql, Arrays.asList(parameters));
     }
 }

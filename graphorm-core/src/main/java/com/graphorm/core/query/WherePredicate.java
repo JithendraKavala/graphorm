@@ -101,7 +101,7 @@ public sealed interface WherePredicate permits
                 throw new IllegalArgumentException("Column count (" + columns.size() + ") must match value count (" + values.size() + ")");
             }
             columns = List.copyOf(columns);
-            values = List.copyOf(values);
+            values = Collections.unmodifiableList(new ArrayList<>(values));
         }
     }
 
@@ -188,7 +188,8 @@ public sealed interface WherePredicate permits
      *             dialect extensions or complex vendor-specific expressions with parameterized inputs.
      *             <p>
      *             <strong>SECURITY WARNING (SEC-05):</strong> Never construct {@code RawPredicate} by concatenating
-     *             untrusted user input. Always parameterize arguments using positional '?' placeholders.\n     */
+     *             untrusted user input. Always parameterize arguments using positional '?' placeholders.
+     */
     @Deprecated(since = "0.1.0")
     record RawPredicate(String sql, List<Object> parameters) implements WherePredicate {
         public RawPredicate {
@@ -196,7 +197,7 @@ public sealed interface WherePredicate permits
             if (sql.isBlank()) {
                 throw new IllegalArgumentException("SQL must not be blank");
             }
-            parameters = parameters == null ? List.of() : List.copyOf(parameters);
+            parameters = parameters == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(parameters));
         }
     }
 

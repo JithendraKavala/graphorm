@@ -1,8 +1,11 @@
 package com.graphorm.jdbc.dialect;
 
+import com.graphorm.core.exception.CannotAcquireLockException;
 import com.graphorm.core.exception.CheckConstraintViolationException;
+import com.graphorm.core.exception.ConcurrencyFailureException;
 import com.graphorm.core.exception.DataAccessException;
 import com.graphorm.core.exception.DataIntegrityViolationException;
+import com.graphorm.core.exception.DeadlockDetectedException;
 import com.graphorm.core.exception.DuplicateKeyException;
 import com.graphorm.core.exception.ForeignKeyViolationException;
 import com.graphorm.jdbc.exception.QueryExecutionException;
@@ -17,6 +20,9 @@ import java.sql.SQLException;
  *     <li>{@code 23503}: {@link ForeignKeyViolationException} (foreign_key_violation)</li>
  *     <li>{@code 23514}: {@link CheckConstraintViolationException} (check_violation)</li>
  *     <li>{@code 23*}: {@link DataIntegrityViolationException} (integrity_constraint_violation)</li>
+ *     <li>{@code 40001}: {@link ConcurrencyFailureException} (serialization_failure)</li>
+ *     <li>{@code 40P01}: {@link DeadlockDetectedException} (deadlock_detected)</li>
+ *     <li>{@code 55P03}: {@link CannotAcquireLockException} (lock_not_available)</li>
  *     <li>Other: {@link QueryExecutionException}</li>
  * </ul>
  */
@@ -36,6 +42,9 @@ public class PostgreSqlErrorTranslator implements SqlErrorTranslator {
                 case "23505" -> new DuplicateKeyException(message, sql, sqlState, ex);
                 case "23503" -> new ForeignKeyViolationException(message, sql, sqlState, ex);
                 case "23514" -> new CheckConstraintViolationException(message, sql, sqlState, ex);
+                case "40001" -> new ConcurrencyFailureException(message, sql, sqlState, ex);
+                case "40P01" -> new DeadlockDetectedException(message, sql, sqlState, ex);
+                case "55P03" -> new CannotAcquireLockException(message, sql, sqlState, ex);
                 default -> {
                     if (sqlState.startsWith("23")) {
                         yield new DataIntegrityViolationException(message, sql, sqlState, ex);

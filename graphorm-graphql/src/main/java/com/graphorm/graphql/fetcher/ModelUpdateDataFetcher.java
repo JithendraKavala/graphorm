@@ -5,6 +5,7 @@ import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.core.execution.QueryExecutionEngine;
 
 import com.graphorm.core.exception.AccessDeniedException;
+import com.graphorm.core.exception.OptimisticLockException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
@@ -16,6 +17,7 @@ import com.graphorm.core.query.WherePredicate;
 import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.graphql.security.FieldAuthorizerContext;
 import com.graphorm.graphql.security.InjectedValueResolver;
+import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
@@ -25,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -32,7 +35,8 @@ import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for updating a model entity (e.g. {@code Mutation.updateStudent(id: ID!, input: StudentInput!)}).
- * Enforces writability, model authorization, primary key immutability, hydrates backend-injected fields from context,
+ * Enforces writability, model authorization, field-level authorization on input fields, primary key immutability,
+ * optimistic locking via version column tracking, hydrates backend-injected fields from context,
  * and invalidates tag-dependent L2 entity/view caches upon update.
  */
 public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> {
@@ -77,8 +81,8 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
 
         QueryGuards.ensureWritable(model, "UPDATE");
 
+        FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
         if (model.hasAuthRoles()) {
-            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
             if (!authorizer.isAuthorized(model.authRoles())) {
                 log.warn("Access denied to model '{}'. Required roles: {}, user roles: {}",
                         model.name(), model.authRoles(), authorizer.getCurrentRoles());
@@ -116,11 +120,12 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
             if (field.name().equals(pkField) || field.dbColumnName().equals(pkColumn)) {
                 continue;
             }
-            if (inputMap.containsKey(field.name())) {
-                Object coerced = EntityRowNormalizer.coerceToFieldType(inputMap.get(field.name()), field);
-                dbValues.put(field.dbColumnName(), coerced);
-            } else if (inputMap.containsKey(field.dbColumnName())) {
-                Object coerced = EntityRowNormalizer.coerceToFieldType(inputMap.get(field.dbColumnName()), field);
+            if (inputMap.containsKey(field.name()) || inputMap.containsKey(field.dbColumnName())) {
+                if (field.hasAuthRoles()) {
+                    SecurityPlannerInterceptor.verifyFieldAccess(model, List.of(field.name()), authorizer);
+                }
+                Object raw = inputMap.containsKey(field.name()) ? inputMap.get(field.name()) : inputMap.get(field.dbColumnName());
+                Object coerced = EntityRowNormalizer.coerceToFieldType(raw, field);
                 dbValues.put(field.dbColumnName(), coerced);
             }
         }
@@ -154,12 +159,39 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
                 dbValues.put(model.tenantColumn(), tenantId);
             }
         }
+
+        FieldMetadata versionField = model.hasVersionField() ? model.versionField().orElse(null) : null;
+        Object expectedVersion = null;
+        if (versionField != null) {
+            if (inputMap.containsKey(versionField.name())) {
+                expectedVersion = inputMap.get(versionField.name());
+            } else if (inputMap.containsKey(versionField.dbColumnName())) {
+                expectedVersion = inputMap.get(versionField.dbColumnName());
+            }
+            if (expectedVersion != null) {
+                updateWhere = updateWhere.and(WherePredicate.eq(versionField.dbColumnName(), expectedVersion));
+            }
+        }
+
         UpdateQuery updateQuery = new UpdateQuery(
                 SourceTable.table(model.tableName()),
                 dbValues,
                 updateWhere
         );
         Optional<Map<String, Object>> result = executor.executeUpdateAndReturn(updateQuery);
+
+        if (result.isEmpty() && versionField != null && expectedVersion != null) {
+            throw new OptimisticLockException(
+                    "Optimistic lock failure: record in '" + model.tableName() +
+                            "' with identifier '" + idValue + "' was modified or deleted by another transaction (expected version: " +
+                            expectedVersion + ")",
+                    null,
+                    model.name(),
+                    idValue,
+                    expectedVersion,
+                    null
+            );
+        }
 
         executor.cacheManager().ifPresent(cm -> cm.evictByTags(Set.of(model.name(), model.tableName())));
 

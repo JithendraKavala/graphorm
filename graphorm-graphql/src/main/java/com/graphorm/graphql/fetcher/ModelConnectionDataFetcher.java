@@ -29,11 +29,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
-/**\n * Relay-spec compliant GraphQL {@link DataFetcher} for keyset cursor-paginated queries\n * returning a {@link Connection}.\n */
+/**
+ * Relay-spec compliant GraphQL {@link DataFetcher} for keyset cursor-paginated queries
+ * returning a {@link Connection}.
+ */
 public class ModelConnectionDataFetcher implements DataFetcher<Connection<Map<String, Object>>> {
 
     private static final Logger log = LoggerFactory.getLogger(ModelConnectionDataFetcher.class);
@@ -76,12 +81,24 @@ public class ModelConnectionDataFetcher implements DataFetcher<Connection<Map<St
             }
         }
 
-        // Verify field-level authorization for requested fields
+        // Verify field-level authorization for requested fields (including nested under edges/node/*)
         FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+        Set<String> requested = new HashSet<>();
         if (env.getSelectionSet() != null && env.getSelectionSet().getFields() != null) {
-            java.util.Set<String> requested = env.getSelectionSet().getFields().stream()
+            env.getSelectionSet().getFields().stream()
                     .map(graphql.schema.SelectedField::getName)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .forEach(requested::add);
+
+            try {
+                List<graphql.schema.SelectedField> nodeFields = env.getSelectionSet().getFields("edges/node/*");
+                if (nodeFields != null) {
+                    nodeFields.stream()
+                            .map(graphql.schema.SelectedField::getName)
+                            .forEach(requested::add);
+                }
+            } catch (Exception ignored) {
+            }
+
             for (FieldMetadata field : model.fields()) {
                 if (field.hasAuthRoles() && requested.contains(field.name())) {
                     SecurityPlannerInterceptor.verifyFieldAccess(model, List.of(field.name()), authorizer);

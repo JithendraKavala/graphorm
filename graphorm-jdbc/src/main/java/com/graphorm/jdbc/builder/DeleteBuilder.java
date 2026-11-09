@@ -1,7 +1,9 @@
 package com.graphorm.jdbc.builder;
 
+import com.graphorm.core.exception.OptimisticLockException;
 import com.graphorm.core.exception.ReadOnlyViewException;
 import com.graphorm.core.metadata.EntityMetadata;
+import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.QueryGuards;
@@ -9,6 +11,7 @@ import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.BoundSql;
+import com.graphorm.jdbc.executor.JdbcExecutor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,7 +19,8 @@ import java.util.Objects;
 
 /**
  * Builds parameterized {@link BoundSql} for DELETE operations.
- * Enforces the architectural read-only invariant by rejecting any view targets.
+ * Enforces the architectural read-only invariant by rejecting any view targets,
+ * and transparently coordinates optimistic locking via version column tracking.
  */
 public final class DeleteBuilder {
 
@@ -26,6 +30,14 @@ public final class DeleteBuilder {
     private WherePredicate where;
     private final List<String> returningColumns = new ArrayList<>();
     private boolean returningAll = false;
+
+    // Optimistic locking fields
+    private String entityName;
+    private String versionColumn;
+    private Object expectedVersion;
+    private boolean optimisticLocking = false;
+    private String idColumn = "id";
+    private Object idValue;
 
     public DeleteBuilder(SqlDialect dialect) {
         this.dialect = Objects.requireNonNull(dialect, "SqlDialect must not be null");
@@ -62,8 +74,20 @@ public final class DeleteBuilder {
         if (entity.isMultiTenant()) {
             QueryGuards.requireTenantContext(entity, "DELETE");
         }
-        String tableName = entity instanceof ModelMetadata model ? model.tableName() : entity.name().toLowerCase();
-        this.table = SourceTable.table(tableName);
+        this.entityName = entity.name();
+        if (entity instanceof ModelMetadata model) {
+            this.table = SourceTable.table(model.tableName());
+            if (model.hasVersionField()) {
+                FieldMetadata vf = model.versionField().get();
+                this.versionColumn = vf.dbColumnName();
+            }
+            if (!model.primaryKeyFields().isEmpty()) {
+                String pk = model.primaryKeyFields().getFirst();
+                this.idColumn = model.findField(pk).map(FieldMetadata::dbColumnName).orElse(pk);
+            }
+        } else {
+            this.table = SourceTable.table(entity.name().toLowerCase());
+        }
         return this;
     }
 
@@ -92,6 +116,58 @@ public final class DeleteBuilder {
     public DeleteBuilder where(WherePredicate where) {
         this.where = where;
         return this;
+    }
+
+    public DeleteBuilder id(Object idValue) {
+        this.idValue = idValue;
+        return this;
+    }
+
+    public DeleteBuilder id(String idColumn, Object idValue) {
+        this.idColumn = Objects.requireNonNull(idColumn, "idColumn must not be null");
+        this.idValue = idValue;
+        return this;
+    }
+
+    public DeleteBuilder versionColumn(String versionColumn) {
+        this.versionColumn = versionColumn;
+        return this;
+    }
+
+    public DeleteBuilder expectedVersion(Object expectedVersion) {
+        this.expectedVersion = expectedVersion;
+        this.optimisticLocking = true;
+        return this;
+    }
+
+    /**
+     * Enables optimistic locking concurrency control with the given version column and expected version.
+     *
+     * @param versionColumn   the name of the version column in the database table
+     * @param expectedVersion the expected version value prior to delete
+     * @return this builder
+     */
+    public DeleteBuilder optimisticLock(String versionColumn, Object expectedVersion) {
+        this.versionColumn = Objects.requireNonNull(versionColumn, "versionColumn must not be null");
+        this.expectedVersion = Objects.requireNonNull(expectedVersion, "expectedVersion must not be null");
+        this.optimisticLocking = true;
+        return this;
+    }
+
+    public boolean isOptimisticLockingEnabled() {
+        return optimisticLocking;
+    }
+
+    public String getVersionColumn() {
+        return versionColumn;
+    }
+
+    public Object getExpectedVersion() {
+        return expectedVersion;
+    }
+
+    public String getTableName() {
+        return table != null ? table.tableName() : entityName;
     }
 
     public DeleteBuilder returningAll() {
@@ -145,6 +221,7 @@ public final class DeleteBuilder {
 
     /**
      * Builds the parameterized {@link BoundSql}.
+     * Automatically coordinates version predicates when optimistic locking is active.
      *
      * @return the parameterized BoundSql
      */
@@ -153,20 +230,41 @@ public final class DeleteBuilder {
             throw new IllegalStateException("Target table must be specified for DELETE");
         }
 
+        WherePredicate effectiveWhere = this.where;
         if (entity != null && entity.isMultiTenant()) {
             String tenantId = QueryGuards.requireTenantContext(entity, "DELETE");
             if (tenantId != null) {
                 WherePredicate tenantPredicate = WherePredicate.equal(entity.tenantColumn(), tenantId);
-                where = (where == null) ? tenantPredicate : tenantPredicate.and(where);
+                effectiveWhere = (effectiveWhere == null) ? tenantPredicate : tenantPredicate.and(effectiveWhere);
             }
+        }
+
+        if (optimisticLocking && versionColumn != null && expectedVersion != null) {
+            WherePredicate verPredicate = WherePredicate.eq(versionColumn, expectedVersion);
+            if (effectiveWhere == null) {
+                if (idValue != null) {
+                    effectiveWhere = WherePredicate.eq(idColumn, idValue).and(verPredicate);
+                } else {
+                    effectiveWhere = verPredicate;
+                }
+            } else {
+                if (idValue != null) {
+                    effectiveWhere = effectiveWhere.and(WherePredicate.eq(idColumn, idValue)).and(verPredicate);
+                } else {
+                    effectiveWhere = effectiveWhere.and(verPredicate);
+                }
+            }
+        } else if (idValue != null) {
+            WherePredicate idPredicate = WherePredicate.eq(idColumn, idValue);
+            effectiveWhere = (effectiveWhere == null) ? idPredicate : effectiveWhere.and(idPredicate);
         }
 
         StringBuilder sql = new StringBuilder("DELETE FROM ");
         sql.append(dialect.quoteIdentifier(table.tableName()));
 
         List<Object> parameters = new ArrayList<>();
-        if (where != null) {
-            BoundSql whereSql = WhereClauseBuilder.buildWhereClause(where, dialect);
+        if (effectiveWhere != null) {
+            BoundSql whereSql = WhereClauseBuilder.buildWhereClause(effectiveWhere, dialect);
             sql.append(whereSql.sql());
             parameters.addAll(whereSql.parameters());
         }
@@ -180,5 +278,42 @@ public final class DeleteBuilder {
         }
 
         return new BoundSql(sql.toString(), parameters);
+    }
+
+    /**
+     * Checks the affected row count against optimistic locking requirements.
+     * Throws {@link OptimisticLockException} if optimistic locking is enabled and 0 rows were deleted.
+     *
+     * @param affectedRows the number of rows modified by the DELETE statement
+     * @throws OptimisticLockException if 0 rows were deleted under optimistic locking
+     */
+    public void verifyOptimisticLock(int affectedRows) {
+        if (optimisticLocking && affectedRows == 0) {
+            throw new OptimisticLockException(
+                    "Optimistic lock failure: record in '" + (entityName != null ? entityName : getTableName()) +
+                            "' with identifier '" + idValue + "' was modified or deleted by another transaction (expected version: " +
+                            expectedVersion + ")",
+                    null,
+                    entityName != null ? entityName : getTableName(),
+                    idValue,
+                    expectedVersion,
+                    null
+            );
+        }
+    }
+
+    /**
+     * Builds and executes this DELETE query using the supplied {@link JdbcExecutor},
+     * automatically verifying optimistic locking concurrency control.
+     *
+     * @param executor the JdbcExecutor to use
+     * @return the number of deleted rows
+     * @throws OptimisticLockException if optimistic locking is enabled and 0 rows are affected
+     */
+    public int execute(JdbcExecutor executor) {
+        Objects.requireNonNull(executor, "JdbcExecutor must not be null");
+        int affected = executor.executeUpdate(build());
+        verifyOptimisticLock(affected);
+        return affected;
     }
 }
