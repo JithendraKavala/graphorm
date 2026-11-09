@@ -166,6 +166,8 @@ public final class SchemaValidator {
 
             // Validate model-level @cached / @@cached
             validateCachedAttribute(model.name(), model.cachedAttribute(), document, diagnostics);
+            // Validate model-level @@notify
+            validateNotifyAttribute(model.name(), model.notifyAttribute(), diagnostics);
 
             // Validate model-level @@auth
             validateAuthAttribute(model.name(), model.authAttribute(), diagnostics, true);
@@ -622,6 +624,12 @@ public final class SchemaValidator {
         for (ViewModelNode vm : document.viewModels()) {
             // Validate view-level @cached / @@cached
             validateCachedAttribute(vm.name(), vm.cachedAttribute(), document, diagnostics);
+            if (vm.isNotifyEnabled()) {
+                diagnostics.add(Diagnostic.error(
+                        "Read-only view '" + vm.name() + "' cannot declare @@notify directive",
+                        vm.notifyAttribute().get().position()
+                ));
+            }
 
             // Validate view-level @@auth
             validateAuthAttribute(vm.name(), vm.authAttribute(), diagnostics, true);
@@ -1280,6 +1288,59 @@ public final class SchemaValidator {
                             attr.position()
                     ));
                 }
+            }
+        }
+    }
+
+    private static final Set<String> VALID_NOTIFY_EVENTS = Set.of("CREATE", "UPDATE", "DELETE");
+
+    private static void validateNotifyAttribute(
+            String modelName,
+            Optional<BlockAttributeNode> notifyOpt,
+            List<Diagnostic> diagnostics
+    ) {
+        if (notifyOpt.isEmpty()) {
+            return;
+        }
+        BlockAttributeNode attr = notifyOpt.get();
+        Optional<ExpressionNode> onArg = attr.getArgumentValue("on")
+                .or(() -> attr.getPositionalArgumentValue(0));
+
+        if (onArg.isEmpty()) {
+            diagnostics.add(Diagnostic.error(
+                    "@@notify directive on model '" + modelName + "' must specify an 'on' events argument (e.g. @@notify(on: [CREATE, UPDATE, DELETE]))",
+                    attr.position()
+            ));
+            return;
+        }
+
+        ExpressionNode expr = onArg.get();
+        List<ExpressionNode> elements = new ArrayList<>();
+        if (expr instanceof ArrayLiteralNode arr) {
+            elements.addAll(arr.elements());
+            if (elements.isEmpty()) {
+                diagnostics.add(Diagnostic.error(
+                        "@@notify directive on model '" + modelName + "' must specify at least one event type in 'on' list",
+                        attr.position()
+                ));
+                return;
+            }
+        } else {
+            elements.add(expr);
+        }
+
+        for (ExpressionNode elem : elements) {
+            String val = extractIdentifierOrString(elem);
+            if (val == null || val.isBlank()) {
+                diagnostics.add(Diagnostic.error(
+                        "Notify event type on model '" + modelName + "' must be a non-empty identifier or string",
+                        elem.position()
+                ));
+            } else if (!VALID_NOTIFY_EVENTS.contains(val.toUpperCase(Locale.ROOT))) {
+                diagnostics.add(Diagnostic.error(
+                        "Invalid notify event type '" + val + "' on model '" + modelName + "'. Allowed events are CREATE, UPDATE, DELETE",
+                        elem.position()
+                ));
             }
         }
     }

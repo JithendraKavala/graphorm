@@ -85,6 +85,12 @@ public class GraphOrmProperties {
     @NestedConfigurationProperty
     private CacheProperties cache = new CacheProperties();
 
+    /**
+     * Real-time GraphQL Subscriptions properties (Phase 24).
+     */
+    @NestedConfigurationProperty
+    private SubscriptionsProperties subscriptions = new SubscriptionsProperties();
+
     public String getSchemaLocation() {
         return schemaLocation;
     }
@@ -206,6 +212,14 @@ public class GraphOrmProperties {
 
     public void setCache(CacheProperties cache) {
         this.cache = cache;
+    }
+
+    public SubscriptionsProperties getSubscriptions() {
+        return subscriptions;
+    }
+
+    public void setSubscriptions(SubscriptionsProperties subscriptions) {
+        this.subscriptions = subscriptions;
     }
 
     public static class GraphqlProperties {
@@ -412,6 +426,34 @@ public class GraphOrmProperties {
 
         public void setL2Type(String l2Type) {
             this.l2Type = l2Type;
+        }
+    }
+
+    public static class SubscriptionsProperties {
+        /**
+         * Whether real-time GraphQL Subscriptions and event broadcasting are enabled.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Channel name for PostgreSQL LISTEN/NOTIFY.
+         */
+        private String channelName = "graphorm_events";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getChannelName() {
+            return channelName;
+        }
+
+        public void setChannelName(String channelName) {
+            this.channelName = channelName;
         }
     }
 }

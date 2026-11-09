@@ -145,6 +145,24 @@ public interface EntityMetadata {
     }
 
     /**
+     * Returns the real-time notification metadata configuration declared for this entity.
+     *
+     * @return the notification metadata (defaults to disabled)
+     */
+    default NotifyMetadata notifyMetadata() {
+        return NotifyMetadata.DISABLED;
+    }
+
+    /**
+     * Indicates whether real-time change notifications are enabled for this entity.
+     *
+     * @return true if notifications are enabled
+     */
+    default boolean isNotifyEnabled() {
+        return notifyMetadata() != null && notifyMetadata().isNotifyEnabled();
+    }
+
+    /**
      * Looks up a field by its logical name.
      *
      * @param fieldName the name of the field to find

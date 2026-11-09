@@ -1,6 +1,7 @@
 package com.graphorm.schema.transformer;
 
 import com.graphorm.core.metadata.*;
+import com.graphorm.core.event.NotifyEventType;
 import com.graphorm.core.query.JoinType;
 import com.graphorm.schema.ast.*;
 import com.graphorm.schema.parser.GraphOrmParserFacade;
@@ -240,6 +241,17 @@ public final class SchemaToMetadataTransformer {
             cacheMetadata = CacheMetadata.of(ttl, tagSet);
         }
 
+        NotifyMetadata notifyMetadata = NotifyMetadata.disabled();
+        if (modelNode.isNotifyEnabled()) {
+            Set<NotifyEventType> events = new LinkedHashSet<>();
+            for (String evStr : modelNode.notifyEvents()) {
+                try {
+                    events.add(NotifyEventType.fromString(evStr));
+                } catch (IllegalArgumentException ignored) {}
+            }
+            notifyMetadata = NotifyMetadata.of(events);
+        }
+
         var builder = ModelMetadata.builder(modelNode.name())
                 .tableName(tableName)
                 .fields(fields)
@@ -253,7 +265,8 @@ public final class SchemaToMetadataTransformer {
                 .checkConstraints(checkConstraints)
                 .schemaName(schemaName)
                 .multiTenant(isMultiTenant)
-                .cacheMetadata(cacheMetadata);
+                .cacheMetadata(cacheMetadata)
+                .notifyMetadata(notifyMetadata);
         if (tenantColumn != null) {
             builder.tenantColumn(tenantColumn);
         }

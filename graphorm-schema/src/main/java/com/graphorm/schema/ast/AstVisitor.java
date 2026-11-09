@@ -55,6 +55,10 @@ public interface AstVisitor<R> {
         return null;
     }
 
+    default R visitNotifyAttribute(NotifyAttributeNode notifyAttribute) {
+        return null;
+    }
+
     default R visitFromAttribute(FromAttributeNode fromAttribute) {
         return null;
     }

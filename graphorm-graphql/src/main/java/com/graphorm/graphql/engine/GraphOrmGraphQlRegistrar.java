@@ -14,6 +14,8 @@ import com.graphorm.graphql.fetcher.ModelListDataFetcher;
 import com.graphorm.graphql.fetcher.ModelRelationDataFetcher;
 import com.graphorm.graphql.fetcher.ModelSingleDataFetcher;
 import com.graphorm.graphql.fetcher.ModelUpdateDataFetcher;
+import com.graphorm.graphql.fetcher.ModelSubscriptionDataFetcher;
+import com.graphorm.core.event.NotifyEventType;
 import com.graphorm.graphql.fetcher.ViewListDataFetcher;
 import com.graphorm.graphql.fetcher.ViewSingleDataFetcher;
 import com.graphorm.graphql.schema.GraphQlOperationBinding;
@@ -127,9 +129,11 @@ public class GraphOrmGraphQlRegistrar {
 
         TypeRuntimeWiring.Builder queryWiring = TypeRuntimeWiring.newTypeWiring("Query");
         TypeRuntimeWiring.Builder mutationWiring = TypeRuntimeWiring.newTypeWiring("Mutation");
+        TypeRuntimeWiring.Builder subscriptionWiring = TypeRuntimeWiring.newTypeWiring("Subscription");
 
         int queryCount = 0;
         int mutationCount = 0;
+        int subscriptionCount = 0;
 
         for (GraphQlOperationBinding binding : bindings) {
             FieldCoordinates coords = FieldCoordinates.coordinates(binding.parentType(), binding.fieldName());
@@ -154,6 +158,9 @@ public class GraphOrmGraphQlRegistrar {
             } else if (binding.isMutation()) {
                 mutationWiring.dataFetcher(binding.fieldName(), fetcher);
                 mutationCount++;
+            } else if (binding.isSubscription()) {
+                subscriptionWiring.dataFetcher(binding.fieldName(), fetcher);
+                subscriptionCount++;
             }
         }
 
@@ -162,6 +169,9 @@ public class GraphOrmGraphQlRegistrar {
         }
         if (mutationCount > 0) {
             wiringBuilder.type(mutationWiring);
+        }
+        if (subscriptionCount > 0) {
+            wiringBuilder.type(subscriptionWiring);
         }
 
         // Auto-register relationship DataFetchers on Model and View types
@@ -324,6 +334,27 @@ public class GraphOrmGraphQlRegistrar {
             case VIEW_SINGLE_QUERY -> binding.entity() instanceof ViewModelMetadata vm
                     ? new ViewSingleDataFetcher(vm, modelRegistry, executionEngine, dialect, binding.idArgumentName())
                     : new ModelSingleDataFetcher((ModelMetadata) binding.entity(), modelRegistry, executionEngine, dialect, binding.idArgumentName());
+            case MODEL_CREATED_SUBSCRIPTION -> new ModelSubscriptionDataFetcher(
+                    (ModelMetadata) binding.entity(),
+                    modelRegistry,
+                    executionEngine,
+                    NotifyEventType.CREATE,
+                    binding.idArgumentName()
+            );
+            case MODEL_UPDATED_SUBSCRIPTION -> new ModelSubscriptionDataFetcher(
+                    (ModelMetadata) binding.entity(),
+                    modelRegistry,
+                    executionEngine,
+                    NotifyEventType.UPDATE,
+                    binding.idArgumentName()
+            );
+            case MODEL_DELETED_SUBSCRIPTION -> new ModelSubscriptionDataFetcher(
+                    (ModelMetadata) binding.entity(),
+                    modelRegistry,
+                    executionEngine,
+                    NotifyEventType.DELETE,
+                    binding.idArgumentName()
+            );
             case VIEW_MUTATION_REJECTED -> throw new ReadOnlyViewException(
                     binding.entity().name(),
                     "Attempted to register write mutation '" + binding.fieldName()

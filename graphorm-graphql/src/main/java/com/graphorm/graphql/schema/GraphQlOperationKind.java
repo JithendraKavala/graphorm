@@ -52,5 +52,20 @@ public enum GraphQlOperationKind {
     /**
      * Attempted mutation targeting a read-only view model (strictly rejected).
      */
-    VIEW_MUTATION_REJECTED
+    VIEW_MUTATION_REJECTED,
+
+    /**
+     * Root subscription returning real-time events when a regular model entity is created.
+     */
+    MODEL_CREATED_SUBSCRIPTION,
+
+    /**
+     * Root subscription returning real-time events when a regular model entity is updated.
+     */
+    MODEL_UPDATED_SUBSCRIPTION,
+
+    /**
+     * Root subscription returning real-time events when a regular model entity is deleted.
+     */
+    MODEL_DELETED_SUBSCRIPTION
 }

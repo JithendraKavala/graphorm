@@ -6,12 +6,12 @@ This document tracks the live implementation status across all phases, milestone
 
 ## Progress Dashboard
 
-- **Total Phases**: 22
-- **Total Tasks**: 125
-- **Completed Tasks**: 125
+- **Total Phases**: 24
+- **Total Tasks**: 132
+- **Completed Tasks**: 132
 - **In Progress**: 0
 - **Not Started**: 0
-- **Current Active Phase**: None (100% of Project Phases & Milestones Completed - Native Multi-Tenancy Architecture Production-Ready)
+- **Current Active Phase**: None (100% of Project Phases & Milestones Completed - Phase 24 Real-Time Subscriptions Engine Production-Ready)
 
 ---
 
@@ -158,3 +158,10 @@ This document tracks the live implementation status across all phases, milestone
 | **Phase 23** | **Multi-Tier Caching** | `TASK-23.6` | L2 Entity & View Result Cache with Tag Eviction in `graphorm-jdbc` | Completed | `TASK-23.5` | Caching execution engine for models and view models with automatic tag eviction on mutations | `JdbcExecutor.setCacheManager`, `GraphOrmClient.findMany`, `GraphOrmClient.findUnique`, mutation tag invalidation, `L2CacheAndEvictionTest` (327 jdbc tests passing) |
 | **Phase 23** | **Multi-Tier Caching** | `TASK-23.7` | GraphQL DataFetcher L2 Caching & Tag Invalidation in `graphorm-graphql` | Completed | `TASK-23.6` | Automatic result caching on queries and tag invalidation on create/update/delete mutations | `ModelListDataFetcher`, `ModelSingleDataFetcher`, `ViewListDataFetcher`, `ViewSingleDataFetcher`, `ModelCreateDataFetcher`, `ModelUpdateDataFetcher`, `ModelDeleteDataFetcher`, `GraphQlCacheAndInvalidationTest` (89 graphql tests passing) |
 | **Phase 23** | **Multi-Tier Caching** | `TASK-23.8` | Spring Boot Auto-Configuration & Multi-Tier Caching Verification | Completed | `TASK-23.7` | Auto-configure `QueryPlanCache` and `GraphOrmCacheManager` with conditional properties and full reactor verification | `GraphOrmProperties.cache.*`, `GraphOrmAutoConfiguration`, `GraphOrmAutoConfigurationTest`, 100% test pass rate across all 12 modules |
+| **Phase 24** | **Real-Time Subscriptions Engine** | `TASK-24.1` | `@@notify` Directive Grammar, AST & Semantic Validation in `graphorm-schema` | Completed | `TASK-23.8` | `@@notify(on: [EventType])` directive parsing, validation rejecting read-only views, and event type checks | `NotifyAttributeNode`, `ModelNode.notifyAttribute`, `SchemaValidator`, `NotifyDirectiveSchemaTest` (105 schema tests passing) |
+| **Phase 24** | **Real-Time Subscriptions Engine** | `TASK-24.2` | Event Payload, Codec & `EntityEventBroker` SPI in `graphorm-core` | Completed | `TASK-24.1` | `EntityEvent` record, JSON codec, and reactive `Flow.Publisher` broker with in-memory fallback | `EntityEvent`, `NotifyEventType`, `EntityEventCodec`, `EntityEventBroker`, `InMemoryEntityEventBroker`, `NotifyMetadata`, `EntityEventAndBrokerTest` (154 core tests passing) |
+| **Phase 24** | **Real-Time Subscriptions Engine** | `TASK-24.3` | PostgreSQL `LISTEN`/`NOTIFY` Dialect Formatting & `PostgresNotificationListener` in `graphorm-jdbc` | Completed | `TASK-24.2` | `PostgreSqlDialect.formatNotifySql` escaping quotes and background daemon listener polling `PGConnection` | `PostgreSqlDialect.formatNotifySql`, `PostgresNotificationListener`, `PostgreSqlDialectNotifyTest`, `PostgresNotificationListenerTest` |
+| **Phase 24** | **Real-Time Subscriptions Engine** | `TASK-24.4` | `JdbcExecutor` Event Publication on Insert, Update, and Delete in `graphorm-jdbc` | Completed | `TASK-24.3` | Automatic mutation event emission with primary key extraction, tenant metadata, and database NOTIFY dispatch | `JdbcExecutor.emitEvent`, `findNotifiableModel`, `JdbcExecutorEventNotificationTest` (336 jdbc tests passing) |
+| **Phase 24** | **Real-Time Subscriptions Engine** | `TASK-24.5` | GraphQL Subscriptions Schema Generation & Registration in `graphorm-spring-boot-starter` & `graphorm-graphql` | Completed | `TASK-24.4` | Generation of `Subscription` SDL type and auto-wiring into `GraphQLCodeRegistry` and `RuntimeWiring` | `GraphQlSdlGenerator`, `GraphQlTypeInspector.inspectSubscriptionOperations`, `GraphOrmGraphQlRegistrar`, `GraphQlSdlGeneratorTest` |
+| **Phase 24** | **Real-Time Subscriptions Engine** | `TASK-24.6` | `ModelSubscriptionDataFetcher` with Selection Set Re-querying & Multi-Tenant Event Isolation in `graphorm-graphql` | Completed | `TASK-24.5` | Reactive stream emission, selection set entity projection via `QueryExecutionEngine`, and zero cross-tenant leak enforcement | `ModelSubscriptionDataFetcher`, `GraphQlSubscriptionExecutionTest`, `GraphQlSubscriptionTenantIsolationTest` (93 graphql tests passing) |
+| **Phase 24** | **Real-Time Subscriptions Engine** | `TASK-24.7` | Spring Boot Auto-Configuration & Subscriptions Properties Integration | Completed | `TASK-24.6` | Auto-configure `EntityEventBroker`, `PostgresNotificationListener`, and `graphorm.subscriptions.*` properties | `GraphOrmProperties.subscriptions.*`, `GraphOrmAutoConfiguration`, `GraphOrmAutoConfigurationTest`, 100% test pass rate across all 12 modules |

@@ -92,6 +92,14 @@ public record ViewModelNode(
         return findAttribute("cached");
     }
 
+    public boolean isNotifyEnabled() {
+        return hasAttribute("notify");
+    }
+
+    public Optional<BlockAttributeNode> notifyAttribute() {
+        return findAttribute("notify");
+    }
+
     public Optional<String> cacheTtl() {
         return cachedAttribute().flatMap(attr ->
                 attr.getArgumentValue("ttl")

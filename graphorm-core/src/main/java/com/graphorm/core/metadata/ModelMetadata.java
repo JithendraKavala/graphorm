@@ -1,5 +1,7 @@
 package com.graphorm.core.metadata;
 
+import com.graphorm.core.event.NotifyEventType;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -11,7 +13,7 @@ import java.util.Set;
 /**
  * Immutable metadata record representing a regular model mapped 1:1 to a physical database table.
  * Supports full CRUD operations (or read-only projection if annotated with @@readonly),
- * multi-tenant isolation, and multi-tier caching metadata.
+ * multi-tenant isolation, multi-tier caching metadata, and real-time change notifications (@@notify).
  *
  * @param name              the declared model name (e.g. "Student")
  * @param tableName         the physical database table name (e.g. "students")
@@ -28,6 +30,7 @@ import java.util.Set;
  * @param isMultiTenant     whether this model is multi-tenant partitioned
  * @param tenantColumn      the physical column name holding tenant IDs
  * @param cacheMetadata     caching configuration (declared via @cached or @@cached)
+ * @param notifyMetadata    real-time notification configuration (declared via @@notify)
  */
 public record ModelMetadata(
         String name,
@@ -44,7 +47,8 @@ public record ModelMetadata(
         ExposureMetadata exposure,
         boolean isMultiTenant,
         String tenantColumn,
-        CacheMetadata cacheMetadata
+        CacheMetadata cacheMetadata,
+        NotifyMetadata notifyMetadata
 ) implements EntityMetadata {
 
     /**
@@ -87,10 +91,37 @@ public record ModelMetadata(
         if (cacheMetadata == null) {
             cacheMetadata = CacheMetadata.NOT_CACHED;
         }
+        if (notifyMetadata == null) {
+            notifyMetadata = NotifyMetadata.DISABLED;
+        }
     }
 
     /**
-     * Backward-compatible constructor without cacheMetadata.
+     * Backward-compatible constructor without notifyMetadata.
+     */
+    public ModelMetadata(
+            String name,
+            String tableName,
+            List<FieldMetadata> fields,
+            List<String> primaryKeyFields,
+            List<List<String>> uniqueConstraints,
+            List<RelationMetadata> relations,
+            boolean isReadOnly,
+            List<String> authRoles,
+            List<IndexMetadata> indexes,
+            List<CheckConstraintMetadata> checkConstraints,
+            String schemaName,
+            ExposureMetadata exposure,
+            boolean isMultiTenant,
+            String tenantColumn,
+            CacheMetadata cacheMetadata
+    ) {
+        this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
+                indexes, checkConstraints, schemaName, exposure, isMultiTenant, tenantColumn, cacheMetadata, NotifyMetadata.DISABLED);
+    }
+
+    /**
+     * Backward-compatible constructor without cacheMetadata and notifyMetadata.
      */
     public ModelMetadata(
             String name,
@@ -109,11 +140,11 @@ public record ModelMetadata(
             String tenantColumn
     ) {
         this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
-                indexes, checkConstraints, schemaName, exposure, isMultiTenant, tenantColumn, CacheMetadata.NOT_CACHED);
+                indexes, checkConstraints, schemaName, exposure, isMultiTenant, tenantColumn, CacheMetadata.NOT_CACHED, NotifyMetadata.DISABLED);
     }
 
     /**
-     * Backward-compatible constructor without isMultiTenant and tenantColumn.
+     * Backward-compatible constructor without isMultiTenant, tenantColumn, cacheMetadata, and notifyMetadata.
      */
     public ModelMetadata(
             String name,
@@ -130,7 +161,7 @@ public record ModelMetadata(
             ExposureMetadata exposure
     ) {
         this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
-                indexes, checkConstraints, schemaName, exposure, false, null, CacheMetadata.NOT_CACHED);
+                indexes, checkConstraints, schemaName, exposure, false, null, CacheMetadata.NOT_CACHED, NotifyMetadata.DISABLED);
     }
 
     /**
@@ -150,7 +181,7 @@ public record ModelMetadata(
             String schemaName
     ) {
         this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
-                indexes, checkConstraints, schemaName, ExposureMetadata.of(true, !isReadOnly), false, null, CacheMetadata.NOT_CACHED);
+                indexes, checkConstraints, schemaName, ExposureMetadata.of(true, !isReadOnly), false, null, CacheMetadata.NOT_CACHED, NotifyMetadata.DISABLED);
     }
 
     /**
@@ -167,7 +198,7 @@ public record ModelMetadata(
             List<String> authRoles
     ) {
         this(name, tableName, fields, primaryKeyFields, uniqueConstraints, relations, isReadOnly, authRoles,
-                List.of(), List.of(), null, ExposureMetadata.of(true, !isReadOnly), false, null, CacheMetadata.NOT_CACHED);
+                List.of(), List.of(), null, ExposureMetadata.of(true, !isReadOnly), false, null, CacheMetadata.NOT_CACHED, NotifyMetadata.DISABLED);
     }
 
     /**
@@ -252,6 +283,16 @@ public record ModelMetadata(
         return cacheMetadata;
     }
 
+    @Override
+    public NotifyMetadata notifyMetadata() {
+        return notifyMetadata;
+    }
+
+    @Override
+    public boolean isNotifyEnabled() {
+        return notifyMetadata != null && notifyMetadata.isNotifyEnabled();
+    }
+
     /**
      * Looks up the optimistic locking version field on this model, if declared.
      */
@@ -315,27 +356,18 @@ public record ModelMetadata(
         return findIndex(indexName).isPresent();
     }
 
-    /**
-     * Checks if any index (explicit or implicit unique) covers the exact specified columns in order.
-     *
-     * @param columnNames the ordered list of column names
-     * @return true if a matching index exists
-     */
     public boolean hasIndexOn(List<String> columnNames) {
         if (columnNames == null || columnNames.isEmpty()) {
             return false;
         }
-        // 1. Check primary key match
         if (primaryKeyFields.equals(columnNames)) {
             return true;
         }
-        // 2. Check declared indexes
         for (IndexMetadata idx : indexes) {
             if (idx.fields().equals(columnNames)) {
                 return true;
             }
         }
-        // 3. Check unique constraints
         for (List<String> uc : uniqueConstraints) {
             if (uc.equals(columnNames)) {
                 return true;
@@ -345,9 +377,9 @@ public record ModelMetadata(
     }
 
     /**
-     * Looks up a relation by its declared name.
+     * Finds a relationship by its relation name on this model.
      *
-     * @param relationName the relation name to look up
+     * @param relationName the name of the relation
      * @return an Optional containing the RelationMetadata, or empty if not found
      */
     public Optional<RelationMetadata> findRelation(String relationName) {
@@ -360,26 +392,19 @@ public record ModelMetadata(
     }
 
     /**
-     * Retrieves a relation by its declared name, or throws {@link IllegalArgumentException} if not found.
-     *
-     * @param relationName the relation name to retrieve
-     * @return the relation metadata
-     * @throws IllegalArgumentException if no relation with the given name exists
-     */
-    public RelationMetadata getRelation(String relationName) {
-        return findRelation(relationName)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Relation '" + relationName + "' not found on model '" + name + "'"));
-    }
-
-    /**
-     * Checks if a relation with the specified name exists on this model.
+     * Checks if a relationship with the given name exists on this model.
      *
      * @param relationName the relation name to check
      * @return true if the relation exists, false otherwise
      */
     public boolean hasRelation(String relationName) {
         return findRelation(relationName).isPresent();
+    }
+
+    public RelationMetadata getRelation(String relationName) {
+        return findRelation(relationName)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Relation '" + relationName + "' not found on model '" + name + "'"));
     }
 
     /**
@@ -411,6 +436,7 @@ public record ModelMetadata(
         private boolean isMultiTenant = false;
         private String tenantColumn;
         private CacheMetadata cacheMetadata = CacheMetadata.NOT_CACHED;
+        private NotifyMetadata notifyMetadata = NotifyMetadata.DISABLED;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "Model name must not be null");
@@ -592,6 +618,21 @@ public record ModelMetadata(
             return this;
         }
 
+        public Builder notifyMetadata(NotifyMetadata notifyMetadata) {
+            this.notifyMetadata = notifyMetadata != null ? notifyMetadata : NotifyMetadata.DISABLED;
+            return this;
+        }
+
+        public Builder notify(boolean enabled) {
+            this.notifyMetadata = enabled ? NotifyMetadata.of(Set.of(NotifyEventType.CREATE, NotifyEventType.UPDATE, NotifyEventType.DELETE)) : NotifyMetadata.DISABLED;
+            return this;
+        }
+
+        public Builder notify(Set<NotifyEventType> events) {
+            this.notifyMetadata = events != null && !events.isEmpty() ? NotifyMetadata.of(events) : NotifyMetadata.DISABLED;
+            return this;
+        }
+
         public ModelMetadata build() {
             ExposureMetadata finalExposure = exposure != null
                     ? exposure
@@ -612,7 +653,8 @@ public record ModelMetadata(
                     finalExposure,
                     isMultiTenant,
                     tenantColumn,
-                    cacheMetadata
+                    cacheMetadata,
+                    notifyMetadata
             );
         }
     }

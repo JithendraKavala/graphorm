@@ -47,6 +47,10 @@ public record GraphQlOperationBinding(
         return "Mutation".equalsIgnoreCase(parentType);
     }
 
+    public boolean isSubscription() {
+        return "Subscription".equalsIgnoreCase(parentType);
+    }
+
     public boolean isModel() {
         return entity instanceof ModelMetadata;
     }

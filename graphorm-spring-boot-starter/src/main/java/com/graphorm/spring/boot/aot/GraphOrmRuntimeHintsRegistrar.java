@@ -80,7 +80,10 @@ public class GraphOrmRuntimeHintsRegistrar implements RuntimeHintsRegistrar {
                 EntityMetadata.class,
                 EntityType.class,
                 ModelRegistry.class,
-                ViewJoinMetadata.class
+                ViewJoinMetadata.class,
+                NotifyMetadata.class,
+                com.graphorm.core.event.NotifyEventType.class,
+                com.graphorm.core.event.EntityEvent.class
         );
         for (Class<?> cls : metadataClasses) {
             reflection.registerType(cls, FULL_REFLECTION);
@@ -96,6 +99,7 @@ public class GraphOrmRuntimeHintsRegistrar implements RuntimeHintsRegistrar {
                 FieldNode.class,
                 FieldAttributeNode.class,
                 BlockAttributeNode.class,
+                NotifyAttributeNode.class,
                 EnumNode.class,
                 CompositeTypeNode.class,
                 ExpressionNode.class,

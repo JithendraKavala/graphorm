@@ -56,6 +56,7 @@ class GraphOrmAutoConfigurationTest {
             assertThat(context).hasSingleBean(JdbcExecutor.class);
             assertThat(context).hasSingleBean(TransactionManager.class);
             assertThat(context).hasSingleBean(GraphOrmClient.class);
+            assertThat(context).hasSingleBean(com.graphorm.core.event.EntityEventBroker.class);
 
             ModelRegistry registry = context.getBean(ModelRegistry.class);
             assertThat(registry.findModel("Student")).isPresent();

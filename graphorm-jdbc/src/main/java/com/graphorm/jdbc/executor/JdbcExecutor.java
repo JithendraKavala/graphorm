@@ -12,6 +12,17 @@ import com.graphorm.core.query.BatchInsertQuery;
 import com.graphorm.core.query.BulkUpdateQuery;
 import com.graphorm.core.query.SqlQuery;
 import com.graphorm.core.query.UpsertQuery;
+import com.graphorm.core.event.EntityEvent;
+import com.graphorm.core.event.EntityEventBroker;
+import com.graphorm.core.event.EntityEventCodec;
+import com.graphorm.core.event.InMemoryEntityEventBroker;
+import com.graphorm.core.event.NotifyEventType;
+import com.graphorm.core.metadata.FieldMetadata;
+import com.graphorm.core.metadata.ModelMetadata;
+import com.graphorm.core.metadata.ModelRegistry;
+import com.graphorm.core.query.ComparisonOperator;
+import com.graphorm.core.query.WherePredicate;
+import com.graphorm.core.tenant.TenantContext;
 import com.graphorm.jdbc.builder.BatchInsertBuilder;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.builder.UpsertBuilder;
@@ -114,6 +125,10 @@ public class JdbcExecutor implements QueryExecutionEngine {
 
     private volatile GraphOrmCacheManager cacheManager = new CaffeineGraphOrmCacheManager();
     private volatile QueryPlanCache planCache = QueryPlanCache.getDefault();
+    private volatile EntityEventBroker eventBroker = new InMemoryEntityEventBroker();
+    private volatile ModelRegistry modelRegistry;
+    private volatile boolean nativePostgresNotify = false;
+    private volatile String notifyChannel = "graphorm_events";
 
     public JdbcExecutor(DataSource dataSource, SqlDialect dialect, ConnectionProvider connectionProvider, StatementInterceptor... interceptors) {
         this.dataSource = Objects.requireNonNull(dataSource, "DataSource must not be null");
@@ -217,6 +232,54 @@ public class JdbcExecutor implements QueryExecutionEngine {
 
     public void setCacheManager(GraphOrmCacheManager cacheManager) {
         this.cacheManager = cacheManager != null ? cacheManager : new NoOpGraphOrmCacheManager();
+    }
+
+    public JdbcExecutor(DataSource dataSource, SqlDialect dialect, ConnectionProvider connectionProvider,
+                        QueryPlanCache planCache, GraphOrmCacheManager cacheManager,
+                        EntityEventBroker eventBroker, ModelRegistry modelRegistry,
+                        StatementInterceptor... interceptors) {
+        this(dataSource, dialect, connectionProvider, planCache, cacheManager, interceptors);
+        if (eventBroker != null) {
+            this.eventBroker = eventBroker;
+        }
+        this.modelRegistry = modelRegistry;
+    }
+
+    @Override
+    public Optional<EntityEventBroker> eventBroker() {
+        return Optional.ofNullable(eventBroker);
+    }
+
+    public EntityEventBroker getEventBroker() {
+        return eventBroker;
+    }
+
+    public void setEventBroker(EntityEventBroker eventBroker) {
+        this.eventBroker = eventBroker != null ? eventBroker : new InMemoryEntityEventBroker();
+    }
+
+    public ModelRegistry modelRegistry() {
+        return modelRegistry;
+    }
+
+    public void setModelRegistry(ModelRegistry modelRegistry) {
+        this.modelRegistry = modelRegistry;
+    }
+
+    public boolean isNativePostgresNotify() {
+        return nativePostgresNotify;
+    }
+
+    public void setNativePostgresNotify(boolean nativePostgresNotify) {
+        this.nativePostgresNotify = nativePostgresNotify;
+    }
+
+    public String notifyChannel() {
+        return notifyChannel;
+    }
+
+    public void setNotifyChannel(String notifyChannel) {
+        this.notifyChannel = notifyChannel != null && !notifyChannel.isBlank() ? notifyChannel.trim() : "graphorm_events";
     }
 
     public QueryPlanCache planCache() {
@@ -550,7 +613,112 @@ public class JdbcExecutor implements QueryExecutionEngine {
         }
     }
 
+    private Optional<ModelMetadata> findNotifiableModel(String tableName, NotifyEventType eventType) {
+        if (modelRegistry == null || tableName == null || tableName.isBlank()) {
+            return Optional.empty();
+        }
+        return modelRegistry.findModelByTable(tableName)
+                .filter(m -> m.isNotifyEnabled() && m.notifyMetadata().supports(eventType));
+    }
+
+    public void emitEvent(EntityEvent event) {
+        if (event == null) {
+            return;
+        }
+        if (nativePostgresNotify && dialect instanceof PostgreSqlDialect) {
+            try {
+                String notifySql = dialect.formatNotifySql(notifyChannel, EntityEventCodec.toJson(event));
+                executeUpdate(new BoundSql(notifySql, List.of()));
+            } catch (Exception e) {
+                log.warn("Failed to dispatch PostgreSQL NOTIFY: {}. Falling back to in-memory broker.", e.getMessage());
+                if (eventBroker != null) {
+                    eventBroker.publish(event);
+                }
+            }
+        } else {
+            if (eventBroker != null) {
+                eventBroker.publish(event);
+            }
+        }
+    }
+
+    private Object extractEntityId(ModelMetadata model, Map<String, Object> payload, Map<String, Object> values, WherePredicate where) {
+        Object id = extractEntityId(model, payload, values);
+        if (id != null) {
+            return id;
+        }
+        return extractEntityIdFromWhere(model, where);
+    }
+
+    private Object extractEntityId(ModelMetadata model, Map<String, Object> payload, Map<String, Object> values) {
+        String idField = model.primaryKeyFields().isEmpty() ? "id" : model.primaryKeyFields().getFirst();
+        String idCol = model.findField(idField).map(FieldMetadata::dbColumnName).orElse(idField);
+
+        if (payload != null) {
+            if (payload.containsKey(idField) && payload.get(idField) != null) return payload.get(idField);
+            if (payload.containsKey(idCol) && payload.get(idCol) != null) return payload.get(idCol);
+            if (payload.containsKey("id") && payload.get("id") != null) return payload.get("id");
+        }
+        if (values != null) {
+            if (values.containsKey(idField) && values.get(idField) != null) return values.get(idField);
+            if (values.containsKey(idCol) && values.get(idCol) != null) return values.get(idCol);
+            if (values.containsKey("id") && values.get("id") != null) return values.get("id");
+        }
+        return null;
+    }
+
+    private Object extractEntityIdFromWhere(ModelMetadata model, WherePredicate where) {
+        if (where == null) {
+            return null;
+        }
+        String idField = model.primaryKeyFields().isEmpty() ? "id" : model.primaryKeyFields().getFirst();
+        String idCol = model.findField(idField).map(FieldMetadata::dbColumnName).orElse(idField);
+        java.util.Set<String> target = new java.util.HashSet<>();
+        target.add(idField);
+        target.add(idCol);
+        target.add("id");
+        return findValueInWhere(where, target);
+    }
+
+    private String extractTenantId(ModelMetadata model, Map<String, Object> payload) {
+        if (model.isMultiTenant()) {
+            String tenantCol = model.tenantColumn();
+            if (payload != null && tenantCol != null && payload.containsKey(tenantCol)) {
+                Object t = payload.get(tenantCol);
+                if (t != null) return t.toString();
+            }
+            return TenantContext.getCurrentTenantId().orElse(null);
+        }
+        return TenantContext.getCurrentTenantId().orElse(null);
+    }
+
+    private String extractTenantIdFromWhere(ModelMetadata model, WherePredicate where) {
+        if (model.isMultiTenant() && model.tenantColumn() != null) {
+            Object t = findValueInWhere(where, Set.of(model.tenantColumn()));
+            if (t != null) return t.toString();
+        }
+        return TenantContext.getCurrentTenantId().orElse(null);
+    }
+
+    private Object findValueInWhere(WherePredicate where, Set<String> targetColumns) {
+        if (where instanceof WherePredicate.BinaryPredicate bp) {
+            if (targetColumns.contains(bp.column()) && bp.operator() == ComparisonOperator.EQUALS) {
+                return bp.value();
+            }
+        } else if (where instanceof WherePredicate.AndPredicate ap) {
+            for (WherePredicate child : ap.predicates()) {
+                Object v = findValueInWhere(child, targetColumns);
+                if (v != null) return v;
+            }
+        }
+        return null;
+    }
+
     public int executeUpdate(InsertQuery query) {
+        if (query.table() != null && findNotifiableModel(query.table().tableName(), NotifyEventType.CREATE).isPresent()) {
+            Optional<Map<String, Object>> res = executeInsertAndReturn(query);
+            return res.isPresent() ? 1 : 0;
+        }
         int res = executeUpdate(dialect.buildInsertSql(query));
         if (query.table() != null) {
             evictCacheForTable(query.table().tableName());
@@ -565,9 +733,21 @@ public class JdbcExecutor implements QueryExecutionEngine {
 
     @Override
     public int executeUpdate(UpdateQuery query) {
+        if (query.table() != null && findNotifiableModel(query.table().tableName(), NotifyEventType.UPDATE).isPresent() && dialect.supportsReturning()) {
+            Optional<Map<String, Object>> res = executeUpdateAndReturn(query);
+            return res.isPresent() ? 1 : 0;
+        }
         int res = executeUpdate(dialect.buildUpdateSql(query));
         if (query.table() != null) {
             evictCacheForTable(query.table().tableName());
+            if (res > 0) {
+                findNotifiableModel(query.table().tableName(), NotifyEventType.UPDATE).ifPresent(model -> {
+                    Map<String, Object> payload = new LinkedHashMap<>(query.values());
+                    Object entityId = extractEntityId(model, payload, query.values(), query.where());
+                    String tenantId = extractTenantId(model, payload);
+                    emitEvent(new EntityEvent(model.name(), NotifyEventType.UPDATE, entityId, payload, tenantId, Instant.now()));
+                });
+            }
         }
         return res;
     }
@@ -602,6 +782,12 @@ public class JdbcExecutor implements QueryExecutionEngine {
         }
         if (query.table() != null) {
             evictCacheForTable(query.table().tableName());
+            findNotifiableModel(query.table().tableName(), NotifyEventType.UPDATE).ifPresent(model -> {
+                Map<String, Object> payload = result.orElseGet(() -> new LinkedHashMap<>(query.values()));
+                Object entityId = extractEntityId(model, payload, query.values(), query.where());
+                String tenantId = extractTenantId(model, payload);
+                emitEvent(new EntityEvent(model.name(), NotifyEventType.UPDATE, entityId, payload, tenantId, Instant.now()));
+            });
         }
         return result;
     }
@@ -623,6 +809,14 @@ public class JdbcExecutor implements QueryExecutionEngine {
         int res = executeUpdate(dialect.buildDeleteSql(query));
         if (query.table() != null) {
             evictCacheForTable(query.table().tableName());
+            if (res > 0) {
+                findNotifiableModel(query.table().tableName(), NotifyEventType.DELETE).ifPresent(model -> {
+                    Object entityId = extractEntityIdFromWhere(model, query.where());
+                    String tenantId = extractTenantIdFromWhere(model, query.where());
+                    Map<String, Object> payload = entityId != null ? Map.of("id", entityId) : Map.of();
+                    emitEvent(new EntityEvent(model.name(), NotifyEventType.DELETE, entityId, payload, tenantId, Instant.now()));
+                });
+            }
         }
         return res;
     }
@@ -855,6 +1049,12 @@ public class JdbcExecutor implements QueryExecutionEngine {
         }
         if (query.table() != null) {
             evictCacheForTable(query.table().tableName());
+            findNotifiableModel(query.table().tableName(), NotifyEventType.CREATE).ifPresent(model -> {
+                Map<String, Object> payload = new LinkedHashMap<>(query.values());
+                Object entityId = extractEntityId(model, payload, query.values());
+                String tenantId = extractTenantId(model, payload);
+                emitEvent(new EntityEvent(model.name(), NotifyEventType.CREATE, entityId, payload, tenantId, Instant.now()));
+            });
         }
         return res;
     }
@@ -881,6 +1081,12 @@ public class JdbcExecutor implements QueryExecutionEngine {
         }
         if (query.table() != null) {
             evictCacheForTable(query.table().tableName());
+            findNotifiableModel(query.table().tableName(), NotifyEventType.CREATE).ifPresent(model -> {
+                Map<String, Object> payload = result.orElseGet(() -> new LinkedHashMap<>(query.values()));
+                Object entityId = extractEntityId(model, payload, query.values());
+                String tenantId = extractTenantId(model, payload);
+                emitEvent(new EntityEvent(model.name(), NotifyEventType.CREATE, entityId, payload, tenantId, Instant.now()));
+            });
         }
         return result;
     }

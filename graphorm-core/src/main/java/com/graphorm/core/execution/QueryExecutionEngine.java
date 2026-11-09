@@ -31,6 +31,15 @@ public interface QueryExecutionEngine {
     }
 
     /**
+     * Returns the optional {@link com.graphorm.core.event.EntityEventBroker} configured on this execution engine.
+     *
+     * @return an Optional containing the event broker, or empty if event broadcasting is disabled
+     */
+    default Optional<com.graphorm.core.event.EntityEventBroker> eventBroker() {
+        return Optional.empty();
+    }
+
+    /**
      * Executes a SELECT query AST and returns the resulting rows as maps.
      *
      * @param query the select query AST

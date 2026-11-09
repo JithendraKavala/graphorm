@@ -19,6 +19,9 @@ import com.graphorm.jdbc.dialect.SqliteDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.transaction.TransactionManager;
 import com.graphorm.jdbc.util.StatementInterceptor;
+import com.graphorm.core.event.EntityEventBroker;
+import com.graphorm.core.event.InMemoryEntityEventBroker;
+import com.graphorm.jdbc.event.PostgresNotificationListener;
 import com.graphorm.schema.transformer.SchemaToMetadataTransformer;
 import com.graphorm.spring.boot.aot.GraphOrmRuntimeHintsRegistrar;
 import com.graphorm.spring.boot.graphql.GraphOrmExceptionHandler;
@@ -143,6 +146,12 @@ public class GraphOrmAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public EntityEventBroker entityEventBroker() {
+        return new InMemoryEntityEventBroker();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public GraphOrmCacheManager graphOrmCacheManager(GraphOrmProperties properties) {
         if (!properties.getCache().isEnabled() || "none".equalsIgnoreCase(properties.getCache().getL2Type())) {
             return new NoOpGraphOrmCacheManager();
@@ -205,6 +214,35 @@ public class GraphOrmAutoConfiguration {
         @ConditionalOnMissingBean(DataLoaderMetricsListener.class)
         public DataLoaderMetricsListener micrometerDataLoaderMetricsListener(io.micrometer.core.instrument.MeterRegistry meterRegistry) {
             return new MicrometerDataLoaderMetricsListener(meterRegistry);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(PostgresNotificationListener.class)
+    @ConditionalOnProperty(prefix = "graphorm.subscriptions", name = "enabled", havingValue = "true", matchIfMissing = true)
+    static class SubscriptionsConfiguration {
+
+        @Bean(initMethod = "start", destroyMethod = "stop")
+        @ConditionalOnMissingBean(PostgresNotificationListener.class)
+        public PostgresNotificationListener postgresNotificationListener(
+                ObjectProvider<DataSource> dataSourceProvider,
+                GraphOrmProperties properties,
+                BeanFactory beanFactory,
+                SqlDialect sqlDialect,
+                EntityEventBroker eventBroker
+        ) {
+            if (!(sqlDialect instanceof PostgreSqlDialect) || !PostgresNotificationListener.isDriverAvailable()) {
+                return null;
+            }
+            DataSource ds = resolveDataSource(dataSourceProvider, properties, beanFactory);
+            if (ds == null) {
+                return null;
+            }
+            return new PostgresNotificationListener(
+                    ds,
+                    properties.getSubscriptions().getChannelName(),
+                    eventBroker
+            );
         }
     }
 
@@ -279,7 +317,9 @@ public class GraphOrmAutoConfiguration {
             JdbcExecutor.ConnectionProvider connectionProvider,
             ObjectProvider<StatementInterceptor> interceptorsProvider,
             ObjectProvider<QueryPlanCache> planCacheProvider,
-            ObjectProvider<GraphOrmCacheManager> cacheManagerProvider
+            ObjectProvider<GraphOrmCacheManager> cacheManagerProvider,
+            ObjectProvider<EntityEventBroker> eventBrokerProvider,
+            ObjectProvider<ModelRegistry> modelRegistryProvider
     ) {
         DataSource dataSource = resolveDataSource(dataSourceProvider, properties, beanFactory);
         if (dataSource == null) {
@@ -295,7 +335,7 @@ public class GraphOrmAutoConfiguration {
         QueryPlanCache planCache = planCacheProvider.getIfAvailable(() -> QueryPlanCache.getDefault());
         GraphOrmCacheManager cacheManager = cacheManagerProvider.getIfAvailable();
 
-        return new JdbcExecutor(
+        JdbcExecutor executor = new JdbcExecutor(
                 txAwareDataSource,
                 sqlDialect,
                 connectionProvider,
@@ -303,6 +343,21 @@ public class GraphOrmAutoConfiguration {
                 cacheManager,
                 interceptors.toArray(StatementInterceptor[]::new)
         );
+        EntityEventBroker broker = eventBrokerProvider.getIfAvailable();
+        if (broker != null) {
+            executor.setEventBroker(broker);
+        }
+        ModelRegistry registry = modelRegistryProvider.getIfAvailable();
+        if (registry != null) {
+            executor.setModelRegistry(registry);
+        }
+        if (properties.getSubscriptions().isEnabled()) {
+            executor.setNotifyChannel(properties.getSubscriptions().getChannelName());
+            if (sqlDialect instanceof PostgreSqlDialect && PostgresNotificationListener.isDriverAvailable()) {
+                executor.setNativePostgresNotify(true);
+            }
+        }
+        return executor;
     }
 
     @Bean

@@ -63,6 +63,21 @@ public final class ModelRegistry {
     }
 
     /**
+     * Looks up a model by physical table name or model name (case-insensitive).
+     *
+     * @param tableName table name or model name
+     * @return an Optional containing the model if found
+     */
+    public Optional<ModelMetadata> findModelByTable(String tableName) {
+        if (tableName == null || tableName.isBlank()) {
+            return Optional.empty();
+        }
+        return models.values().stream()
+                .filter(m -> tableName.equalsIgnoreCase(m.tableName()) || tableName.equalsIgnoreCase(m.name()))
+                .findFirst();
+    }
+
+    /**
      * Looks up a view model by name.
      *
      * @param name view model name

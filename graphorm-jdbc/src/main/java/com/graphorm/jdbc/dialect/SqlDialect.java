@@ -222,6 +222,21 @@ public interface SqlDialect {
      */
     String renderReturningClause(List<String> columns);
 
+    /**
+     * Formats a database notification statement for the specified channel and payload.
+     * Default implementation formats a PostgreSQL NOTIFY statement.
+     *
+     * @param channel the notification channel name
+     * @param payload the JSON or text payload
+     * @return the SQL notification statement
+     */
+    default String formatNotifySql(String channel, String payload) {
+        Objects.requireNonNull(channel, "channel must not be null");
+        Objects.requireNonNull(payload, "payload must not be null");
+        String escaped = payload.replace("'", "''");
+        return "NOTIFY " + channel + ", '" + escaped + "'";
+    }
+
     // =========================================================================
     // DDL Operations
     // =========================================================================

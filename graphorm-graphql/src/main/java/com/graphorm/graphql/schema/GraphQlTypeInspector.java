@@ -74,6 +74,7 @@ public class GraphQlTypeInspector {
 
             inspectQueryOperations();
             inspectMutationOperations();
+            inspectSubscriptionOperations();
 
             inspected = true;
             return Collections.unmodifiableList(bindings);
@@ -112,6 +113,10 @@ public class GraphQlTypeInspector {
 
     public Optional<GraphQlOperationBinding> findMutationBinding(String fieldName) {
         return findBinding("Mutation", fieldName);
+    }
+
+    public Optional<GraphQlOperationBinding> findSubscriptionBinding(String fieldName) {
+        return findBinding("Subscription", fieldName);
     }
 
     private void inspectQueryOperations() {
@@ -178,6 +183,67 @@ public class GraphQlTypeInspector {
 
         log.info("Discovered Query binding: Query.{} -> {} ({})", fieldName, entity.name(), kind);
         return Optional.of(new GraphQlOperationBinding("Query", fieldName, entity, kind, idArgName, "input"));
+    }
+
+    private void inspectSubscriptionOperations() {
+        Optional<ObjectTypeDefinition> subTypeDef = typeRegistry.getType("Subscription", ObjectTypeDefinition.class);
+        if (subTypeDef.isEmpty()) {
+            return;
+        }
+
+        for (FieldDefinition field : subTypeDef.get().getFieldDefinitions()) {
+            matchSubscriptionField(field).ifPresent(bindings::add);
+        }
+    }
+
+    private Optional<GraphQlOperationBinding> matchSubscriptionField(FieldDefinition field) {
+        String fieldName = field.getName();
+        String lowerField = fieldName.toLowerCase(Locale.ROOT);
+
+        String entityCandidateName;
+        GraphQlOperationKind kind;
+
+        if (lowerField.endsWith("created")) {
+            kind = GraphQlOperationKind.MODEL_CREATED_SUBSCRIPTION;
+            entityCandidateName = fieldName.substring(0, fieldName.length() - 7);
+        } else if (lowerField.endsWith("updated")) {
+            kind = GraphQlOperationKind.MODEL_UPDATED_SUBSCRIPTION;
+            entityCandidateName = fieldName.substring(0, fieldName.length() - 7);
+        } else if (lowerField.endsWith("deleted")) {
+            kind = GraphQlOperationKind.MODEL_DELETED_SUBSCRIPTION;
+            entityCandidateName = fieldName.substring(0, fieldName.length() - 7);
+        } else if (lowerField.startsWith("oncreate")) {
+            kind = GraphQlOperationKind.MODEL_CREATED_SUBSCRIPTION;
+            entityCandidateName = fieldName.substring(8);
+        } else if (lowerField.startsWith("onupdate")) {
+            kind = GraphQlOperationKind.MODEL_UPDATED_SUBSCRIPTION;
+            entityCandidateName = fieldName.substring(8);
+        } else if (lowerField.startsWith("ondelete")) {
+            kind = GraphQlOperationKind.MODEL_DELETED_SUBSCRIPTION;
+            entityCandidateName = fieldName.substring(8);
+        } else {
+            return Optional.empty();
+        }
+
+        EntityMetadata entity = matchEntity(entityCandidateName);
+        if (entity == null) {
+            String returnTypeName = unwrapTypeName(field.getType());
+            entity = matchEntity(returnTypeName);
+        }
+
+        if (entity == null) {
+            log.debug("Subscription field Subscription.{} did not match any entity in ModelRegistry", fieldName);
+            return Optional.empty();
+        }
+
+        if (entity.isReadOnly()) {
+            log.warn("Subscription on read-only view model '{}' is not supported.", entity.name());
+            return Optional.empty();
+        }
+
+        String idArgName = resolveIdArgumentName(field, entity);
+        log.info("Discovered Subscription binding: Subscription.{} -> {} ({})", fieldName, entity.name(), kind);
+        return Optional.of(new GraphQlOperationBinding("Subscription", fieldName, entity, kind, idArgName, "input"));
     }
 
     private void inspectMutationOperations() {

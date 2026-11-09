@@ -140,6 +140,45 @@ class GraphQlSdlGeneratorTest {
     }
 
     @Test
+    @DisplayName("Should generate Subscription type for models with @notify metadata")
+    void shouldGenerateSubscriptionTypeForNotifiedModels() {
+        ModelMetadata studentModel = ModelMetadata.builder("Student")
+                .tableName("students")
+                .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
+                .addField(FieldMetadata.builder("name", String.class).build())
+                .addPrimaryKeyField("id")
+                .notifyMetadata(com.graphorm.core.metadata.NotifyMetadata.of(java.util.Set.of(
+                        com.graphorm.core.event.NotifyEventType.CREATE,
+                        com.graphorm.core.event.NotifyEventType.UPDATE,
+                        com.graphorm.core.event.NotifyEventType.DELETE
+                )))
+                .build();
+
+        ModelMetadata logModel = ModelMetadata.builder("AuditLog")
+                .tableName("audit_logs")
+                .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
+                .addField(FieldMetadata.builder("msg", String.class).build())
+                .addPrimaryKeyField("id")
+                .notifyMetadata(com.graphorm.core.metadata.NotifyMetadata.DISABLED)
+                .build();
+
+        ModelRegistry registry = ModelRegistry.builder()
+                .addModel(studentModel)
+                .addModel(logModel)
+                .build();
+
+        String sdl = GraphQlSdlGenerator.generate(registry);
+
+        assertThat(sdl).contains("type Subscription {");
+        assertThat(sdl).contains("studentCreated: Student!");
+        assertThat(sdl).contains("studentUpdated(id: ID): Student!");
+        assertThat(sdl).contains("studentDeleted: ID!");
+        assertThat(sdl).doesNotContain("auditLogCreated");
+        assertThat(sdl).doesNotContain("auditLogUpdated");
+        assertThat(sdl).doesNotContain("auditLogDeleted");
+    }
+
+    @Test
     @DisplayName("Should generate standard SDL without @auth for unannotated models")
     void shouldGenerateStandardSdlWithoutAuth() {
         ModelMetadata normalModel = ModelMetadata.builder("Product")

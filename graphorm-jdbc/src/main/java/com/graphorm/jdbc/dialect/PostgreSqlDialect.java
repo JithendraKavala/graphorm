@@ -505,4 +505,13 @@ public class PostgreSqlDialect implements SqlDialect {
     public String buildAdvisoryUnlockSql(long lockKey) {
         return "SELECT pg_advisory_unlock(" + lockKey + ");";
     }
+
+    @Override
+    public String formatNotifySql(String channel, String payload) {
+        Objects.requireNonNull(channel, "channel must not be null");
+        Objects.requireNonNull(payload, "payload must not be null");
+        String sanitizedChannel = channel.trim();
+        String escaped = payload.replace("'", "''");
+        return "NOTIFY " + sanitizedChannel + ", '" + escaped + "';";
+    }
 }

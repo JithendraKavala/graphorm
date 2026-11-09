@@ -153,6 +153,43 @@ public record ModelNode(
         }).orElse(List.of());
     }
 
+    public boolean isNotifyEnabled() {
+        return hasAttribute("notify");
+    }
+
+    public Optional<BlockAttributeNode> notifyAttribute() {
+        return findAttribute("notify");
+    }
+
+    public Optional<NotifyAttributeNode> notifyNode() {
+        return notifyAttribute().map(attr -> {
+            List<String> events = new ArrayList<>();
+            Optional<ExpressionNode> onArg = attr.getArgumentValue("on")
+                    .or(() -> attr.getPositionalArgumentValue(0));
+            if (onArg.isPresent()) {
+                ExpressionNode expr = onArg.get();
+                if (expr instanceof ArrayLiteralNode array) {
+                    for (ExpressionNode elem : array.elements()) {
+                        String val = extractStringOrIdent(elem);
+                        if (val != null && !val.isBlank()) {
+                            events.add(val.trim());
+                        }
+                    }
+                } else {
+                    String val = extractStringOrIdent(expr);
+                    if (val != null && !val.isBlank()) {
+                        events.add(val.trim());
+                    }
+                }
+            }
+            return new NotifyAttributeNode(attr.position(), events);
+        });
+    }
+
+    public List<String> notifyEvents() {
+        return notifyNode().map(NotifyAttributeNode::events).orElse(List.of());
+    }
+
     public ExposureMetadata exposure() {
         Optional<BlockAttributeNode> attrOpt = exposeAttribute();
         if (attrOpt.isEmpty()) {

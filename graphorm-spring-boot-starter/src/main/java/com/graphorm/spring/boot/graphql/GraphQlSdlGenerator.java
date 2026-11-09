@@ -37,6 +37,7 @@ public final class GraphQlSdlGenerator {
 
         List<String> queryFields = new ArrayList<>();
         List<String> mutationFields = new ArrayList<>();
+        List<String> subscriptionFields = new ArrayList<>();
         boolean hasConnections = false;
 
         // 1. Regular Models
@@ -119,6 +120,19 @@ public final class GraphQlSdlGenerator {
                 queryFields.add(singular + "(id: ID!): " + modelName + modelAuth);
                 queryFields.add(plural + "Connection(first: Int, after: String, last: Int, before: String): " + modelName + "Connection!" + modelAuth);
             }
+
+            if (model.isNotifyEnabled()) {
+                String singular = toLowerCamel(modelName);
+                if (model.notifyMetadata().supports(com.graphorm.core.event.NotifyEventType.CREATE)) {
+                    subscriptionFields.add(singular + "Created: " + modelName + "!" + modelAuth);
+                }
+                if (model.notifyMetadata().supports(com.graphorm.core.event.NotifyEventType.UPDATE)) {
+                    subscriptionFields.add(singular + "Updated(id: ID): " + modelName + "!" + modelAuth);
+                }
+                if (model.notifyMetadata().supports(com.graphorm.core.event.NotifyEventType.DELETE)) {
+                    subscriptionFields.add(singular + "Deleted: ID!" + modelAuth);
+                }
+            }
         }
 
         // 2. View Models (Strictly Read-Only!)
@@ -180,6 +194,15 @@ public final class GraphQlSdlGenerator {
             sb.append("type Mutation {\n");
             for (String mf : mutationFields) {
                 sb.append("  ").append(mf).append("\n");
+            }
+            sb.append("}\n\n");
+        }
+
+        // Subscription Type
+        if (!subscriptionFields.isEmpty()) {
+            sb.append("type Subscription {\n");
+            for (String sf : subscriptionFields) {
+                sb.append("  ").append(sf).append("\n");
             }
             sb.append("}\n\n");
         }
