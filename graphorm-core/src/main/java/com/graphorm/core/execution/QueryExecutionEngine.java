@@ -1,5 +1,6 @@
 package com.graphorm.core.execution;
 
+import com.graphorm.core.cache.GraphOrmCacheManager;
 import com.graphorm.core.query.BatchInsertQuery;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
@@ -19,6 +20,15 @@ import java.util.concurrent.Executor;
  * from underlying database driver primitives and JDBC transport.
  */
 public interface QueryExecutionEngine {
+
+    /**
+     * Returns the optional {@link GraphOrmCacheManager} configured on this execution engine.
+     *
+     * @return an Optional containing the cache manager, or empty if caching is disabled
+     */
+    default Optional<GraphOrmCacheManager> cacheManager() {
+        return Optional.empty();
+    }
 
     /**
      * Executes a SELECT query AST and returns the resulting rows as maps.

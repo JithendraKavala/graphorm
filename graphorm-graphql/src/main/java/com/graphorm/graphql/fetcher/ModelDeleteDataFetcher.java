@@ -23,10 +23,11 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for deleting a model entity (e.g. {@code Mutation.deleteStudent(id: ID!): Boolean!}).
- * Enforces writability and model-level authorization.
+ * Enforces writability, model-level authorization, and invalidates tag-dependent L2 entity/view caches upon deletion.
  */
 public class ModelDeleteDataFetcher implements DataFetcher<Object> {
 
@@ -91,6 +92,8 @@ public class ModelDeleteDataFetcher implements DataFetcher<Object> {
         }
         DeleteQuery deleteQuery = new DeleteQuery(SourceTable.table(model.tableName()), deleteWhere);
         int affected = executor.executeUpdate(deleteQuery);
+
+        executor.cacheManager().ifPresent(cm -> cm.evictByTags(Set.of(model.name(), model.tableName())));
 
         String returnTypeName = GraphQLTypeUtil.simplePrint(env.getFieldDefinition().getType());
         if (returnTypeName.contains("Boolean")) {

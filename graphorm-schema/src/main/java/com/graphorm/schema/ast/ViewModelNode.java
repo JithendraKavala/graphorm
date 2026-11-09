@@ -84,6 +84,46 @@ public record ViewModelNode(
         return findAttribute("expose");
     }
 
+    public boolean isCached() {
+        return hasAttribute("cached");
+    }
+
+    public Optional<BlockAttributeNode> cachedAttribute() {
+        return findAttribute("cached");
+    }
+
+    public Optional<String> cacheTtl() {
+        return cachedAttribute().flatMap(attr ->
+                attr.getArgumentValue("ttl")
+                        .or(() -> attr.getPositionalArgumentValue(0))
+                        .map(ViewModelNode::extractStringOrIdent));
+    }
+
+    public List<String> cacheTags() {
+        return cachedAttribute().map(attr -> {
+            Optional<ExpressionNode> tagsArg = attr.getArgumentValue("tags")
+                    .or(() -> attr.getPositionalArgumentValue(1));
+            if (tagsArg.isPresent()) {
+                if (tagsArg.get() instanceof ArrayLiteralNode array) {
+                    List<String> tags = new ArrayList<>();
+                    for (ExpressionNode elem : array.elements()) {
+                        String val = extractStringOrIdent(elem);
+                        if (val != null && !val.isBlank()) {
+                            tags.add(val.trim());
+                        }
+                    }
+                    return List.copyOf(tags);
+                } else {
+                    String val = extractStringOrIdent(tagsArg.get());
+                    if (val != null && !val.isBlank()) {
+                        return List.of(val.trim());
+                    }
+                }
+            }
+            return List.<String>of();
+        }).orElse(List.of());
+    }
+
     public ExposureMetadata exposure() {
         Optional<BlockAttributeNode> attrOpt = exposeAttribute();
         if (attrOpt.isEmpty()) {

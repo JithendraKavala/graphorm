@@ -1,5 +1,8 @@
 package com.graphorm.jdbc.executor;
 
+import com.graphorm.core.cache.CaffeineGraphOrmCacheManager;
+import com.graphorm.core.cache.GraphOrmCacheManager;
+import com.graphorm.core.cache.NoOpGraphOrmCacheManager;
 import com.graphorm.core.execution.QueryExecutionEngine;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
@@ -10,9 +13,11 @@ import com.graphorm.core.query.BulkUpdateQuery;
 import com.graphorm.core.query.SqlQuery;
 import com.graphorm.core.query.UpsertQuery;
 import com.graphorm.jdbc.builder.BatchInsertBuilder;
+import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.builder.UpsertBuilder;
 import com.graphorm.jdbc.builder.InsertBuilder;
 import com.graphorm.jdbc.builder.UpdateBuilder;
+import com.graphorm.jdbc.cache.QueryPlanCache;
 import com.graphorm.jdbc.cursor.Cursor;
 import com.graphorm.jdbc.cursor.DefaultCursor;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
@@ -48,13 +53,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 
 /**
  * Core JDBC query execution engine managing database connections, prepared statement binding,
  * result set iteration, and resource cleanup with zero connection leaks.
- * Implements the decoupled {@link QueryExecutionEngine} SPI.
+ * Implements the decoupled {@link QueryExecutionEngine} SPI with L1 {@link QueryPlanCache}
+ * and L2 {@link GraphOrmCacheManager} result cache.
  */
 public class JdbcExecutor implements QueryExecutionEngine {
 
@@ -105,6 +112,9 @@ public class JdbcExecutor implements QueryExecutionEngine {
     private final SqlErrorTranslator errorTranslator;
     private final List<StatementInterceptor> interceptors = new CopyOnWriteArrayList<>();
 
+    private volatile GraphOrmCacheManager cacheManager = new CaffeineGraphOrmCacheManager();
+    private volatile QueryPlanCache planCache = QueryPlanCache.getDefault();
+
     public JdbcExecutor(DataSource dataSource, SqlDialect dialect, ConnectionProvider connectionProvider, StatementInterceptor... interceptors) {
         this.dataSource = Objects.requireNonNull(dataSource, "DataSource must not be null");
         this.dialect = Objects.requireNonNull(dialect, "SqlDialect must not be null");
@@ -116,6 +126,18 @@ public class JdbcExecutor implements QueryExecutionEngine {
                     this.interceptors.add(i);
                 }
             }
+        }
+    }
+
+    public JdbcExecutor(DataSource dataSource, SqlDialect dialect, ConnectionProvider connectionProvider,
+                        QueryPlanCache planCache, GraphOrmCacheManager cacheManager,
+                        StatementInterceptor... interceptors) {
+        this(dataSource, dialect, connectionProvider, interceptors);
+        if (planCache != null) {
+            this.planCache = planCache;
+        }
+        if (cacheManager != null) {
+            this.cacheManager = cacheManager;
         }
     }
 
@@ -184,6 +206,37 @@ public class JdbcExecutor implements QueryExecutionEngine {
         return errorTranslator;
     }
 
+    @Override
+    public Optional<GraphOrmCacheManager> cacheManager() {
+        return Optional.ofNullable(cacheManager);
+    }
+
+    public GraphOrmCacheManager getCacheManager() {
+        return cacheManager;
+    }
+
+    public void setCacheManager(GraphOrmCacheManager cacheManager) {
+        this.cacheManager = cacheManager != null ? cacheManager : new NoOpGraphOrmCacheManager();
+    }
+
+    public QueryPlanCache planCache() {
+        return planCache;
+    }
+
+    public void setPlanCache(QueryPlanCache planCache) {
+        this.planCache = planCache != null ? planCache : QueryPlanCache.getDefault();
+    }
+
+    public BoundSql buildSelectSql(SelectQuery query) {
+        return SelectBuilder.of(dialect, planCache).build(query);
+    }
+
+    private void evictCacheForTable(String tableName) {
+        if (cacheManager != null && tableName != null && !tableName.isBlank()) {
+            cacheManager.evictByTags(Set.of(tableName));
+        }
+    }
+
     public final void addInterceptor(StatementInterceptor interceptor) {
         if (interceptor != null) {
             this.interceptors.add(interceptor);
@@ -239,7 +292,7 @@ public class JdbcExecutor implements QueryExecutionEngine {
 
     @Override
     public List<Map<String, Object>> queryForList(SelectQuery query) {
-        return queryForList(dialect.buildSelectSql(query));
+        return queryForList(buildSelectSql(query));
     }
 
     @Override
@@ -252,11 +305,11 @@ public class JdbcExecutor implements QueryExecutionEngine {
     }
 
     public <T> List<T> queryForList(SelectQuery query, Class<T> recordClass) {
-        return queryForList(dialect.buildSelectSql(query), recordClass);
+        return queryForList(buildSelectSql(query), recordClass);
     }
 
     public <T> List<T> queryForList(SelectQuery query, RowMapper<T> rowMapper) {
-        return queryForList(dialect.buildSelectSql(query), rowMapper);
+        return queryForList(buildSelectSql(query), rowMapper);
     }
 
     public <T> List<T> queryForList(BoundSql boundSql, RowMapper<T> rowMapper) {
@@ -264,6 +317,7 @@ public class JdbcExecutor implements QueryExecutionEngine {
         Objects.requireNonNull(rowMapper, "RowMapper must not be null");
 
         log.debug("Executing query: {} with {}", boundSql.sql(), formatParametersForLog(boundSql.parameters()));
+
         long start = System.nanoTime();
         for (StatementInterceptor interceptor : interceptors) {
             try {
@@ -278,14 +332,13 @@ public class JdbcExecutor implements QueryExecutionEngine {
             conn = connectionProvider.getConnection(dataSource);
             try (PreparedStatement ps = conn.prepareStatement(boundSql.sql())) {
                 bindParameters(ps, boundSql.parameters());
-
                 try (ResultSet rs = ps.executeQuery()) {
                     List<T> results = new ArrayList<>();
                     int rowNum = 0;
                     while (rs.next()) {
                         results.add(rowMapper.mapRow(rs, rowNum++));
                     }
-                    return results;
+                    return Collections.unmodifiableList(results);
                 }
             }
         } catch (SQLException e) {
@@ -318,7 +371,7 @@ public class JdbcExecutor implements QueryExecutionEngine {
 
     @Override
     public Optional<Map<String, Object>> queryForObject(SelectQuery query) {
-        return queryForObject(dialect.buildSelectSql(query));
+        return queryForObject(buildSelectSql(query));
     }
 
     @Override
@@ -331,11 +384,11 @@ public class JdbcExecutor implements QueryExecutionEngine {
     }
 
     public <T> Optional<T> queryForObject(SelectQuery query, Class<T> recordClass) {
-        return queryForObject(dialect.buildSelectSql(query), recordClass);
+        return queryForObject(buildSelectSql(query), recordClass);
     }
 
     public <T> Optional<T> queryForObject(SelectQuery query, RowMapper<T> rowMapper) {
-        return queryForObject(dialect.buildSelectSql(query), rowMapper);
+        return queryForObject(buildSelectSql(query), rowMapper);
     }
 
     public <T> Optional<T> queryForObject(BoundSql boundSql, RowMapper<T> rowMapper) {
@@ -384,7 +437,9 @@ public class JdbcExecutor implements QueryExecutionEngine {
             if (conn != null) {
                 try {
                     connectionProvider.releaseConnection(conn, dataSource);
-                } catch (SQLException ignored) {}
+                } catch (SQLException closeEx) {
+                    log.warn("Failed to release connection on streaming failure: {}", closeEx.getMessage(), closeEx);
+                }
             }
             throw errorTranslator.translate("Streaming query execution", boundSql.sql(), e);
         }
@@ -395,7 +450,7 @@ public class JdbcExecutor implements QueryExecutionEngine {
     }
 
     public <T> Cursor<T> stream(SelectQuery query, RowMapper<T> rowMapper, int fetchSize) {
-        return stream(dialect.buildSelectSql(query), rowMapper, fetchSize);
+        return stream(buildSelectSql(query), rowMapper, fetchSize);
     }
 
     public <T> Cursor<T> stream(SelectQuery query, RowMapper<T> rowMapper) {
@@ -403,7 +458,7 @@ public class JdbcExecutor implements QueryExecutionEngine {
     }
 
     public <T> Cursor<T> stream(SelectQuery query, Class<T> recordClass, int fetchSize) {
-        return stream(dialect.buildSelectSql(query), DynamicRowMapper.mapToRecord(recordClass), fetchSize);
+        return stream(buildSelectSql(query), DynamicRowMapper.mapToRecord(recordClass), fetchSize);
     }
 
     public <T> Cursor<T> stream(SelectQuery query, Class<T> recordClass) {
@@ -496,7 +551,11 @@ public class JdbcExecutor implements QueryExecutionEngine {
     }
 
     public int executeUpdate(InsertQuery query) {
-        return executeUpdate(dialect.buildInsertSql(query));
+        int res = executeUpdate(dialect.buildInsertSql(query));
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return res;
     }
 
     @Override
@@ -506,12 +565,17 @@ public class JdbcExecutor implements QueryExecutionEngine {
 
     @Override
     public int executeUpdate(UpdateQuery query) {
-        return executeUpdate(dialect.buildUpdateSql(query));
+        int res = executeUpdate(dialect.buildUpdateSql(query));
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return res;
     }
 
     @Override
     public Optional<Map<String, Object>> executeUpdateAndReturn(UpdateQuery query) {
         Objects.requireNonNull(query, "UpdateQuery must not be null");
+        Optional<Map<String, Object>> result;
         if (dialect.supportsReturning()) {
             BoundSql boundSql = UpdateBuilder.of(dialect)
                     .table(query.table())
@@ -519,22 +583,27 @@ public class JdbcExecutor implements QueryExecutionEngine {
                     .where(query.where())
                     .returningAll()
                     .build();
-            return queryForObject(boundSql);
+            result = queryForObject(boundSql);
+        } else {
+            BoundSql updateBoundSql = dialect.buildUpdateSql(query);
+            int affected = executeUpdate(updateBoundSql);
+            if (affected == 0) {
+                result = Optional.empty();
+            } else if (query.where() != null) {
+                SelectQuery selectQuery = SelectQuery.from(query.table().tableName())
+                        .column("*")
+                        .where(query.where())
+                        .limit(1)
+                        .build();
+                result = queryForObject(selectQuery);
+            } else {
+                result = Optional.of(new LinkedHashMap<>(query.values()));
+            }
         }
-        BoundSql updateBoundSql = dialect.buildUpdateSql(query);
-        int affected = executeUpdate(updateBoundSql);
-        if (affected == 0) {
-            return Optional.empty();
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
         }
-        if (query.where() != null) {
-            SelectQuery selectQuery = SelectQuery.from(query.table().tableName())
-                    .column("*")
-                    .where(query.where())
-                    .limit(1)
-                    .build();
-            return queryForObject(selectQuery);
-        }
-        return Optional.of(new LinkedHashMap<>(query.values()));
+        return result;
     }
 
     /**
@@ -551,7 +620,11 @@ public class JdbcExecutor implements QueryExecutionEngine {
 
     @Override
     public int executeUpdate(DeleteQuery query) {
-        return executeUpdate(dialect.buildDeleteSql(query));
+        int res = executeUpdate(dialect.buildDeleteSql(query));
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return res;
     }
 
     @Override
@@ -560,19 +633,28 @@ public class JdbcExecutor implements QueryExecutionEngine {
     }
 
     public int executeUpsert(UpsertQuery query) {
-        return executeUpdate(dialect.buildUpsertSql(query));
+        int res = executeUpdate(dialect.buildUpsertSql(query));
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return res;
     }
 
     public Optional<Map<String, Object>> executeUpsertAndReturn(UpsertQuery query) {
+        Optional<Map<String, Object>> result;
         if (query.returning() != null && !query.returning().isEmpty()) {
-            return queryForObject(dialect.buildUpsertSql(query));
-        }
-        if (dialect.supportsReturning()) {
+            result = queryForObject(dialect.buildUpsertSql(query));
+        } else if (dialect.supportsReturning()) {
             UpsertQuery returningQuery = query.toBuilder().returningAll().build();
-            return queryForObject(dialect.buildUpsertSql(returningQuery));
+            result = queryForObject(dialect.buildUpsertSql(returningQuery));
+        } else {
+            int rows = executeUpdate(dialect.buildUpsertSql(query));
+            result = rows > 0 ? Optional.of(new LinkedHashMap<>(query.values())) : Optional.empty();
         }
-        int rows = executeUpdate(dialect.buildUpsertSql(query));
-        return rows > 0 ? Optional.of(new LinkedHashMap<>(query.values())) : Optional.empty();
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return result;
     }
 
     public <T> Optional<T> executeUpsertAndReturn(UpsertQuery query, Class<T> targetClass) {
@@ -590,8 +672,8 @@ public class JdbcExecutor implements QueryExecutionEngine {
         int colCount = query.columns().size();
         int totalParams = rowCount * colCount;
 
+        int totalInserted = 0;
         if (rowCount > MAX_BATCH_INSERT_ROWS || totalParams > MAX_BATCH_INSERT_PARAMS) {
-            int totalInserted = 0;
             int chunkSize = Math.max(1, Math.min(MAX_BATCH_INSERT_ROWS, MAX_BATCH_INSERT_PARAMS / Math.max(1, colCount)));
             for (int i = 0; i < rowCount; i += chunkSize) {
                 int end = Math.min(i + chunkSize, rowCount);
@@ -603,10 +685,13 @@ public class JdbcExecutor implements QueryExecutionEngine {
                         .build();
                 totalInserted += executeUpdate(dialect.buildBatchInsertSql(chunkQuery));
             }
-            return totalInserted;
+        } else {
+            totalInserted = executeUpdate(dialect.buildBatchInsertSql(query));
         }
-
-        return executeUpdate(dialect.buildBatchInsertSql(query));
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return totalInserted;
     }
 
     /**
@@ -619,6 +704,7 @@ public class JdbcExecutor implements QueryExecutionEngine {
         int colCount = query.columns().size();
         int totalParams = rowCount * colCount;
 
+        List<Map<String, Object>> result;
         if (rowCount > MAX_BATCH_INSERT_ROWS || totalParams > MAX_BATCH_INSERT_PARAMS) {
             List<Map<String, Object>> allResults = new ArrayList<>();
             int chunkSize = Math.max(1, Math.min(MAX_BATCH_INSERT_ROWS, MAX_BATCH_INSERT_PARAMS / Math.max(1, colCount)));
@@ -632,18 +718,20 @@ public class JdbcExecutor implements QueryExecutionEngine {
                         .build();
                 allResults.addAll(executeBatchInsertAndReturn(chunkQuery));
             }
-            return Collections.unmodifiableList(allResults);
-        }
-
-        if (query.returning() != null && !query.returning().isEmpty()) {
-            return queryForList(dialect.buildBatchInsertSql(query));
-        }
-        if (dialect.supportsReturning()) {
+            result = Collections.unmodifiableList(allResults);
+        } else if (query.returning() != null && !query.returning().isEmpty()) {
+            result = queryForList(dialect.buildBatchInsertSql(query));
+        } else if (dialect.supportsReturning()) {
             BatchInsertQuery returningQuery = query.toBuilder().returningAll().build();
-            return queryForList(dialect.buildBatchInsertSql(returningQuery));
+            result = queryForList(dialect.buildBatchInsertSql(returningQuery));
+        } else {
+            executeUpdate(dialect.buildBatchInsertSql(query));
+            result = Collections.emptyList();
         }
-        executeUpdate(dialect.buildBatchInsertSql(query));
-        return Collections.emptyList();
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return result;
     }
 
     public <T> List<T> executeBatchInsertAndReturn(BatchInsertQuery query, Class<T> targetClass) {
@@ -653,7 +741,11 @@ public class JdbcExecutor implements QueryExecutionEngine {
     }
 
     public int executeBulkUpdate(BulkUpdateQuery query) {
-        return executeUpdate(dialect.buildBulkUpdateSql(query));
+        int res = executeUpdate(dialect.buildBulkUpdateSql(query));
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return res;
     }
 
     public int[] executeBatch(String sql, List<List<Object>> parameterBatches) {
@@ -750,15 +842,21 @@ public class JdbcExecutor implements QueryExecutionEngine {
      * @return the returned instance if mapped
      */
     public <T> Optional<T> executeInsertAndReturn(InsertQuery query, Class<T> targetClass) {
+        Optional<T> res;
         if (dialect.supportsReturning()) {
             BoundSql boundSql = InsertBuilder.of(dialect)
                     .into(query.table())
                     .values(query.values())
                     .returningAll()
                     .build();
-            return queryForObject(boundSql, targetClass);
+            res = queryForObject(boundSql, targetClass);
+        } else {
+            res = executeInsertWithGeneratedKeys(query, targetClass);
         }
-        return executeInsertWithGeneratedKeys(query, targetClass);
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return res;
     }
 
     /**
@@ -770,15 +868,21 @@ public class JdbcExecutor implements QueryExecutionEngine {
      */
     @Override
     public Optional<Map<String, Object>> executeInsertAndReturn(InsertQuery query) {
+        Optional<Map<String, Object>> result;
         if (dialect.supportsReturning()) {
             BoundSql boundSql = InsertBuilder.of(dialect)
                     .into(query.table())
                     .values(query.values())
                     .returningAll()
                     .build();
-            return queryForObject(boundSql);
+            result = queryForObject(boundSql);
+        } else {
+            result = executeInsertWithGeneratedKeys(query);
         }
-        return executeInsertWithGeneratedKeys(query);
+        if (query.table() != null) {
+            evictCacheForTable(query.table().tableName());
+        }
+        return result;
     }
 
     private Optional<Map<String, Object>> executeInsertWithGeneratedKeys(InsertQuery query) {

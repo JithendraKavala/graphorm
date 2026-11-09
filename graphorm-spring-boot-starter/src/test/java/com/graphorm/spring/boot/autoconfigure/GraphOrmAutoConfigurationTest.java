@@ -26,6 +26,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 
+import com.graphorm.core.cache.CaffeineGraphOrmCacheManager;
+import com.graphorm.core.cache.GraphOrmCacheManager;
+import com.graphorm.core.cache.NoOpGraphOrmCacheManager;
+import com.graphorm.jdbc.cache.QueryPlanCache;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("GraphOrmAutoConfiguration ApplicationContextRunner Tests (TASK-13.3, TASK-13.5, P3 Hardening)")
@@ -245,6 +249,41 @@ class GraphOrmAutoConfigurationTest {
 
                     GraphOrmClient client = context.getBean(GraphOrmClient.class);
                     assertThat(client).isSameAs(CustomUserConfig.CUSTOM_CLIENT);
+                });
+    }
+
+    @Test
+    @DisplayName("Default configuration registers QueryPlanCache and CaffeineGraphOrmCacheManager")
+    void testDefaultCacheBeans() {
+        contextRunner.run(context -> {
+            assertThat(context).hasSingleBean(QueryPlanCache.class);
+            assertThat(context).hasSingleBean(GraphOrmCacheManager.class);
+            GraphOrmCacheManager cacheManager = context.getBean(GraphOrmCacheManager.class);
+            assertThat(cacheManager).isInstanceOf(CaffeineGraphOrmCacheManager.class);
+        });
+    }
+
+    @Test
+    @DisplayName("Cache disabled registers NoOpGraphOrmCacheManager")
+    void testCacheDisabledRegistersNoOp() {
+        contextRunner
+                .withPropertyValues("graphorm.cache.enabled=false")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(GraphOrmCacheManager.class);
+                    GraphOrmCacheManager cacheManager = context.getBean(GraphOrmCacheManager.class);
+                    assertThat(cacheManager).isInstanceOf(NoOpGraphOrmCacheManager.class);
+                });
+    }
+
+    @Test
+    @DisplayName("L2 cache type none registers NoOpGraphOrmCacheManager")
+    void testCacheL2TypeNoneRegistersNoOp() {
+        contextRunner
+                .withPropertyValues("graphorm.cache.l2-type=none")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(GraphOrmCacheManager.class);
+                    GraphOrmCacheManager cacheManager = context.getBean(GraphOrmCacheManager.class);
+                    assertThat(cacheManager).isInstanceOf(NoOpGraphOrmCacheManager.class);
                 });
     }
 

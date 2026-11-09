@@ -110,6 +110,13 @@ public final class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         List<FieldNode> fields = new ArrayList<>();
         List<BlockAttributeNode> attributes = new ArrayList<>();
 
+        if (ctx.fieldAttribute() != null) {
+            for (GraphOrmParser.FieldAttributeContext fCtx : ctx.fieldAttribute()) {
+                FieldAttributeNode fAttr = (FieldAttributeNode) visit(fCtx);
+                attributes.add(new BlockAttributeNode(fAttr.position(), fAttr.name(), fAttr.arguments()));
+            }
+        }
+
         if (ctx.modelElement() != null) {
             for (GraphOrmParser.ModelElementContext elemCtx : ctx.modelElement()) {
                 AstNode node = visit(elemCtx);
@@ -129,6 +136,13 @@ public final class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         String name = ctx.identifier().getText();
         List<FieldNode> fields = new ArrayList<>();
         List<BlockAttributeNode> attributes = new ArrayList<>();
+
+        if (ctx.fieldAttribute() != null) {
+            for (GraphOrmParser.FieldAttributeContext fCtx : ctx.fieldAttribute()) {
+                FieldAttributeNode fAttr = (FieldAttributeNode) visit(fCtx);
+                attributes.add(new BlockAttributeNode(fAttr.position(), fAttr.name(), fAttr.arguments()));
+            }
+        }
 
         if (ctx.viewElement() != null) {
             for (GraphOrmParser.ViewElementContext elemCtx : ctx.viewElement()) {

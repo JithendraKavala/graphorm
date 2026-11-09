@@ -1,7 +1,9 @@
 package com.graphorm.core.metadata;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Common contract for all top-level schema entity metadata: regular models,
@@ -104,6 +106,42 @@ public interface EntityMetadata {
      */
     default Optional<FieldMetadata> tenantField() {
         return fields().stream().filter(FieldMetadata::isTenantId).findFirst();
+    }
+
+    /**
+     * Returns the caching metadata configuration declared for this entity.
+     *
+     * @return the cache metadata (defaults to not cached)
+     */
+    default CacheMetadata cacheMetadata() {
+        return CacheMetadata.NOT_CACHED;
+    }
+
+    /**
+     * Indicates whether query results for this entity should be cached.
+     *
+     * @return true if caching is enabled
+     */
+    default boolean isCached() {
+        return cacheMetadata() != null && cacheMetadata().isCached();
+    }
+
+    /**
+     * Returns the cache TTL duration for this entity, or null if indefinite or not cached.
+     *
+     * @return the cache TTL duration
+     */
+    default Duration cacheTtl() {
+        return cacheMetadata() != null ? cacheMetadata().ttl() : null;
+    }
+
+    /**
+     * Returns the set of invalidation tags declared for this entity's cache.
+     *
+     * @return set of cache tags
+     */
+    default Set<String> cacheTags() {
+        return cacheMetadata() != null ? cacheMetadata().tags() : Set.of();
     }
 
     /**

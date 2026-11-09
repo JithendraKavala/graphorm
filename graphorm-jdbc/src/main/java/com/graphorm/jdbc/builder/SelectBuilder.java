@@ -18,6 +18,10 @@ import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.core.query.template.SqlFragment;
+import com.graphorm.jdbc.cache.FilterShapeExtractor;
+import com.graphorm.jdbc.cache.QueryPlan;
+import com.graphorm.jdbc.cache.QueryPlanCache;
+import com.graphorm.jdbc.cache.QueryPlanKey;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.BoundSql;
 import com.graphorm.jdbc.view.ViewQueryPlanner;
@@ -30,26 +34,48 @@ import java.util.Objects;
  * Builds parameterized {@link BoundSql} from {@link SelectQuery} ASTs across both
  * regular models and read-only view models.
  * Supports Common Table Expressions (CTEs), keyset cursor pagination with deterministic tie-breaker ordering,
- * multi-table joins, aggregations, and pushdown execution.
+ * multi-table joins, aggregations, pushdown execution, and L1 {@link QueryPlanCache} pre-compiled template lookup.
  */
 public final class SelectBuilder {
 
     private final SqlDialect dialect;
+    private final QueryPlanCache planCache;
 
     public SelectBuilder(SqlDialect dialect) {
+        this(dialect, QueryPlanCache.getDefault());
+    }
+
+    public SelectBuilder(SqlDialect dialect, QueryPlanCache planCache) {
         this.dialect = Objects.requireNonNull(dialect, "SqlDialect must not be null");
+        this.planCache = planCache;
     }
 
     /**
-     * Factory method creating a new {@link SelectBuilder} with the given dialect.\n     *\n     * @param dialect the dialect to use\n     * @return a new SelectBuilder instance\n     */
+     * Factory method creating a new {@link SelectBuilder} with the given dialect.
+     *
+     * @param dialect the dialect to use
+     * @return a new SelectBuilder instance
+     */
     public static SelectBuilder of(SqlDialect dialect) {
-        return new SelectBuilder(dialect);
+        return new SelectBuilder(dialect, QueryPlanCache.getDefault());
+    }
+
+    /**
+     * Factory method creating a new {@link SelectBuilder} with the given dialect and query plan cache.
+     *
+     * @param dialect   the dialect to use
+     * @param planCache the plan cache (may be null to disable plan caching)
+     * @return a new SelectBuilder instance
+     */
+    public static SelectBuilder of(SqlDialect dialect, QueryPlanCache planCache) {
+        return new SelectBuilder(dialect, planCache);
     }
 
     /**
      * Creates a {@link SelectQuery.Builder} pre-populated with an entity's persistent columns
      * and target table/view.
-     *\n     * @param entity the entity metadata (Model or ViewModel)
+     *
+     * @param entity the entity metadata (Model or ViewModel)
      * @return a configured SelectQuery.Builder
      */
     public static SelectQuery.Builder forEntity(EntityMetadata entity) {
@@ -59,7 +85,8 @@ public final class SelectBuilder {
     /**
      * Creates a {@link SelectQuery.Builder} pre-populated with an entity's columns, joins,
      * and target tables, utilizing the {@link ModelRegistry} for virtual joined view models.
-     *\n     * @param entity   the entity metadata (Model or ViewModel)
+     *
+     * @param entity   the entity metadata (Model or ViewModel)
      * @param registry the model registry (required for virtual views with joins)
      * @return a configured SelectQuery.Builder
      */
@@ -103,13 +130,72 @@ public final class SelectBuilder {
     }
 
     /**
-     * Builds a {@link BoundSql} from a {@link SelectQuery}.
-     *\n     * @param query the select query AST
+     * Builds a {@link BoundSql} from a {@link SelectQuery}, using the {@link QueryPlanCache} when available.
+     *
+     * @param query the select query AST
      * @return the parameterized BoundSql
      */
     public BoundSql build(SelectQuery query) {
         Objects.requireNonNull(query, "SelectQuery must not be null");
 
+        // Bypass plan cache for dynamic cursor pagination or complex subqueries
+        if (planCache == null || query.hasCursorPagination() || query.hasCtes()
+                || query.source() instanceof SourceTable.SubquerySource
+                || query.source() instanceof SourceTable.RawSqlSource
+                || query.joins().stream().anyMatch(j -> j.table() instanceof SourceTable.SubquerySource || j.table() instanceof SourceTable.RawSqlSource)) {
+            return doBuild(query);
+        }
+
+        QueryPlanKey key = FilterShapeExtractor.createKey(query, dialect.getClass().getSimpleName());
+        QueryPlan plan = planCache.get(key);
+        if (plan != null) {
+            List<Object> parameters = extractParameters(query);
+            return new BoundSql(plan.sqlTemplate(), parameters);
+        }
+
+        BoundSql boundSql = doBuild(query);
+        planCache.put(key, QueryPlan.of(boundSql.sql(), query.columns(), boundSql.parameters().size()));
+        return boundSql;
+    }
+
+    /**
+     * Extracts all runtime parameter values in order from a {@link SelectQuery} AST.
+     *
+     * @param query the select query AST
+     * @return list of parameter values
+     */
+    public List<Object> extractParameters(SelectQuery query) {
+        List<Object> parameters = new ArrayList<>();
+        // Joins
+        for (JoinClause join : query.joins()) {
+            if (join.condition() != null) {
+                parameters.addAll(WhereClauseBuilder.extractParameters(join.condition()));
+            }
+        }
+        // WHERE
+        if (query.where() != null) {
+            parameters.addAll(WhereClauseBuilder.extractParameters(query.where()));
+        }
+        // HAVING
+        if (query.having() != null && query.having().predicate() != null) {
+            parameters.addAll(WhereClauseBuilder.extractParameters(query.having().predicate()));
+        }
+        // LIMIT and OFFSET
+        if (query.limit() != null || query.offset() != null) {
+            String limitOffsetClause = dialect.formatLimitOffset(query.limit(), query.offset());
+            if (!limitOffsetClause.isBlank()) {
+                if (query.limit() != null) {
+                    parameters.add(query.limit());
+                }
+                if (query.offset() != null) {
+                    parameters.add(query.offset());
+                }
+            }
+        }
+        return parameters;
+    }
+
+    private BoundSql doBuild(SelectQuery query) {
         StringBuilder sql = new StringBuilder();
         List<Object> parameters = new ArrayList<>();
 

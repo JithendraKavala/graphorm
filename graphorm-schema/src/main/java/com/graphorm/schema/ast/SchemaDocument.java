@@ -71,6 +71,10 @@ public record SchemaDocument(
         return findViewModel(name).isPresent();
     }
 
+    public boolean containsView(String name) {
+        return containsViewModel(name);
+    }
+
     public Optional<CompositeTypeNode> findCompositeType(String name) {
         if (name == null) {
             return Optional.empty();

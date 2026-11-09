@@ -1,15 +1,15 @@
 package com.graphorm.graphql.fetcher;
 
-import com.graphorm.jdbc.dialect.PostgreSqlDialect;
-
+import com.graphorm.core.cache.CacheKeyBuilder;
+import com.graphorm.core.cache.GraphOrmCacheManager;
 import com.graphorm.core.execution.QueryExecutionEngine;
-
 import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
+import com.graphorm.core.tenant.TenantContext;
 import com.graphorm.graphql.planner.AnalyzedSelectionSet;
 import com.graphorm.graphql.planner.SelectionSetAnalyzer;
 import com.graphorm.graphql.security.FieldAuthorizer;
@@ -17,6 +17,7 @@ import com.graphorm.graphql.security.FieldAuthorizerContext;
 import com.graphorm.graphql.response.ResponseAssembler;
 import com.graphorm.graphql.security.SecurityPlannerInterceptor;
 import com.graphorm.jdbc.builder.SelectBuilder;
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import graphql.schema.DataFetcher;
@@ -30,7 +31,8 @@ import java.util.Optional;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a single regular model by unique/primary key (e.g. {@code Query.student(id: ID!)}).
- * Supports selective column projection, hidden dependency foreign key injection, model authorization, and field-level security verification (TASK-15.2).
+ * Supports selective column projection, hidden dependency foreign key injection, model authorization,
+ * field-level security verification (TASK-15.2), and L2 entity result caching.
  */
 public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -61,6 +63,7 @@ public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> 
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Map<String, Object> get(DataFetchingEnvironment env) {
         log.debug("Executing ModelSingleDataFetcher for model: {}", model.name());
 
@@ -103,6 +106,27 @@ public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> 
                 .where(WherePredicate.eq(pkColumn, idValue))
                 .limit(1)
                 .build();
+
+        Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
+        if (model.isCached() && cacheOpt.isPresent()) {
+            GraphOrmCacheManager cm = cacheOpt.get();
+            String tenantId = TenantContext.getTenantId().orElse(null);
+            String cacheKey = CacheKeyBuilder.forEntityId(model.name(), tenantId, idValue);
+            Optional<Map> cached = cm.get(cacheKey, Map.class);
+            if (cached.isPresent()) {
+                return (Map<String, Object>) cached.get();
+            }
+            Optional<Map<String, Object>> row = executor.queryForObject(query);
+            Map<String, Object> normalized = row.map(r -> EntityRowNormalizer.normalize(r, model)).orElse(null);
+            Map<String, Object> result = normalized;
+            if (normalized != null && analyzed != null && analyzed.requestedRelations().isEmpty() && !analyzed.hiddenDependencyFields().isEmpty()) {
+                result = ResponseAssembler.stripHidden(normalized, analyzed.hiddenDependencyFields());
+            }
+            if (result != null) {
+                cm.put(cacheKey, result, model.cacheTtl(), model.cacheTags());
+            }
+            return result;
+        }
 
         Optional<Map<String, Object>> row = executor.queryForObject(query);
         Map<String, Object> normalized = row.map(r -> EntityRowNormalizer.normalize(r, model)).orElse(null);

@@ -1,19 +1,21 @@
 package com.graphorm.spring.boot.autoconfigure;
 
+import com.graphorm.core.cache.CaffeineGraphOrmCacheManager;
+import com.graphorm.core.cache.GraphOrmCacheManager;
+import com.graphorm.core.cache.NoOpGraphOrmCacheManager;
+import com.graphorm.core.execution.QueryExecutionEngine;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.tenant.TenantContext;
 import com.graphorm.core.tenant.TenantContextProvider;
-import com.graphorm.spring.boot.tenant.SpringTenantContextProvider;
-import com.graphorm.spring.boot.tenant.TenantHeaderFilter;
 import com.graphorm.graphql.binding.ArgumentBinder;
 import com.graphorm.graphql.loader.DataLoaderMetricsListener;
 import com.graphorm.graphql.security.FieldAuthorizer;
-import com.graphorm.jdbc.dialect.PostgreSqlDialect;
-import com.graphorm.core.execution.QueryExecutionEngine;
-import com.graphorm.jdbc.dialect.MySqlDialect;
-import com.graphorm.jdbc.dialect.SqliteDialect;
-import com.graphorm.jdbc.dialect.SqlDialect;
+import com.graphorm.jdbc.cache.QueryPlanCache;
 import com.graphorm.jdbc.client.GraphOrmClient;
+import com.graphorm.jdbc.dialect.MySqlDialect;
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
+import com.graphorm.jdbc.dialect.SqlDialect;
+import com.graphorm.jdbc.dialect.SqliteDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.transaction.TransactionManager;
 import com.graphorm.jdbc.util.StatementInterceptor;
@@ -24,6 +26,8 @@ import com.graphorm.spring.boot.graphql.GraphQlAutoConfigurationCustomizer;
 import com.graphorm.spring.boot.metrics.MicrometerDataLoaderMetricsListener;
 import com.graphorm.spring.boot.metrics.MicrometerStatementInterceptor;
 import com.graphorm.spring.boot.security.SpringSecurityFieldAuthorizer;
+import com.graphorm.spring.boot.tenant.SpringTenantContextProvider;
+import com.graphorm.spring.boot.tenant.TenantHeaderFilter;
 import com.graphorm.spring.boot.transaction.SpringConnectionProvider;
 import com.graphorm.spring.boot.transaction.SpringTransactionManagerAdapter;
 import graphql.GraphQL;
@@ -59,7 +63,7 @@ import java.util.List;
 /**
  * Spring Boot 3+ Auto-Configuration for GraphORM.
  * Automatically configures {@link ModelRegistry}, {@link SqlDialect}, {@link JdbcExecutor},
- * {@link TransactionManager}, {@link GraphOrmClient}, security, metrics, and GraphQL customizers.
+ * {@link TransactionManager}, {@link GraphOrmClient}, caching, security, metrics, and GraphQL customizers.
  */
 @AutoConfiguration(after = {DataSourceAutoConfiguration.class, GraphQlAutoConfiguration.class})
 @ConditionalOnClass(DataSource.class)
@@ -126,6 +130,24 @@ public class GraphOrmAutoConfiguration {
             log.error("Failed to read GraphORM schema from '{}': {}", schemaPath, e.getMessage(), e);
             throw new IllegalStateException("Failed to load GraphORM schema from " + schemaPath, e);
         }
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public QueryPlanCache queryPlanCache(GraphOrmProperties properties) {
+        if (!properties.getCache().isEnabled()) {
+            return QueryPlanCache.create(0);
+        }
+        return QueryPlanCache.create(properties.getCache().getL1PlanCacheSize());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public GraphOrmCacheManager graphOrmCacheManager(GraphOrmProperties properties) {
+        if (!properties.getCache().isEnabled() || "none".equalsIgnoreCase(properties.getCache().getL2Type())) {
+            return new NoOpGraphOrmCacheManager();
+        }
+        return new CaffeineGraphOrmCacheManager();
     }
 
     private static StatementInterceptor createLoggingInterceptor() {
@@ -255,7 +277,9 @@ public class GraphOrmAutoConfiguration {
             BeanFactory beanFactory,
             SqlDialect sqlDialect,
             JdbcExecutor.ConnectionProvider connectionProvider,
-            ObjectProvider<StatementInterceptor> interceptorsProvider
+            ObjectProvider<StatementInterceptor> interceptorsProvider,
+            ObjectProvider<QueryPlanCache> planCacheProvider,
+            ObjectProvider<GraphOrmCacheManager> cacheManagerProvider
     ) {
         DataSource dataSource = resolveDataSource(dataSourceProvider, properties, beanFactory);
         if (dataSource == null) {
@@ -268,10 +292,15 @@ public class GraphOrmAutoConfiguration {
                 : new TransactionAwareDataSourceProxy(dataSource);
 
         List<StatementInterceptor> interceptors = interceptorsProvider.orderedStream().toList();
+        QueryPlanCache planCache = planCacheProvider.getIfAvailable(() -> QueryPlanCache.getDefault());
+        GraphOrmCacheManager cacheManager = cacheManagerProvider.getIfAvailable();
+
         return new JdbcExecutor(
                 txAwareDataSource,
                 sqlDialect,
                 connectionProvider,
+                planCache,
+                cacheManager,
                 interceptors.toArray(StatementInterceptor[]::new)
         );
     }

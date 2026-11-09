@@ -40,6 +40,7 @@
         <javapoet.version>1.13.0</javapoet.version>
         <graphql-java.version>21.5</graphql-java.version>
         <picocli.version>4.7.5</picocli.version>
+        <caffeine.version>3.2.4</caffeine.version>
         <postgresql.version>42.7.3</postgresql.version>
         <sqlite-jdbc.version>3.45.2.0</sqlite-jdbc.version>
         <mysql-connector-j.version>8.3.0</mysql-connector-j.version>
@@ -148,6 +149,13 @@
                 <groupId>info.picocli</groupId>
                 <artifactId>picocli</artifactId>
                 <version>${picocli.version}</version>
+            </dependency>
+
+            <!-- Caffeine Cache -->
+            <dependency>
+                <groupId>com.github.ben-manes.caffeine</groupId>
+                <artifactId>caffeine</artifactId>
+                <version>${caffeine.version}</version>
             </dependency>
 
             <!-- Database JDBC Drivers -->

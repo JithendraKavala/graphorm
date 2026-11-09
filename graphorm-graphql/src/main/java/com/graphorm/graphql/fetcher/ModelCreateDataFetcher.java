@@ -24,10 +24,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for creating a model entity (e.g. {@code Mutation.createStudent(input: StudentInput!)}).
- * Enforces writability, model authorization, and hydrates backend-injected fields from context.
+ * Enforces writability, model authorization, hydrates backend-injected fields from context,
+ * and invalidates tag-dependent L2 entity/view caches upon insertion.
  */
 public class ModelCreateDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -113,6 +115,8 @@ public class ModelCreateDataFetcher implements DataFetcher<Map<String, Object>> 
         }
         InsertQuery insertQuery = new InsertQuery(SourceTable.table(model.tableName()), dbValues);
         Optional<Map<String, Object>> created = executor.executeInsertAndReturn(insertQuery);
+
+        executor.cacheManager().ifPresent(cm -> cm.evictByTags(Set.of(model.name(), model.tableName())));
 
         return created.map(row -> EntityRowNormalizer.normalize(row, model))
                 .orElseGet(() -> EntityRowNormalizer.normalize(dbValues, model));

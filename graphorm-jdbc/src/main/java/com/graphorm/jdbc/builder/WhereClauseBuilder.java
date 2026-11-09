@@ -10,19 +10,73 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Builds parameterized SQL for {@link WherePredicate} trees with 100% parameter extraction.
+ * Builds SQL WHERE clause expressions from {@link WherePredicate} trees.
  */
 public final class WhereClauseBuilder {
 
     private WhereClauseBuilder() {}
 
     /**
-     * Builds a parameterized WHERE clause starting with " WHERE " if a predicate is present.
+     * Builds a parameterized SQL WHERE clause from a {@link WherePredicate}.
      *
-     * @param predicate the predicate tree (may be null)
-     * @param dialect   the SQL dialect to use
-     * @return a {@link BoundSql} containing the WHERE clause snippet and bound parameters
+     * @param predicate the predicate tree
+     * @param dialect   the SQL dialect
+     * @return the parameterized BoundSql
      */
+    public static BoundSql build(WherePredicate predicate, SqlDialect dialect) {
+        Objects.requireNonNull(predicate, "WherePredicate must not be null");
+        Objects.requireNonNull(dialect, "SqlDialect must not be null");
+
+        StringBuilder sql = new StringBuilder();
+        List<Object> parameters = new ArrayList<>();
+        renderPredicate(predicate, dialect, sql, parameters);
+        return new BoundSql(sql.toString(), parameters);
+    }
+
+    /**
+     * Extracts all runtime parameter values in order from a {@link WherePredicate} tree
+     * without generating the SQL string.
+     *
+     * @param predicate the predicate
+     * @return ordered list of parameter values
+     */
+    public static List<Object> extractParameters(WherePredicate predicate) {
+        if (predicate == null) {
+            return List.of();
+        }
+        List<Object> parameters = new ArrayList<>();
+        collectParameters(predicate, parameters);
+        return parameters;
+    }
+
+    private static void collectParameters(WherePredicate predicate, List<Object> parameters) {
+        if (predicate instanceof WherePredicate.BinaryPredicate binary) {
+            if (binary.value() == null && (binary.operator() == ComparisonOperator.EQUALS || binary.operator() == ComparisonOperator.NOT_EQUALS)) {
+                return;
+            }
+            parameters.add(binary.value());
+        } else if (predicate instanceof WherePredicate.RowComparisonPredicate rowComp) {
+            parameters.addAll(rowComp.values());
+        } else if (predicate instanceof WherePredicate.AndPredicate and) {
+            for (WherePredicate child : and.predicates()) {
+                collectParameters(child, parameters);
+            }
+        } else if (predicate instanceof WherePredicate.OrPredicate or) {
+            for (WherePredicate child : or.predicates()) {
+                collectParameters(child, parameters);
+            }
+        } else if (predicate instanceof WherePredicate.NotPredicate not) {
+            collectParameters(not.predicate(), parameters);
+        } else if (predicate instanceof WherePredicate.InPredicate in) {
+            parameters.addAll(in.values());
+        } else if (predicate instanceof WherePredicate.BetweenPredicate between) {
+            parameters.add(between.lower());
+            parameters.add(between.upper());
+        } else if (predicate instanceof WherePredicate.RawPredicate raw) {
+            parameters.addAll(raw.parameters());
+        }
+    }
+
     public static BoundSql buildWhereClause(WherePredicate predicate, SqlDialect dialect) {
         if (predicate == null) {
             return BoundSql.empty();
@@ -32,23 +86,6 @@ public final class WhereClauseBuilder {
             return BoundSql.empty();
         }
         return new BoundSql(" WHERE " + inner.sql(), inner.parameters());
-    }
-
-    /**
-     * Builds the parameterized condition string and parameter list without the leading "WHERE".
-     *
-     * @param predicate the predicate tree (must not be null)
-     * @param dialect   the SQL dialect
-     * @return the parameterized {@link BoundSql}
-     */
-    public static BoundSql build(WherePredicate predicate, SqlDialect dialect) {
-        Objects.requireNonNull(predicate, "Predicate must not be null");
-        Objects.requireNonNull(dialect, "Dialect must not be null");
-
-        StringBuilder sql = new StringBuilder();
-        List<Object> parameters = new ArrayList<>();
-        renderPredicate(predicate, dialect, sql, parameters);
-        return new BoundSql(sql.toString(), parameters);
     }
 
     private static void renderPredicate(
@@ -76,24 +113,29 @@ public final class WhereClauseBuilder {
         } else if (predicate instanceof WherePredicate.BetweenPredicate between) {
             renderBetween(between, dialect, sql, parameters);
         } else if (predicate instanceof WherePredicate.RawPredicate raw) {
-            // SECURITY WARNING (SEC-05): RawPredicate bypasses AST identifier quoting and parameter sanitization.
-            // It must ONLY be constructed with static, developer-controlled SQL templates with positional '?' placeholders.
-            // Never interpolate or concatenate untrusted user input directly into RawPredicate.sql().
-            sql.append(raw.sql());
-            parameters.addAll(raw.parameters());
+            renderRaw(raw, sql, parameters);
         } else {
-            throw new UnsupportedOperationException("Unknown predicate type: " + predicate.getClass().getName());
+            throw new IllegalArgumentException("Unsupported predicate type: " + predicate.getClass().getName());
         }
     }
 
+    private static void renderRaw(
+            WherePredicate.RawPredicate raw,
+            StringBuilder sql,
+            List<Object> parameters
+    ) {
+        sql.append(raw.sql());
+        parameters.addAll(raw.parameters());
+    }
+
     private static void renderColumnComparison(
-            WherePredicate.ColumnComparisonPredicate comp,
+            WherePredicate.ColumnComparisonPredicate colComp,
             SqlDialect dialect,
             StringBuilder sql
     ) {
-        String quotedLeft = dialect.quoteIdentifier(comp.leftColumn());
-        String quotedRight = dialect.quoteIdentifier(comp.rightColumn());
-        String opSymbol = switch (comp.operator()) {
+        String quotedLeft = dialect.quoteIdentifier(colComp.leftColumn());
+        String quotedRight = dialect.quoteIdentifier(colComp.rightColumn());
+        String opSymbol = switch (colComp.operator()) {
             case EQUALS -> "=";
             case NOT_EQUALS -> "!=";
             case GREATER_THAN -> ">";

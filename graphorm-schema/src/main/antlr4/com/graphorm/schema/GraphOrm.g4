@@ -30,7 +30,7 @@ configEntry
     ;
 
 modelBlock
-    : MODEL identifier LBRACE modelElement* RBRACE
+    : MODEL identifier fieldAttribute* LBRACE modelElement* RBRACE
     ;
 
 modelElement
@@ -39,7 +39,7 @@ modelElement
     ;
 
 viewBlock
-    : VIEW identifier LBRACE viewElement* RBRACE
+    : VIEW identifier fieldAttribute* LBRACE viewElement* RBRACE
     ;
 
 viewElement

@@ -7,8 +7,10 @@ import com.graphorm.schema.parser.GraphOrmParserFacade;
 import com.graphorm.schema.validation.SchemaValidator;
 import com.graphorm.schema.validation.ValidationResult;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import com.graphorm.core.util.DurationParser;
 
 /**
  * Transforms a parsed and validated {@link SchemaDocument} into a runtime immutable {@link ModelRegistry}.
@@ -228,6 +230,16 @@ public final class SchemaToMetadataTransformer {
             }
         }
 
+        CacheMetadata cacheMetadata = CacheMetadata.notCached();
+        if (modelNode.isCached()) {
+            Duration ttl = modelNode.cacheTtl()
+                    .map(DurationParser::parse)
+                    .orElse(null);
+            List<String> tags = modelNode.cacheTags();
+            Set<String> tagSet = tags.isEmpty() ? Set.of(modelNode.name()) : Set.copyOf(tags);
+            cacheMetadata = CacheMetadata.of(ttl, tagSet);
+        }
+
         var builder = ModelMetadata.builder(modelNode.name())
                 .tableName(tableName)
                 .fields(fields)
@@ -240,7 +252,8 @@ public final class SchemaToMetadataTransformer {
                 .indexes(indexes)
                 .checkConstraints(checkConstraints)
                 .schemaName(schemaName)
-                .multiTenant(isMultiTenant);
+                .multiTenant(isMultiTenant)
+                .cacheMetadata(cacheMetadata);
         if (tenantColumn != null) {
             builder.tenantColumn(tenantColumn);
         }
@@ -395,6 +408,16 @@ public final class SchemaToMetadataTransformer {
                 .map(f -> transformField(f, false, Set.of()))
                 .toList();
 
+        CacheMetadata vmCacheMetadata = CacheMetadata.notCached();
+        if (vmNode.isCached()) {
+            Duration ttl = vmNode.cacheTtl()
+                    .map(DurationParser::parse)
+                    .orElse(null);
+            List<String> tags = vmNode.cacheTags();
+            Set<String> tagSet = tags.isEmpty() ? Set.of(vmNode.name()) : Set.copyOf(tags);
+            vmCacheMetadata = CacheMetadata.of(ttl, tagSet);
+        }
+
         return ViewModelMetadata.builder(vmNode.name())
                 .viewName(viewName)
                 .fields(fields)
@@ -405,6 +428,7 @@ public final class SchemaToMetadataTransformer {
                 .rawQuery(vmNode.queryClause().orElse(null))
                 .authRoles(vmNode.authRoles())
                 .exposure(vmNode.exposure())
+                .cacheMetadata(vmCacheMetadata)
                 .build();
     }
 

@@ -1,7 +1,5 @@
 package com.graphorm.graphql.fetcher;
 
-import com.graphorm.core.query.SourceTable;
-
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 
 import com.graphorm.core.execution.QueryExecutionEngine;
@@ -12,15 +10,14 @@ import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SelectQuery;
+import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.UpdateQuery;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.graphql.security.FieldAuthorizerContext;
 import com.graphorm.graphql.security.InjectedValueResolver;
 import com.graphorm.jdbc.builder.SelectBuilder;
-import com.graphorm.jdbc.builder.UpdateBuilder;
 import com.graphorm.jdbc.dialect.SqlDialect;
-import com.graphorm.jdbc.executor.BoundSql;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
@@ -31,10 +28,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for updating a model entity (e.g. {@code Mutation.updateStudent(id: ID!, input: StudentInput!)}).
- * Enforces writability, model authorization, and hydrates backend-injected fields from context.
+ * Enforces writability, model authorization, primary key immutability, hydrates backend-injected fields from context,
+ * and invalidates tag-dependent L2 entity/view caches upon update.
  */
 public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -56,14 +55,18 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
             String inputArgumentName
     ) {
         this.model = Objects.requireNonNull(model, "ModelMetadata must not be null");
-        this.registry = registry;
+        this.registry = Objects.requireNonNull(registry, "ModelRegistry must not be null");
         this.executor = Objects.requireNonNull(executor, "QueryExecutionEngine must not be null");
         this.dialect = dialect != null ? dialect : (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect());
         this.idArgumentName = idArgumentName != null ? idArgumentName : "id";
         this.inputArgumentName = inputArgumentName != null ? inputArgumentName : "input";
     }
 
-    public ModelUpdateDataFetcher(ModelMetadata model, ModelRegistry registry, QueryExecutionEngine executor) {
+    public ModelUpdateDataFetcher(
+            ModelMetadata model,
+            ModelRegistry registry,
+            QueryExecutionEngine executor
+    ) {
         this(model, registry, executor, (executor instanceof JdbcExecutor je ? je.dialect() : new PostgreSqlDialect()), "id", "input");
     }
 
@@ -157,6 +160,8 @@ public class ModelUpdateDataFetcher implements DataFetcher<Map<String, Object>> 
                 updateWhere
         );
         Optional<Map<String, Object>> result = executor.executeUpdateAndReturn(updateQuery);
+
+        executor.cacheManager().ifPresent(cm -> cm.evictByTags(Set.of(model.name(), model.tableName())));
 
         return result.map(r -> EntityRowNormalizer.normalize(r, model)).orElse(null);
     }

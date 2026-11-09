@@ -24,6 +24,12 @@
             <artifactId>slf4j-api</artifactId>
         </dependency>
 
+        <!-- In-memory High Performance Caching -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
         <!-- Testing Dependencies -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

@@ -1,21 +1,22 @@
 package com.graphorm.graphql.fetcher;
 
-import com.graphorm.jdbc.dialect.PostgreSqlDialect;
-
+import com.graphorm.core.cache.CacheKeyBuilder;
+import com.graphorm.core.cache.GraphOrmCacheManager;
 import com.graphorm.core.execution.QueryExecutionEngine;
-
 import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.metadata.ViewModelMetadata;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
+import com.graphorm.core.tenant.TenantContext;
 import com.graphorm.graphql.planner.AnalyzedSelectionSet;
 import com.graphorm.graphql.planner.SelectionSetAnalyzer;
 import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.graphql.security.FieldAuthorizerContext;
 import com.graphorm.graphql.response.ResponseAssembler;
 import com.graphorm.graphql.security.SecurityPlannerInterceptor;
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.dialect.SqlDialect;
 import com.graphorm.jdbc.executor.JdbcExecutor;
 import com.graphorm.jdbc.view.ViewQueryPlanner;
@@ -32,7 +33,8 @@ import java.util.Set;
 
 /**
  * Generic GraphQL {@link DataFetcher} for querying a single view model by unique key (e.g. {@code Query.studentDashboard(studentId: Int!)}).
- * Translates queries via {@link ViewQueryPlanner} with selective projection, join pruning, view authorization, and field-level authorization (TASK-15.2).
+ * Translates queries via {@link ViewQueryPlanner} with selective projection, join pruning, view authorization,
+ * field-level authorization (TASK-15.2), and L2 view result caching.
  */
 public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
 
@@ -63,6 +65,7 @@ public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Map<String, Object> get(DataFetchingEnvironment env) {
         log.debug("Executing ViewSingleDataFetcher for view: {}", view.name());
 
@@ -105,6 +108,27 @@ public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
                 .where(WherePredicate.eq(pkField, idValue))
                 .limit(1)
                 .build();
+
+        Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
+        if (view.isCached() && cacheOpt.isPresent()) {
+            GraphOrmCacheManager cm = cacheOpt.get();
+            String tenantId = TenantContext.getTenantId().orElse(null);
+            String cacheKey = CacheKeyBuilder.forEntityId(view.name(), tenantId, idValue);
+            Optional<Map> cached = cm.get(cacheKey, Map.class);
+            if (cached.isPresent()) {
+                return (Map<String, Object>) cached.get();
+            }
+            Optional<Map<String, Object>> row = executor.queryForObject(query);
+            Map<String, Object> normalized = row.map(r -> EntityRowNormalizer.normalize(r, view)).orElse(null);
+            Map<String, Object> result = normalized;
+            if (normalized != null && analyzed != null && !analyzed.hiddenDependencyFields().isEmpty()) {
+                result = ResponseAssembler.stripHidden(normalized, analyzed.hiddenDependencyFields());
+            }
+            if (result != null) {
+                cm.put(cacheKey, result, view.cacheTtl(), view.cacheTags());
+            }
+            return result;
+        }
 
         Optional<Map<String, Object>> row = executor.queryForObject(query);
         Map<String, Object> normalized = row.map(r -> EntityRowNormalizer.normalize(r, view)).orElse(null);

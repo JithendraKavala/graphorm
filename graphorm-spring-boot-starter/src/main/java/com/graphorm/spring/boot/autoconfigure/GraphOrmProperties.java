@@ -72,11 +72,18 @@ public class GraphOrmProperties {
      */
     @NestedConfigurationProperty
     private MetricsProperties metrics = new MetricsProperties();
+
     /**
      * Multi-tenancy configuration properties (Phase 22).
      */
     @NestedConfigurationProperty
     private TenantProperties tenant = new TenantProperties();
+
+    /**
+     * Multi-tier caching configuration properties (Phase 23).
+     */
+    @NestedConfigurationProperty
+    private CacheProperties cache = new CacheProperties();
 
     public String getSchemaLocation() {
         return schemaLocation;
@@ -191,6 +198,14 @@ public class GraphOrmProperties {
 
     public void setTenant(TenantProperties tenant) {
         this.tenant = tenant;
+    }
+
+    public CacheProperties getCache() {
+        return cache;
+    }
+
+    public void setCache(CacheProperties cache) {
+        this.cache = cache;
     }
 
     public static class GraphqlProperties {
@@ -367,6 +382,36 @@ public class GraphOrmProperties {
 
         public void setAllowBypass(boolean allowBypass) {
             this.allowBypass = allowBypass;
+        }
+    }
+
+    public static class CacheProperties {
+        private boolean enabled = true;
+        private long l1PlanCacheSize = 1000;
+        private String l2Type = "caffeine";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public long getL1PlanCacheSize() {
+            return l1PlanCacheSize;
+        }
+
+        public void setL1PlanCacheSize(long l1PlanCacheSize) {
+            this.l1PlanCacheSize = l1PlanCacheSize;
+        }
+
+        public String getL2Type() {
+            return l2Type;
+        }
+
+        public void setL2Type(String l2Type) {
+            this.l2Type = l2Type;
         }
     }
 }

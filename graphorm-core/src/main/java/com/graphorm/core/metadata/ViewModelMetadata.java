@@ -1,14 +1,17 @@
 package com.graphorm.core.metadata;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Immutable metadata record representing a view model in GraphORM.
  * Supports Strategy A (Database-Backed views via @@view),
  * Strategy B (GraphORM-Defined virtual joined views via @@from, @@leftJoin, @@groupBy),
- * and Strategy C (Raw SQL subquery views via @@query).
+ * Strategy C (Raw SQL subquery views via @@query),
+ * and multi-tier caching metadata (declared via @cached or @@cached).
  * <p>
  * Invariant: View models are strictly read-only; {@link #isReadOnly()} always returns {@code true}.
  *
@@ -24,6 +27,7 @@ import java.util.Objects;
  * @param rawQuery          for raw query views: raw SQL SELECT/WITH query (Strategy C, @@query)
  * @param authRoles         the authorization roles required to access this view (declared via @@auth)
  * @param exposure          granular exposure control for GraphQL APIs (declared via @@expose)
+ * @param cacheMetadata     caching configuration (declared via @cached or @@cached)
  */
 public record ViewModelMetadata(
         String name,
@@ -37,7 +41,8 @@ public record ViewModelMetadata(
         boolean isMaterialized,
         String rawQuery,
         List<String> authRoles,
-        ExposureMetadata exposure
+        ExposureMetadata exposure,
+        CacheMetadata cacheMetadata
 ) implements EntityMetadata {
 
     /**
@@ -59,6 +64,30 @@ public record ViewModelMetadata(
         if (exposure == null) {
             exposure = ExposureMetadata.queriesOnly();
         }
+        if (cacheMetadata == null) {
+            cacheMetadata = CacheMetadata.NOT_CACHED;
+        }
+    }
+
+    /**
+     * Backward-compatible constructor without cacheMetadata.
+     */
+    public ViewModelMetadata(
+            String name,
+            String viewName,
+            List<FieldMetadata> fields,
+            String sourceModelName,
+            String sourceAlias,
+            List<ViewJoinMetadata> joinDefinitions,
+            List<String> groupByColumns,
+            boolean isDatabaseBacked,
+            boolean isMaterialized,
+            String rawQuery,
+            List<String> authRoles,
+            ExposureMetadata exposure
+    ) {
+        this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns,
+                isDatabaseBacked, isMaterialized, rawQuery, authRoles, exposure, CacheMetadata.NOT_CACHED);
     }
 
     /**
@@ -78,7 +107,7 @@ public record ViewModelMetadata(
             List<String> authRoles
     ) {
         this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns,
-                isDatabaseBacked, isMaterialized, rawQuery, authRoles, ExposureMetadata.queriesOnly());
+                isDatabaseBacked, isMaterialized, rawQuery, authRoles, ExposureMetadata.queriesOnly(), CacheMetadata.NOT_CACHED);
     }
 
     /**
@@ -97,7 +126,7 @@ public record ViewModelMetadata(
             String rawQuery
     ) {
         this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns,
-                isDatabaseBacked, isMaterialized, rawQuery, List.of(), ExposureMetadata.queriesOnly());
+                isDatabaseBacked, isMaterialized, rawQuery, List.of(), ExposureMetadata.queriesOnly(), CacheMetadata.NOT_CACHED);
     }
 
     /**
@@ -115,7 +144,7 @@ public record ViewModelMetadata(
             boolean isMaterialized
     ) {
         this(name, viewName, fields, sourceModelName, sourceAlias, joinDefinitions, groupByColumns,
-                isDatabaseBacked, isMaterialized, null, List.of(), ExposureMetadata.queriesOnly());
+                isDatabaseBacked, isMaterialized, null, List.of(), ExposureMetadata.queriesOnly(), CacheMetadata.NOT_CACHED);
     }
 
     @Override
@@ -159,6 +188,11 @@ public record ViewModelMetadata(
     @Override
     public boolean exposeMutations() {
         return false;
+    }
+
+    @Override
+    public CacheMetadata cacheMetadata() {
+        return cacheMetadata;
     }
 
     /**
@@ -205,6 +239,7 @@ public record ViewModelMetadata(
         private String rawQuery;
         private final List<String> authRoles = new ArrayList<>();
         private ExposureMetadata exposure;
+        private CacheMetadata cacheMetadata = CacheMetadata.NOT_CACHED;
 
         private Builder(String name) {
             this.name = Objects.requireNonNull(name, "View model name must not be null");
@@ -323,6 +358,25 @@ public record ViewModelMetadata(
             return this;
         }
 
+        public Builder cacheMetadata(CacheMetadata cacheMetadata) {
+            this.cacheMetadata = cacheMetadata != null ? cacheMetadata : CacheMetadata.NOT_CACHED;
+            return this;
+        }
+
+        public Builder cached(boolean cached) {
+            if (!cached) {
+                this.cacheMetadata = CacheMetadata.NOT_CACHED;
+            } else if (!this.cacheMetadata.isCached()) {
+                this.cacheMetadata = CacheMetadata.of(null, Set.of(name));
+            }
+            return this;
+        }
+
+        public Builder cache(Duration ttl, Set<String> tags) {
+            this.cacheMetadata = CacheMetadata.of(ttl, tags);
+            return this;
+        }
+
         public ViewModelMetadata build() {
             ExposureMetadata finalExposure = exposure != null
                     ? (exposure.queries() ? ExposureMetadata.queriesOnly() : ExposureMetadata.none())
@@ -340,7 +394,8 @@ public record ViewModelMetadata(
                     isMaterialized,
                     rawQuery,
                     List.copyOf(authRoles),
-                    finalExposure
+                    finalExposure,
+                    cacheMetadata
             );
         }
     }

@@ -1,5 +1,7 @@
 package com.graphorm.jdbc.client;
 
+import com.graphorm.core.cache.CacheKeyBuilder;
+import com.graphorm.core.cache.GraphOrmCacheManager;
 import com.graphorm.core.exception.EntityNotFoundException;
 import com.graphorm.core.exception.ReadOnlyViewException;
 import com.graphorm.core.metadata.EntityMetadata;
@@ -16,6 +18,7 @@ import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.SourceTable;
 import com.graphorm.core.query.UpdateQuery;
 import com.graphorm.core.query.WherePredicate;
+import com.graphorm.core.tenant.TenantContext;
 import com.graphorm.jdbc.builder.SelectBuilder;
 import com.graphorm.jdbc.builder.WhereClauseBuilder;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
@@ -34,10 +37,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Root database client providing access to models, view models, query execution,
- * and transactions. Serves as the primary programmatic database API for GraphORM.
+ * caching, and transactions. Serves as the primary programmatic database API for GraphORM.
  */
 public class GraphOrmClient {
 
@@ -89,6 +93,10 @@ public class GraphOrmClient {
         return transactionManager;
     }
 
+    public Optional<GraphOrmCacheManager> cacheManager() {
+        return executor.cacheManager();
+    }
+
     public <T> T transaction(TransactionCallback<T> callback) {
         return transactionManager.executeInTransaction(callback);
     }
@@ -106,6 +114,7 @@ public class GraphOrmClient {
         return findMany(entityName, filter, Collections.emptyList(), null, null);
     }
 
+    @SuppressWarnings("unchecked")
     public List<Map<String, Object>> findMany(String entityName, WherePredicate filter, List<OrderByClause> orderBy, Integer limit, Integer offset) {
         EntityMetadata entity = resolveEntity(entityName);
         SelectQuery.Builder queryBuilder = SelectBuilder.forEntity(entity, registry);
@@ -125,9 +134,26 @@ public class GraphOrmClient {
             queryBuilder.offset(offset);
         }
 
-        return executor.queryForList(queryBuilder.build());
+        SelectQuery query = queryBuilder.build();
+        Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
+        if (entity.isCached() && cacheOpt.isPresent()) {
+            GraphOrmCacheManager cm = cacheOpt.get();
+            String tenantId = TenantContext.getTenantId().orElse(null);
+            String queryHash = CacheKeyBuilder.hashQuery(query);
+            String cacheKey = CacheKeyBuilder.forQuery(entityName, tenantId, queryHash);
+            Optional<List> cached = cm.get(cacheKey, List.class);
+            if (cached.isPresent()) {
+                return (List<Map<String, Object>>) cached.get();
+            }
+            List<Map<String, Object>> result = executor.queryForList(query);
+            cm.put(cacheKey, result, entity.cacheTtl(), entity.cacheTags());
+            return result;
+        }
+
+        return executor.queryForList(query);
     }
 
+    @SuppressWarnings("unchecked")
     public <T> List<T> findMany(String entityName, WherePredicate filter, Class<T> recordClass) {
         EntityMetadata entity = resolveEntity(entityName);
         SelectQuery.Builder queryBuilder = SelectBuilder.forEntity(entity, registry);
@@ -135,11 +161,48 @@ public class GraphOrmClient {
         if (filter != null) {
             queryBuilder.where(filter);
         }
-        return executor.queryForList(queryBuilder.build(), recordClass);
+
+        SelectQuery query = queryBuilder.build();
+        Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
+        if (entity.isCached() && cacheOpt.isPresent()) {
+            GraphOrmCacheManager cm = cacheOpt.get();
+            String tenantId = TenantContext.getTenantId().orElse(null);
+            String queryHash = CacheKeyBuilder.hashQuery(query);
+            String cacheKey = CacheKeyBuilder.forQuery(entityName, tenantId, queryHash);
+            Optional<List> cached = cm.get(cacheKey, List.class);
+            if (cached.isPresent()) {
+                return (List<T>) cached.get();
+            }
+            List<T> result = executor.queryForList(query, recordClass);
+            cm.put(cacheKey, result, entity.cacheTtl(), entity.cacheTags());
+            return result;
+        }
+
+        return executor.queryForList(query, recordClass);
     }
 
+    @SuppressWarnings("unchecked")
     public Optional<Map<String, Object>> findUnique(String entityName, Object id) {
         EntityMetadata entity = resolveEntity(entityName);
+        Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
+        if (entity.isCached() && cacheOpt.isPresent()) {
+            GraphOrmCacheManager cm = cacheOpt.get();
+            String tenantId = TenantContext.getTenantId().orElse(null);
+            String cacheKey = CacheKeyBuilder.forEntityId(entityName, tenantId, id);
+            Optional<Map> cached = cm.get(cacheKey, Map.class);
+            if (cached.isPresent()) {
+                return Optional.of((Map<String, Object>) cached.get());
+            }
+            String pkColumn = getPrimaryKeyColumn(entity);
+            SelectQuery query = SelectBuilder.forEntity(entity, registry)
+                    .where(WherePredicate.eq(pkColumn, id))
+                    .limit(1)
+                    .build();
+            Optional<Map<String, Object>> result = executor.queryForObject(query);
+            result.ifPresent(val -> cm.put(cacheKey, val, entity.cacheTtl(), entity.cacheTags()));
+            return result;
+        }
+
         String pkColumn = getPrimaryKeyColumn(entity);
         SelectQuery query = SelectBuilder.forEntity(entity, registry)
                 .where(WherePredicate.eq(pkColumn, id))
@@ -150,6 +213,25 @@ public class GraphOrmClient {
 
     public <T> Optional<T> findUnique(String entityName, Object id, Class<T> recordClass) {
         EntityMetadata entity = resolveEntity(entityName);
+        Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
+        if (entity.isCached() && cacheOpt.isPresent()) {
+            GraphOrmCacheManager cm = cacheOpt.get();
+            String tenantId = TenantContext.getTenantId().orElse(null);
+            String cacheKey = CacheKeyBuilder.forEntityId(entityName, tenantId, id);
+            Optional<T> cached = cm.get(cacheKey, recordClass);
+            if (cached.isPresent()) {
+                return cached;
+            }
+            String pkColumn = getPrimaryKeyColumn(entity);
+            SelectQuery query = SelectBuilder.forEntity(entity, registry)
+                    .where(WherePredicate.eq(pkColumn, id))
+                    .limit(1)
+                    .build();
+            Optional<T> result = executor.queryForObject(query, recordClass);
+            result.ifPresent(val -> cm.put(cacheKey, val, entity.cacheTtl(), entity.cacheTags()));
+            return result;
+        }
+
         String pkColumn = getPrimaryKeyColumn(entity);
         SelectQuery query = SelectBuilder.forEntity(entity, registry)
                 .where(WherePredicate.eq(pkColumn, id))
@@ -180,8 +262,10 @@ public class GraphOrmClient {
         InsertQuery query = InsertQuery.into(model.tableName())
                 .values(dbValues)
                 .build();
-        return executor.executeInsertAndReturn(query)
+        Map<String, Object> created = executor.executeInsertAndReturn(query)
                 .orElse(values);
+        executor.cacheManager().ifPresent(cm -> cm.evictByTags(Set.of(model.name(), model.tableName())));
+        return created;
     }
 
     public int update(String modelName, Object id, Map<String, Object> values) {
@@ -200,7 +284,9 @@ public class GraphOrmClient {
                 .values(dbValues)
                 .where(where)
                 .build();
-        return executor.executeUpdate(query);
+        int affected = executor.executeUpdate(query);
+        executor.cacheManager().ifPresent(cm -> cm.evictByTags(Set.of(model.name(), model.tableName())));
+        return affected;
     }
 
     public int delete(String modelName, Object id) {
@@ -216,7 +302,9 @@ public class GraphOrmClient {
         DeleteQuery query = DeleteQuery.from(model.tableName())
                 .where(where)
                 .build();
-        return executor.executeUpdate(query);
+        int affected = executor.executeUpdate(query);
+        executor.cacheManager().ifPresent(cm -> cm.evictByTags(Set.of(model.name(), model.tableName())));
+        return affected;
     }
 
     public long count(String entityName) {

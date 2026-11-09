@@ -164,6 +164,9 @@ public final class SchemaValidator {
                 ));
             }
 
+            // Validate model-level @cached / @@cached
+            validateCachedAttribute(model.name(), model.cachedAttribute(), document, diagnostics);
+
             // Validate model-level @@auth
             validateAuthAttribute(model.name(), model.authAttribute(), diagnostics, true);
 
@@ -617,6 +620,9 @@ public final class SchemaValidator {
 
     private static void validateViews(SchemaDocument document, List<Diagnostic> diagnostics) {
         for (ViewModelNode vm : document.viewModels()) {
+            // Validate view-level @cached / @@cached
+            validateCachedAttribute(vm.name(), vm.cachedAttribute(), document, diagnostics);
+
             // Validate view-level @@auth
             validateAuthAttribute(vm.name(), vm.authAttribute(), diagnostics, true);
 
@@ -1202,6 +1208,80 @@ public final class SchemaValidator {
             return qid.asQualifiedString();
         }
         return null;
+    }
+
+    private static void validateCachedAttribute(
+            String entityName,
+            Optional<BlockAttributeNode> cachedOpt,
+            SchemaDocument document,
+            List<Diagnostic> diagnostics
+    ) {
+        if (cachedOpt.isEmpty()) {
+            return;
+        }
+        BlockAttributeNode attr = cachedOpt.get();
+
+        // 1. Validate TTL
+        Optional<ExpressionNode> ttlExpr = attr.getArgumentValue("ttl")
+                .or(() -> attr.getPositionalArgumentValue(0));
+
+        if (ttlExpr.isEmpty()) {
+            diagnostics.add(Diagnostic.error(
+                    "Cached directive on '" + entityName + "' must specify a 'ttl' duration argument (e.g. \"60s\", \"5m\", \"1h\")",
+                    attr.position()
+            ));
+        } else {
+            String ttlStr = extractIdentifierOrString(ttlExpr.get());
+            if (ttlStr == null || ttlStr.isBlank() || !com.graphorm.core.util.DurationParser.isValid(ttlStr)) {
+                diagnostics.add(Diagnostic.error(
+                        "Invalid duration syntax for cache ttl on '" + entityName + "': '" +
+                                (ttlStr != null ? ttlStr : ttlExpr.get().toString()) +
+                                "'. Expected format: e.g. \"60s\", \"5m\", \"1h\", \"2d\", \"500ms\"",
+                        attr.position()
+                ));
+            }
+        }
+
+        // 2. Validate Tags
+        Optional<ExpressionNode> tagsExpr = attr.getArgumentValue("tags")
+                .or(() -> attr.getPositionalArgumentValue(1));
+
+        if (tagsExpr.isPresent()) {
+            List<String> tags = new ArrayList<>();
+            ExpressionNode expr = tagsExpr.get();
+            if (expr instanceof ArrayLiteralNode arr) {
+                for (ExpressionNode elem : arr.elements()) {
+                    String tag = extractIdentifierOrString(elem);
+                    if (tag != null && !tag.isBlank()) {
+                        tags.add(tag.trim());
+                    } else {
+                        diagnostics.add(Diagnostic.error(
+                                "Cache tag on '" + entityName + "' must be a non-empty string or identifier",
+                                elem.position()
+                        ));
+                    }
+                }
+            } else {
+                String tag = extractIdentifierOrString(expr);
+                if (tag != null && !tag.isBlank()) {
+                    tags.add(tag.trim());
+                } else {
+                    diagnostics.add(Diagnostic.error(
+                            "Cache tag on '" + entityName + "' must be a non-empty string or identifier",
+                            expr.position()
+                    ));
+                }
+            }
+
+            for (String tag : tags) {
+                if (!document.containsModel(tag) && !document.containsView(tag)) {
+                    diagnostics.add(Diagnostic.error(
+                            "Cache tag '" + tag + "' on '" + entityName + "' does not reference a valid entity (model or view) in the schema",
+                            attr.position()
+                    ));
+                }
+            }
+        }
     }
 
     private static List<String> extractStringList(ExpressionNode expr) {
