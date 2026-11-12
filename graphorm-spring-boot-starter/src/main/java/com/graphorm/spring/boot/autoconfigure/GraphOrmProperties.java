@@ -376,6 +376,8 @@ public class GraphOrmProperties {
 
     public static class TenantProperties {
         private boolean enabled = true;
+        private boolean headerEnabled = false;
+        private boolean allowHeaderOverride = false;
         private String headerName = "X-Tenant-ID";
         private String jwtClaim = "tenant_id";
         private boolean allowBypass = false;
@@ -386,6 +388,22 @@ public class GraphOrmProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public boolean isHeaderEnabled() {
+            return headerEnabled;
+        }
+
+        public void setHeaderEnabled(boolean headerEnabled) {
+            this.headerEnabled = headerEnabled;
+        }
+
+        public boolean isAllowHeaderOverride() {
+            return allowHeaderOverride;
+        }
+
+        public void setAllowHeaderOverride(boolean allowHeaderOverride) {
+            this.allowHeaderOverride = allowHeaderOverride;
         }
 
         public String getHeaderName() {

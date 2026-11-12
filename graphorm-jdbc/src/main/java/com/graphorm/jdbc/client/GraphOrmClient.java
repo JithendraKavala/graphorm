@@ -138,7 +138,9 @@ public class GraphOrmClient {
         Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
         if (entity.isCached() && cacheOpt.isPresent()) {
             GraphOrmCacheManager cm = cacheOpt.get();
-            String tenantId = TenantContext.getTenantId().orElse(null);
+            String tenantId = entity.isMultiTenant()
+                    ? QueryGuards.requireTenantContext(entity, "SELECT")
+                    : TenantContext.getCurrentTenantId().orElse(null);
             String queryHash = CacheKeyBuilder.hashQuery(query);
             String cacheKey = CacheKeyBuilder.forQuery(entityName, tenantId, queryHash);
             Optional<List> cached = cm.get(cacheKey, List.class);
@@ -166,7 +168,9 @@ public class GraphOrmClient {
         Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
         if (entity.isCached() && cacheOpt.isPresent()) {
             GraphOrmCacheManager cm = cacheOpt.get();
-            String tenantId = TenantContext.getTenantId().orElse(null);
+            String tenantId = entity.isMultiTenant()
+                    ? QueryGuards.requireTenantContext(entity, "SELECT")
+                    : TenantContext.getCurrentTenantId().orElse(null);
             String queryHash = CacheKeyBuilder.hashQuery(query);
             String cacheKey = CacheKeyBuilder.forQuery(entityName, tenantId, queryHash);
             Optional<List> cached = cm.get(cacheKey, List.class);
@@ -184,10 +188,13 @@ public class GraphOrmClient {
     @SuppressWarnings("unchecked")
     public Optional<Map<String, Object>> findUnique(String entityName, Object id) {
         EntityMetadata entity = resolveEntity(entityName);
+        String tenantId = entity.isMultiTenant()
+                ? QueryGuards.requireTenantContext(entity, "SELECT")
+                : TenantContext.getCurrentTenantId().orElse(null);
+
         Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
         if (entity.isCached() && cacheOpt.isPresent()) {
             GraphOrmCacheManager cm = cacheOpt.get();
-            String tenantId = TenantContext.getTenantId().orElse(null);
             String cacheKey = CacheKeyBuilder.forEntityId(entityName, tenantId, id);
             Optional<Map> cached = cm.get(cacheKey, Map.class);
             if (cached.isPresent()) {
@@ -213,10 +220,13 @@ public class GraphOrmClient {
 
     public <T> Optional<T> findUnique(String entityName, Object id, Class<T> recordClass) {
         EntityMetadata entity = resolveEntity(entityName);
+        String tenantId = entity.isMultiTenant()
+                ? QueryGuards.requireTenantContext(entity, "SELECT")
+                : TenantContext.getCurrentTenantId().orElse(null);
+
         Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
         if (entity.isCached() && cacheOpt.isPresent()) {
             GraphOrmCacheManager cm = cacheOpt.get();
-            String tenantId = TenantContext.getTenantId().orElse(null);
             String cacheKey = CacheKeyBuilder.forEntityId(entityName, tenantId, id);
             Optional<T> cached = cm.get(cacheKey, recordClass);
             if (cached.isPresent()) {

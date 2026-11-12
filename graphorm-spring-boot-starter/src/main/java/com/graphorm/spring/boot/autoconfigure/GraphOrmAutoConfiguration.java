@@ -284,9 +284,10 @@ public class GraphOrmAutoConfiguration {
 
         @Bean
         @ConditionalOnClass(name = "jakarta.servlet.Filter")
+        @ConditionalOnProperty(prefix = "graphorm.tenant", name = "header-enabled", havingValue = "true", matchIfMissing = false)
         @ConditionalOnMissingBean(TenantHeaderFilter.class)
         public TenantHeaderFilter tenantHeaderFilter(GraphOrmProperties properties) {
-            return new TenantHeaderFilter(properties.getTenant().getHeaderName());
+            return new TenantHeaderFilter(properties.getTenant());
         }
     }
 

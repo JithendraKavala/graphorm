@@ -7,6 +7,7 @@ import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
+import com.graphorm.core.query.QueryGuards;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
 import com.graphorm.core.tenant.TenantContext;
@@ -25,6 +26,8 @@ import graphql.schema.DataFetchingEnvironment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -110,8 +113,11 @@ public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> 
         Optional<GraphOrmCacheManager> cacheOpt = executor.cacheManager();
         if (model.isCached() && cacheOpt.isPresent()) {
             GraphOrmCacheManager cm = cacheOpt.get();
-            String tenantId = TenantContext.getTenantId().orElse(null);
-            String cacheKey = CacheKeyBuilder.forEntityId(model.name(), tenantId, idValue);
+            String tenantId = model.isMultiTenant()
+                    ? QueryGuards.requireTenantContext(model, "SELECT")
+                    : TenantContext.getCurrentTenantId().orElse(null);
+            Collection<String> projected = analyzed != null ? analyzed.requestedScalarFields() : Collections.emptyList();
+            String cacheKey = CacheKeyBuilder.forEntityId(model.name(), tenantId, idValue, projected);
             Optional<Map> cached = cm.get(cacheKey, Map.class);
             if (cached.isPresent()) {
                 return (Map<String, Object>) cached.get();

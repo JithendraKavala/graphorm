@@ -34,22 +34,28 @@ public class SpringTenantContextProvider implements TenantContextProvider {
 
     @Override
     public Optional<String> getCurrentTenantId() {
-        // 1. ThreadLocal TenantContext takes first priority
+        // 1. Authenticated identity from Spring Security Context is authoritative
+        Optional<String> securityTenant = resolveFromSecurityContext();
+        if (securityTenant.isPresent() && !properties.isAllowHeaderOverride()) {
+            return securityTenant;
+        }
+
+        // 2. ThreadLocal TenantContext takes priority for programmatic calls or when allowHeaderOverride is enabled
         Optional<String> explicitTenant = TenantContext.getTenantId();
         if (explicitTenant.isPresent()) {
             return explicitTenant;
         }
 
-        // 2. Resolve from Spring Security Context if present
-        Optional<String> securityTenant = resolveFromSecurityContext();
         if (securityTenant.isPresent()) {
             return securityTenant;
         }
 
-        // 3. Resolve from HTTP Request Header if web context is active
-        Optional<String> headerTenant = resolveFromRequestHeader();
-        if (headerTenant.isPresent()) {
-            return headerTenant;
+        // 3. Resolve from HTTP Request Header if web context is active and header-based resolution is explicitly enabled
+        if (properties.isHeaderEnabled()) {
+            Optional<String> headerTenant = resolveFromRequestHeader();
+            if (headerTenant.isPresent()) {
+                return headerTenant;
+            }
         }
 
         return Optional.empty();

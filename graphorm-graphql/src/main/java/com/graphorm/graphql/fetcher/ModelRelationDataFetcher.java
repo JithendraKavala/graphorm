@@ -2,6 +2,7 @@ package com.graphorm.graphql.fetcher;
 
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 
+import com.graphorm.core.exception.AccessDeniedException;
 import com.graphorm.core.metadata.EntityMetadata;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
@@ -10,6 +11,8 @@ import com.graphorm.core.metadata.RelationMetadata;
 import com.graphorm.core.tenant.TenantContext;
 import com.graphorm.core.tenant.TenantPartitionKey;
 import com.graphorm.graphql.loader.GraphOrmDataLoaderRegistryFactory;
+import com.graphorm.graphql.security.FieldAuthorizer;
+import com.graphorm.graphql.security.FieldAuthorizerContext;
 import com.graphorm.jdbc.relation.BatchRelationLoader;
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
@@ -59,6 +62,21 @@ public class ModelRelationDataFetcher implements DataFetcher<Object> {
 
     @Override
     public Object get(DataFetchingEnvironment env) {
+        // Enforce target entity model-level authorization (P0.3)
+        EntityMetadata targetEntity = registry.findEntity(relation.targetModel()).orElse(null);
+        if (targetEntity != null && targetEntity.hasAuthRoles()) {
+            FieldAuthorizer authorizer = FieldAuthorizerContext.resolve(env);
+            if (!authorizer.isAuthorized(targetEntity.authRoles())) {
+                log.warn("Access denied to relation target entity '{}' via '{}.{}'. Required roles: {}, user roles: {}",
+                        targetEntity.name(), entity.name(), relation.relationName(), targetEntity.authRoles(), authorizer.getCurrentRoles());
+                throw new AccessDeniedException(
+                        "ACCESS_DENIED",
+                        "Access denied to model '" + targetEntity.name() + "' via relation '" + entity.name() + "." + relation.relationName()
+                                + "'. Required roles: " + targetEntity.authRoles()
+                );
+            }
+        }
+
         Object source = env.getSource();
         if (source == null) {
             return relation.relationType().isToOne()

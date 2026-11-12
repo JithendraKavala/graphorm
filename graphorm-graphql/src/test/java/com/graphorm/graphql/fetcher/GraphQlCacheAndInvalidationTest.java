@@ -41,6 +41,7 @@ class GraphQlCacheAndInvalidationTest {
             .tableName("students")
             .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
             .addField(FieldMetadata.builder("name", String.class).build())
+            .addField(FieldMetadata.builder("email", String.class).build())
             .addPrimaryKeyField("id")
             .cacheMetadata(new CacheMetadata(true, Duration.ofSeconds(60), Set.of("Student", "students")))
             .build();
@@ -79,6 +80,12 @@ class GraphQlCacheAndInvalidationTest {
             public List<Map<String, Object>> queryForList(SelectQuery query) {
                 queryExecutionCount.incrementAndGet();
                 return List.of(Map.of("id", 1L, "name", "Alice"));
+            }
+
+            @Override
+            public Optional<Map<String, Object>> queryForObject(SelectQuery query) {
+                queryExecutionCount.incrementAndGet();
+                return Optional.of(Map.of("id", 1L, "name", "Alice"));
             }
 
             @Override
@@ -267,6 +274,103 @@ class GraphQlCacheAndInvalidationTest {
         // Switch to tenant-200: cache miss, must execute query
         TenantContext.setTenantId("tenant-200");
         listFetcher.get(env);
+        assertThat(queryExecutionCount.get()).isEqualTo(2);
+    }
+
+    private DataFetchingEnvironment createMockEnvironmentWithFields(Map<String, Object> arguments, List<String> fieldNames) {
+        DataFetchingFieldSelectionSet selectionSet = (DataFetchingFieldSelectionSet) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[]{DataFetchingFieldSelectionSet.class},
+                (proxy, method, args) -> {
+                    if ("getFields".equals(method.getName())) {
+                        List<SelectedField> fields = new java.util.ArrayList<>();
+                        for (String fName : fieldNames) {
+                            SelectedField field = (SelectedField) Proxy.newProxyInstance(
+                                    getClass().getClassLoader(),
+                                    new Class<?>[]{SelectedField.class},
+                                    (fProxy, fMethod, fArgs) -> {
+                                        if ("getName".equals(fMethod.getName())) return fName;
+                                        if ("getArguments".equals(fMethod.getName())) return Collections.emptyMap();
+                                        return null;
+                                    }
+                            );
+                            fields.add(field);
+                        }
+                        return fields;
+                    }
+                    return Collections.emptyList();
+                }
+        );
+
+        return (DataFetchingEnvironment) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[]{DataFetchingEnvironment.class},
+                (proxy, method, args) -> {
+                    if ("containsArgument".equals(method.getName())) {
+                        return arguments != null && args.length > 0 && arguments.containsKey(args[0]);
+                    }
+                    if ("getArguments".equals(method.getName())) {
+                        return arguments != null ? arguments : Collections.emptyMap();
+                    }
+                    if ("getArgument".equals(method.getName())) {
+                        return arguments != null && args.length > 0 ? arguments.get(args[0]) : null;
+                    }
+                    if ("getSelectionSet".equals(method.getName())) {
+                        return selectionSet;
+                    }
+                    return null;
+                }
+        );
+    }
+
+    @Test
+    @DisplayName("ModelSingleDataFetcher partitions cache keys by tenant so tenant A and B never share entity cache")
+    void testModelSingleFetcherTenantPartitioning() throws Exception {
+        ModelSingleDataFetcher singleFetcher = new ModelSingleDataFetcher(
+                studentModel,
+                registry,
+                executor
+        );
+
+        DataFetchingEnvironment env = createMockEnvironmentWithFields(Map.of("id", 1L), List.of("id", "name"));
+
+        TenantContext.setTenantId("tenant-alpha");
+        singleFetcher.get(env);
+        assertThat(queryExecutionCount.get()).isEqualTo(1);
+
+        // Same tenant hits cache
+        singleFetcher.get(env);
+        assertThat(queryExecutionCount.get()).isEqualTo(1);
+
+        // Different tenant with same entity ID: cache miss!
+        TenantContext.setTenantId("tenant-beta");
+        singleFetcher.get(env);
+        assertThat(queryExecutionCount.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("ModelSingleDataFetcher caches per projection so different selections never return stale partial objects")
+    void testModelSingleFetcherProjectionAwareCaching() throws Exception {
+        ModelSingleDataFetcher singleFetcher = new ModelSingleDataFetcher(
+                studentModel,
+                registry,
+                executor
+        );
+
+        TenantContext.setTenantId("tenant-alpha");
+
+        // Selection 1: id, name
+        DataFetchingEnvironment envNarrow = createMockEnvironmentWithFields(Map.of("id", 1L), List.of("id", "name"));
+        singleFetcher.get(envNarrow);
+        assertThat(queryExecutionCount.get()).isEqualTo(1);
+
+        // Repeated selection 1: cache hit
+        singleFetcher.get(envNarrow);
+        assertThat(queryExecutionCount.get()).isEqualTo(1);
+
+        // Selection 2: id, name, email (different projection): cache miss!
+        DataFetchingEnvironment envWide = createMockEnvironmentWithFields(Map.of("id", 1L), List.of("id", "name", "email"));
+        singleFetcher.get(envWide);
         assertThat(queryExecutionCount.get()).isEqualTo(2);
     }
 }

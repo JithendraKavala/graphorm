@@ -5,6 +5,8 @@ import com.graphorm.core.exception.ReadOnlyViewException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
+import com.graphorm.core.metadata.RelationMetadata;
+import com.graphorm.core.metadata.RelationType;
 import com.graphorm.core.metadata.ViewModelMetadata;
 import com.graphorm.core.query.DeleteQuery;
 import com.graphorm.core.query.InsertQuery;
@@ -15,6 +17,7 @@ import com.graphorm.graphql.security.InjectedValueResolver;
 import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.jdbc.executor.BoundSql;
 import com.graphorm.jdbc.executor.JdbcExecutor;
+import com.graphorm.jdbc.relation.BatchRelationLoader;
 import graphql.GraphQLContext;
 import graphql.Scalars;
 import graphql.language.Field;
@@ -62,6 +65,7 @@ class ModelAndViewFetcherSecurityTest {
     private final ModelMetadata protectedModel = ModelMetadata.builder("AuditLog")
             .tableName("audit_logs")
             .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
+            .addField(FieldMetadata.builder("userId", Long.class).dbColumnName("user_id").build())
             .addField(FieldMetadata.builder("action", String.class).build())
             .addField(FieldMetadata.builder("tenantId", String.class).dbColumnName("tenant_id").injected("tenantId").build())
             .addPrimaryKeyField("id")
@@ -84,9 +88,26 @@ class ModelAndViewFetcherSecurityTest {
             .authRoles(List.of("ADMIN"))
             .build();
 
+    private final RelationMetadata userToAuditRelation = RelationMetadata.builder("auditLogs")
+            .relationType(RelationType.ONE_TO_MANY)
+            .sourceModel("User")
+            .targetModel("AuditLog")
+            .foreignKeyField("userId")
+            .referenceField("id")
+            .build();
+
+    private final ModelMetadata userModel = ModelMetadata.builder("User")
+            .tableName("users")
+            .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
+            .addField(FieldMetadata.builder("name", String.class).build())
+            .addPrimaryKeyField("id")
+            .addRelation(userToAuditRelation)
+            .build();
+
     private final ModelRegistry registry = ModelRegistry.builder()
             .addModel(protectedModel)
             .addModel(readOnlyModel)
+            .addModel(userModel)
             .addViewModel(protectedView)
             .build();
 
@@ -95,11 +116,23 @@ class ModelAndViewFetcherSecurityTest {
             FieldAuthorizer authorizer,
             GraphQLContext context
     ) {
+        return createMockEnv(arguments, authorizer, context, null);
+    }
+
+    private DataFetchingEnvironment createMockEnv(
+            Map<String, Object> arguments,
+            FieldAuthorizer authorizer,
+            GraphQLContext context,
+            Object source
+    ) {
         return (DataFetchingEnvironment) Proxy.newProxyInstance(
                 getClass().getClassLoader(),
                 new Class<?>[]{DataFetchingEnvironment.class},
                 (proxy, method, args) -> {
                     String name = method.getName();
+                    if ("getSource".equals(name)) {
+                        return source;
+                    }
                     if ("getArguments".equals(name)) {
                         return arguments != null ? arguments : Collections.emptyMap();
                     }
@@ -487,5 +520,42 @@ class ModelAndViewFetcherSecurityTest {
         assertThat(connection).isNotNull();
         assertThat(connection.edges()).hasSize(1);
         assertThat(connection.edges().get(0).node().get("action")).isEqualTo("SUMMARY");
+    }
+
+    @Test
+    @DisplayName("ModelRelationDataFetcher: Denies access when caller lacks roles required by target model")
+    void modelRelation_deniedWhenLacksTargetModelRoles() {
+        JdbcExecutor executor = new JdbcExecutor(dummyDataSource, dialect);
+        BatchRelationLoader batchLoader = new BatchRelationLoader(executor, registry);
+        ModelRelationDataFetcher fetcher = new ModelRelationDataFetcher(userModel, userToAuditRelation, registry, batchLoader);
+
+        FieldAuthorizer unprivilegedUser = roles -> roles.contains("USER");
+        Map<String, Object> parentUser = Map.of("id", 1L, "name", "Alice");
+        DataFetchingEnvironment env = createMockEnv(Collections.emptyMap(), unprivilegedUser, null, parentUser);
+
+        assertThatThrownBy(() -> fetcher.get(env))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("AuditLog")
+                .hasMessageContaining("auditLogs");
+    }
+
+    @Test
+    @DisplayName("ModelRelationDataFetcher: Allows access when caller has matching role for target model")
+    void modelRelation_allowedWhenCallerHasTargetModelRole() {
+        JdbcExecutor executor = new JdbcExecutor(dummyDataSource, dialect) {
+            @Override
+            public List<Map<String, Object>> queryForList(SelectQuery query) {
+                return List.of(Map.of("id", 10L, "action", "LOGIN", "userId", 1L));
+            }
+        };
+        BatchRelationLoader batchLoader = new BatchRelationLoader(executor, registry);
+        ModelRelationDataFetcher fetcher = new ModelRelationDataFetcher(userModel, userToAuditRelation, registry, batchLoader);
+
+        FieldAuthorizer adminUser = roles -> roles.contains("ADMIN");
+        Map<String, Object> parentUser = Map.of("id", 1L, "name", "Alice");
+        DataFetchingEnvironment env = createMockEnv(Collections.emptyMap(), adminUser, null, parentUser);
+
+        Object result = fetcher.get(env);
+        assertThat(result).isNotNull();
     }
 }
