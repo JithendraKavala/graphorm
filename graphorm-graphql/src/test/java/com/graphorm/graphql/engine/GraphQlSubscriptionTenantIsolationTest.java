@@ -266,4 +266,86 @@ class GraphQlSubscriptionTenantIsolationTest {
         assertThat(ok).isTrue();
         assertThat(received).hasSize(1);
     }
+
+    @Test
+    @DisplayName("Subscription enforces exact case-sensitive tenant matching: casing difference rejects event")
+    void testExactTenantCaseMatchingInSubscriptionEvents() throws Exception {
+        TenantContext.setTenantId("tenant-alpha");
+
+        ExecutionInput input = ExecutionInput.newExecutionInput()
+                .query("subscription { orderCreated { id total tenantId } }")
+                .graphQLContext(Map.of("tenantId", "tenant-alpha"))
+                .build();
+
+        ExecutionResult executionResult = graphQL.execute(input);
+        Publisher<ExecutionResult> stream = executionResult.getData();
+
+        List<ExecutionResult> received = new CopyOnWriteArrayList<>();
+        CountDownLatch latch = new CountDownLatch(1);
+
+        stream.subscribe(new Subscriber<>() {
+            @Override
+            public void onSubscribe(Subscription s) {
+                s.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(ExecutionResult item) {
+                received.add(item);
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onComplete() {}
+        });
+
+        // Publish event for TENANT-ALPHA (casing mismatch with tenant-alpha - must be dropped!)
+        broker.publish(new EntityEvent(
+                "Order",
+                NotifyEventType.CREATE,
+                999L,
+                Map.of("id", 999L, "total", 500.0, "tenant_id", "TENANT-ALPHA"),
+                "TENANT-ALPHA",
+                Instant.now()
+        ));
+
+        // Publish event for tenant-alpha (exact match - must be received)
+        broker.publish(new EntityEvent(
+                "Order",
+                NotifyEventType.CREATE,
+                101L,
+                Map.of("id", 101L, "total", 99.5, "tenant_id", "tenant-alpha"),
+                "tenant-alpha",
+                Instant.now()
+        ));
+
+        boolean ok = latch.await(3, TimeUnit.SECONDS);
+        assertThat(ok).isTrue();
+        assertThat(received).hasSize(1);
+
+        Map<String, Object> data = received.getFirst().getData();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> order = (Map<String, Object>) data.get("orderCreated");
+        assertThat(order.get("id").toString()).isEqualTo("101");
+        assertThat(order.get("tenantId")).isEqualTo("tenant-alpha");
+    }
+
+    @Test
+    @DisplayName("Subscription rejects tenantId argument with differing case under exact matching")
+    void testExactTenantCaseMatchingInTenantArgumentThrowsMismatch() {
+        TenantContext.setTenantId("tenant-alpha");
+
+        ExecutionInput input = ExecutionInput.newExecutionInput()
+                .query("subscription { orderCreated(tenantId: \"TENANT-ALPHA\") { id } }")
+                .graphQLContext(Map.of("tenantId", "tenant-alpha"))
+                .build();
+
+        ExecutionResult result = graphQL.execute(input);
+        assertThat(result.getErrors()).isNotEmpty();
+        assertThat(result.getErrors().getFirst().getMessage())
+                .contains("Supplied tenantId argument does not match authenticated tenant context");
+    }
 }

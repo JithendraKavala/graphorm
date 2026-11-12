@@ -27,35 +27,53 @@ public class SpringTenantContextProvider implements TenantContextProvider {
     private static final Logger log = LoggerFactory.getLogger(SpringTenantContextProvider.class);
 
     private final GraphOrmProperties.TenantProperties properties;
+    private final TenantAuthorizationStrategy authorizationStrategy;
 
     public SpringTenantContextProvider(GraphOrmProperties.TenantProperties properties) {
+        this(properties, null);
+    }
+
+    public SpringTenantContextProvider(
+            GraphOrmProperties.TenantProperties properties,
+            TenantAuthorizationStrategy authorizationStrategy
+    ) {
         this.properties = Objects.requireNonNull(properties, "TenantProperties must not be null");
+        this.authorizationStrategy = authorizationStrategy;
     }
 
     @Override
     public Optional<String> getCurrentTenantId() {
-        // 1. Authenticated identity from Spring Security Context is authoritative
+        // 1. Programmatic tenant override (e.g. TenantContext.runAsTenant / supplyAsTenant)
+        // is explicitly invoked by trusted application code and takes highest precedence
+        Optional<String> programmaticTenant = TenantContext.getProgrammaticTenantId();
+        if (programmaticTenant.isPresent()) {
+            return programmaticTenant;
+        }
+
+        // 2. Authenticated identity from Spring Security Context is authoritative
         Optional<String> securityTenant = resolveFromSecurityContext();
         if (securityTenant.isPresent() && !properties.isAllowHeaderOverride()) {
             return securityTenant;
         }
 
-        // 2. ThreadLocal TenantContext takes priority for programmatic calls or when allowHeaderOverride is enabled
-        Optional<String> explicitTenant = TenantContext.getTenantId();
-        if (explicitTenant.isPresent()) {
-            return explicitTenant;
+        // 3. Resolve from HTTP Request Header (untrusted user input - requires validation/authorization)
+        if (properties.isHeaderEnabled()) {
+            Optional<String> headerTenant = resolveAndValidateRequestHeader(securityTenant);
+            if (headerTenant.isPresent()) {
+                return headerTenant;
+            }
         }
 
+        // If authenticated security context was present but header override was allowed and not supplied/authorized,
+        // fall back to the authenticated security tenant
         if (securityTenant.isPresent()) {
             return securityTenant;
         }
 
-        // 3. Resolve from HTTP Request Header if web context is active and header-based resolution is explicitly enabled
-        if (properties.isHeaderEnabled()) {
-            Optional<String> headerTenant = resolveFromRequestHeader();
-            if (headerTenant.isPresent()) {
-                return headerTenant;
-            }
+        // 4. ThreadLocal TenantContext fallback (if set programmatically via TenantContext.setTenantId)
+        Optional<String> explicitTenant = TenantContext.getTenantId();
+        if (explicitTenant.isPresent()) {
+            return explicitTenant;
         }
 
         return Optional.empty();
@@ -63,6 +81,10 @@ public class SpringTenantContextProvider implements TenantContextProvider {
 
     public GraphOrmProperties.TenantProperties properties() {
         return properties;
+    }
+
+    public TenantAuthorizationStrategy authorizationStrategy() {
+        return authorizationStrategy;
     }
 
     private Optional<String> resolveFromSecurityContext() {
@@ -141,15 +163,53 @@ public class SpringTenantContextProvider implements TenantContextProvider {
         return Optional.empty();
     }
 
-    private Optional<String> resolveFromRequestHeader() {
+    private Optional<String> resolveAndValidateRequestHeader(Optional<String> securityTenant) {
         try {
             RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
             if (requestAttributes instanceof ServletRequestAttributes servletAttributes) {
                 String headerName = properties.getHeaderName() != null ? properties.getHeaderName() : "X-Tenant-ID";
                 String headerVal = servletAttributes.getRequest().getHeader(headerName);
-                if (headerVal != null && !headerVal.isBlank()) {
-                    return Optional.of(headerVal.trim());
+                if (headerVal == null || headerVal.isBlank()) {
+                    return Optional.empty();
                 }
+                String candidateTenant = headerVal.trim();
+
+                // If user is authenticated with a tenant claim and candidateTenant differs from securityTenant,
+                // allowHeaderOverride must be enabled
+                if (securityTenant.isPresent() && !properties.isAllowHeaderOverride() && !candidateTenant.equals(securityTenant.get())) {
+                    log.debug("Header tenant '{}' ignored because authenticated tenant '{}' is authoritative",
+                            candidateTenant, securityTenant.get());
+                    return Optional.empty();
+                }
+
+                // Check authorization trust boundary
+                Authentication auth = null;
+                try {
+                    SecurityContext context = SecurityContextHolder.getContext();
+                    if (context != null) {
+                        auth = context.getAuthentication();
+                    }
+                } catch (Exception ignored) {
+                }
+
+                if (authorizationStrategy != null) {
+                    if (authorizationStrategy.isTenantAuthorized(candidateTenant, auth)) {
+                        return Optional.of(candidateTenant);
+                    } else {
+                        log.warn("Header tenant '{}' rejected by TenantAuthorizationStrategy for principal '{}'",
+                                candidateTenant, auth != null ? auth.getName() : "anonymous");
+                        return Optional.empty();
+                    }
+                }
+
+                // If no TenantAuthorizationStrategy is configured:
+                if (properties.isRequireHeaderAuthorization()) {
+                    log.warn("Header tenant '{}' rejected: requireHeaderAuthorization is true but no TenantAuthorizationStrategy bean is configured. HTTP headers are untrusted user input.",
+                            candidateTenant);
+                    return Optional.empty();
+                }
+
+                return Optional.of(candidateTenant);
             }
         } catch (NoClassDefFoundError | Exception e) {
             log.trace("Unable to resolve tenant ID from request header: {}", e.getMessage());

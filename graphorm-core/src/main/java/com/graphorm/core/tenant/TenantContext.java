@@ -10,6 +10,7 @@ import java.util.function.Supplier;
 public final class TenantContext {
 
     private static final ThreadLocal<String> CURRENT_TENANT = new ThreadLocal<>();
+    private static final ThreadLocal<String> PROGRAMMATIC_OVERRIDE = new ThreadLocal<>();
     private static volatile TenantContextProvider provider = new DefaultTenantContextProvider();
 
     private TenantContext() {}
@@ -21,6 +22,17 @@ public final class TenantContext {
      */
     public static Optional<String> getTenantId() {
         return Optional.ofNullable(CURRENT_TENANT.get());
+    }
+
+    /**
+     * Resolves the active programmatic tenant override, if any.
+     * Programmatic overrides are set explicitly in server code via {@link #runAsTenant},
+     * {@link #supplyAsTenant}, or {@link #setProgrammaticTenantId}.
+     *
+     * @return an Optional containing the active programmatic tenant override, or empty
+     */
+    public static Optional<String> getProgrammaticTenantId() {
+        return Optional.ofNullable(PROGRAMMATIC_OVERRIDE.get());
     }
 
     /**
@@ -46,14 +58,38 @@ public final class TenantContext {
     }
 
     /**
+     * Sets an explicit programmatic tenant override on the active thread.
+     *
+     * @param tenantId the tenant ID, or null to clear
+     */
+    public static void setProgrammaticTenantId(String tenantId) {
+        if (tenantId != null && !tenantId.isBlank()) {
+            String trimmed = tenantId.trim();
+            PROGRAMMATIC_OVERRIDE.set(trimmed);
+            CURRENT_TENANT.set(trimmed);
+        } else {
+            PROGRAMMATIC_OVERRIDE.remove();
+            CURRENT_TENANT.remove();
+        }
+    }
+
+    /**
+     * Clears any active programmatic tenant override from the active thread.
+     */
+    public static void clearProgrammaticTenantId() {
+        PROGRAMMATIC_OVERRIDE.remove();
+    }
+
+    /**
      * Clears the current tenant identifier from the active thread.
      */
     public static void clear() {
         CURRENT_TENANT.remove();
+        PROGRAMMATIC_OVERRIDE.remove();
     }
 
     /**
-     * Executes the given action bound to the specified tenant ID,
+     * Executes the given action bound to the specified tenant ID as a trusted programmatic override,
      * guaranteeing restoration of previous context on completion.
      *
      * @param tenantId the tenant ID to bind
@@ -62,17 +98,29 @@ public final class TenantContext {
     public static void runAsTenant(String tenantId, Runnable action) {
         Objects.requireNonNull(tenantId, "Tenant ID must not be null");
         Objects.requireNonNull(action, "Action must not be null");
-        String previous = CURRENT_TENANT.get();
-        setTenantId(tenantId);
+        String prevProgrammatic = PROGRAMMATIC_OVERRIDE.get();
+        String prevTenant = CURRENT_TENANT.get();
+        String trimmed = tenantId.trim();
+        PROGRAMMATIC_OVERRIDE.set(trimmed);
+        CURRENT_TENANT.set(trimmed);
         try {
             action.run();
         } finally {
-            CURRENT_TENANT.set(previous);
+            if (prevProgrammatic != null) {
+                PROGRAMMATIC_OVERRIDE.set(prevProgrammatic);
+            } else {
+                PROGRAMMATIC_OVERRIDE.remove();
+            }
+            if (prevTenant != null) {
+                CURRENT_TENANT.set(prevTenant);
+            } else {
+                CURRENT_TENANT.remove();
+            }
         }
     }
 
     /**
-     * Evaluates the given supplier bound to the specified tenant ID,
+     * Evaluates the given supplier bound to the specified tenant ID as a trusted programmatic override,
      * guaranteeing restoration of previous context on completion.
      *
      * @param tenantId the tenant ID to bind
@@ -83,12 +131,24 @@ public final class TenantContext {
     public static <T> T supplyAsTenant(String tenantId, Supplier<T> supplier) {
         Objects.requireNonNull(tenantId, "Tenant ID must not be null");
         Objects.requireNonNull(supplier, "Supplier must not be null");
-        String previous = CURRENT_TENANT.get();
-        setTenantId(tenantId);
+        String prevProgrammatic = PROGRAMMATIC_OVERRIDE.get();
+        String prevTenant = CURRENT_TENANT.get();
+        String trimmed = tenantId.trim();
+        PROGRAMMATIC_OVERRIDE.set(trimmed);
+        CURRENT_TENANT.set(trimmed);
         try {
             return supplier.get();
         } finally {
-            CURRENT_TENANT.set(previous);
+            if (prevProgrammatic != null) {
+                PROGRAMMATIC_OVERRIDE.set(prevProgrammatic);
+            } else {
+                PROGRAMMATIC_OVERRIDE.remove();
+            }
+            if (prevTenant != null) {
+                CURRENT_TENANT.set(prevTenant);
+            } else {
+                CURRENT_TENANT.remove();
+            }
         }
     }
 

@@ -17,11 +17,17 @@ import java.io.IOException;
 /**
  * HTTP filter extracting the tenant identifier from the configured request header (default {@code X-Tenant-ID})
  * and binding it to {@link TenantContext} for the duration of the HTTP request.
- * An authenticated tenant identity takes precedence unless explicit header override is configured.
+ * <p>
+ * <b>Security Requirements:</b>
+ * HTTP request headers are untrusted client inputs. Header-based tenant selection requires explicit opt-in
+ * via {@code graphorm.tenant.header-enabled=true} and verification via {@link TenantAuthorizationStrategy}.
+ * An authenticated tenant identity in the security context takes precedence over headers unless
+ * {@code allowHeaderOverride} is explicitly configured and authorized.
  */
 public class TenantHeaderFilter extends OncePerRequestFilter {
 
     private final GraphOrmProperties.TenantProperties properties;
+    private final TenantAuthorizationStrategy authorizationStrategy;
     private final String headerName;
 
     public TenantHeaderFilter(String headerName) {
@@ -29,11 +35,21 @@ public class TenantHeaderFilter extends OncePerRequestFilter {
         GraphOrmProperties.TenantProperties props = new GraphOrmProperties.TenantProperties();
         props.setHeaderName(this.headerName);
         props.setHeaderEnabled(true);
+        props.setRequireHeaderAuthorization(false);
         this.properties = props;
+        this.authorizationStrategy = null;
     }
 
     public TenantHeaderFilter(GraphOrmProperties.TenantProperties properties) {
+        this(properties, null);
+    }
+
+    public TenantHeaderFilter(
+            GraphOrmProperties.TenantProperties properties,
+            TenantAuthorizationStrategy authorizationStrategy
+    ) {
         this.properties = properties != null ? properties : new GraphOrmProperties.TenantProperties();
+        this.authorizationStrategy = authorizationStrategy;
         this.headerName = this.properties.getHeaderName() != null && !this.properties.getHeaderName().isBlank()
                 ? this.properties.getHeaderName()
                 : "X-Tenant-ID";
@@ -52,14 +68,29 @@ public class TenantHeaderFilter extends OncePerRequestFilter {
 
         String tenantId = request.getHeader(headerName);
         if (tenantId != null && !tenantId.isBlank()) {
+            String candidateTenant = tenantId.trim();
+            Authentication auth = getAuthentication();
+
             // An authenticated tenant must not be overridden by an arbitrary request header unless explicit override is configured
-            if (!properties.isAllowHeaderOverride() && hasAuthenticatedSecurityContext()) {
+            if (!properties.isAllowHeaderOverride() && hasAuthenticatedSecurityContext(auth)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // Verify header tenant against TenantAuthorizationStrategy
+            if (authorizationStrategy != null) {
+                if (!authorizationStrategy.isTenantAuthorized(candidateTenant, auth)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+            } else if (properties.isRequireHeaderAuthorization()) {
+                // Untrusted header rejected because no validation strategy is configured
                 filterChain.doFilter(request, response);
                 return;
             }
 
             try {
-                TenantContext.setTenantId(tenantId.trim());
+                TenantContext.setTenantId(candidateTenant);
                 filterChain.doFilter(request, response);
             } finally {
                 TenantContext.clear();
@@ -69,17 +100,17 @@ public class TenantHeaderFilter extends OncePerRequestFilter {
         }
     }
 
-    private boolean hasAuthenticatedSecurityContext() {
+    private Authentication getAuthentication() {
         try {
             SecurityContext context = SecurityContextHolder.getContext();
-            if (context == null) {
-                return false;
-            }
-            Authentication auth = context.getAuthentication();
-            return auth != null && auth.isAuthenticated() && !(auth instanceof AnonymousAuthenticationToken);
+            return context != null ? context.getAuthentication() : null;
         } catch (NoClassDefFoundError | Exception ignored) {
-            return false;
+            return null;
         }
+    }
+
+    private boolean hasAuthenticatedSecurityContext(Authentication auth) {
+        return auth != null && auth.isAuthenticated() && !(auth instanceof AnonymousAuthenticationToken);
     }
 
     public String getHeaderName() {
@@ -88,5 +119,9 @@ public class TenantHeaderFilter extends OncePerRequestFilter {
 
     public GraphOrmProperties.TenantProperties getProperties() {
         return properties;
+    }
+
+    public TenantAuthorizationStrategy getAuthorizationStrategy() {
+        return authorizationStrategy;
     }
 }

@@ -157,7 +157,7 @@ public class ModelSubscriptionDataFetcher implements DataFetcher<Publisher<Objec
 
         // 1. Zero cross-tenant event leak check
         if (model.isMultiTenant()) {
-            if (activeTenantId != null && !activeTenantId.equalsIgnoreCase(event.tenantId())) {
+            if (activeTenantId != null && !activeTenantId.equals(event.tenantId())) {
                 return false;
             }
             if (activeTenantId == null && event.tenantId() != null) {
@@ -247,7 +247,7 @@ public class ModelSubscriptionDataFetcher implements DataFetcher<Publisher<Objec
                         "Client-supplied tenant argument cannot be used as proof of tenant identity"
                 );
             }
-            if (!trustedTenant.equalsIgnoreCase(argTenant)) {
+            if (!trustedTenant.equals(argTenant)) {
                 log.warn("Client supplied spoofed tenantId argument '{}' which does not match authenticated tenant '{}'",
                         argTenant, trustedTenant);
                 throw new AccessDeniedException(

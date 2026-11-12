@@ -37,12 +37,42 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("GraphQL DataFetcher L2 Caching and Tag-Based Mutation Invalidation Tests")
 class GraphQlCacheAndInvalidationTest {
 
+    private final ModelMetadata departmentModel = ModelMetadata.builder("Department")
+            .tableName("departments")
+            .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
+            .addField(FieldMetadata.builder("name", String.class).build())
+            .addPrimaryKeyField("id")
+            .build();
+
+    private final ModelMetadata advisorModel = ModelMetadata.builder("Advisor")
+            .tableName("advisors")
+            .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
+            .addField(FieldMetadata.builder("name", String.class).build())
+            .addPrimaryKeyField("id")
+            .build();
+
     private final ModelMetadata studentModel = ModelMetadata.builder("Student")
             .tableName("students")
             .addField(FieldMetadata.builder("id", Long.class).primaryKey(true).build())
             .addField(FieldMetadata.builder("name", String.class).build())
             .addField(FieldMetadata.builder("email", String.class).build())
+            .addField(FieldMetadata.builder("departmentId", Long.class).dbColumnName("department_id").build())
+            .addField(FieldMetadata.builder("advisorId", Long.class).dbColumnName("advisor_id").build())
             .addPrimaryKeyField("id")
+            .addRelation(com.graphorm.core.metadata.RelationMetadata.builder("department")
+                    .relationType(com.graphorm.core.metadata.RelationType.MANY_TO_ONE)
+                    .sourceModel("Student")
+                    .targetModel("Department")
+                    .foreignKeyField("departmentId")
+                    .referenceField("id")
+                    .build())
+            .addRelation(com.graphorm.core.metadata.RelationMetadata.builder("advisor")
+                    .relationType(com.graphorm.core.metadata.RelationType.MANY_TO_ONE)
+                    .sourceModel("Student")
+                    .targetModel("Advisor")
+                    .foreignKeyField("advisorId")
+                    .referenceField("id")
+                    .build())
             .cacheMetadata(new CacheMetadata(true, Duration.ofSeconds(60), Set.of("Student", "students")))
             .build();
 
@@ -56,6 +86,8 @@ class GraphQlCacheAndInvalidationTest {
 
     private final ModelRegistry registry = ModelRegistry.builder()
             .addModel(studentModel)
+            .addModel(departmentModel)
+            .addModel(advisorModel)
             .addViewModel(dashboardView)
             .build();
 
@@ -85,7 +117,20 @@ class GraphQlCacheAndInvalidationTest {
             @Override
             public Optional<Map<String, Object>> queryForObject(SelectQuery query) {
                 queryExecutionCount.incrementAndGet();
-                return Optional.of(Map.of("id", 1L, "name", "Alice"));
+                Map<String, Object> row = new java.util.HashMap<>();
+                row.put("id", 1L);
+                row.put("name", "Alice");
+                if (query.columns() != null) {
+                    for (com.graphorm.core.query.ProjectedColumn col : query.columns()) {
+                        if ("department_id".equalsIgnoreCase(col.expression())) {
+                            row.put("department_id", 10L);
+                        }
+                        if ("advisor_id".equalsIgnoreCase(col.expression())) {
+                            row.put("advisor_id", 20L);
+                        }
+                    }
+                }
+                return Optional.of(row);
             }
 
             @Override
@@ -371,6 +416,154 @@ class GraphQlCacheAndInvalidationTest {
         // Selection 2: id, name, email (different projection): cache miss!
         DataFetchingEnvironment envWide = createMockEnvironmentWithFields(Map.of("id", 1L), List.of("id", "name", "email"));
         singleFetcher.get(envWide);
+        assertThat(queryExecutionCount.get()).isEqualTo(2);
+    }
+
+    private DataFetchingEnvironment createMockEnvironmentWithFieldsAndRelations(
+            Map<String, Object> arguments,
+            List<String> scalarFields,
+            Map<String, List<String>> relations
+    ) {
+        DataFetchingFieldSelectionSet selectionSet = (DataFetchingFieldSelectionSet) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[]{DataFetchingFieldSelectionSet.class},
+                (proxy, method, args) -> {
+                    if ("getFields".equals(method.getName()) || "getImmediateFields".equals(method.getName())) {
+                        List<SelectedField> fields = new java.util.ArrayList<>();
+                        for (String fName : scalarFields) {
+                            SelectedField field = (SelectedField) Proxy.newProxyInstance(
+                                    getClass().getClassLoader(),
+                                    new Class<?>[]{SelectedField.class},
+                                    (fProxy, fMethod, fArgs) -> {
+                                        if ("getName".equals(fMethod.getName())) return fName;
+                                        if ("getArguments".equals(fMethod.getName())) return Collections.emptyMap();
+                                        if ("getSelectionSet".equals(fMethod.getName())) return null;
+                                        return null;
+                                    }
+                            );
+                            fields.add(field);
+                        }
+                        if (relations != null) {
+                            for (Map.Entry<String, List<String>> relEntry : relations.entrySet()) {
+                                String relName = relEntry.getKey();
+                                List<String> childFields = relEntry.getValue();
+
+                                DataFetchingFieldSelectionSet childSet = (DataFetchingFieldSelectionSet) Proxy.newProxyInstance(
+                                        getClass().getClassLoader(),
+                                        new Class<?>[]{DataFetchingFieldSelectionSet.class},
+                                        (cProxy, cMethod, cArgs) -> {
+                                            if ("getFields".equals(cMethod.getName()) || "getImmediateFields".equals(cMethod.getName())) {
+                                                List<SelectedField> children = new java.util.ArrayList<>();
+                                                for (String cName : childFields) {
+                                                    SelectedField cField = (SelectedField) Proxy.newProxyInstance(
+                                                            getClass().getClassLoader(),
+                                                            new Class<?>[]{SelectedField.class},
+                                                            (cfProxy, cfMethod, cfArgs) -> {
+                                                                if ("getName".equals(cfMethod.getName())) return cName;
+                                                                if ("getArguments".equals(cfMethod.getName())) return Collections.emptyMap();
+                                                                if ("getSelectionSet".equals(cfMethod.getName())) return null;
+                                                                return null;
+                                                            }
+                                                    );
+                                                    children.add(cField);
+                                                }
+                                                return children;
+                                            }
+                                            return Collections.emptyList();
+                                        }
+                                );
+
+                                SelectedField relField = (SelectedField) Proxy.newProxyInstance(
+                                        getClass().getClassLoader(),
+                                        new Class<?>[]{SelectedField.class},
+                                        (fProxy, fMethod, fArgs) -> {
+                                            if ("getName".equals(fMethod.getName())) return relName;
+                                            if ("getArguments".equals(fMethod.getName())) return Collections.emptyMap();
+                                            if ("getSelectionSet".equals(fMethod.getName())) return childSet;
+                                            return null;
+                                        }
+                                );
+                                fields.add(relField);
+                            }
+                        }
+                        return fields;
+                    }
+                    return Collections.emptyList();
+                }
+        );
+
+        return (DataFetchingEnvironment) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[]{DataFetchingEnvironment.class},
+                (proxy, method, args) -> {
+                    if ("containsArgument".equals(method.getName())) {
+                        return arguments != null && args.length > 0 && arguments.containsKey(args[0]);
+                    }
+                    if ("getArguments".equals(method.getName())) {
+                        return arguments != null ? arguments : Collections.emptyMap();
+                    }
+                    if ("getArgument".equals(method.getName())) {
+                        return arguments != null && args.length > 0 ? arguments.get(args[0]) : null;
+                    }
+                    if ("getSelectionSet".equals(method.getName())) {
+                        return selectionSet;
+                    }
+                    return null;
+                }
+        );
+    }
+
+    @Test
+    @DisplayName("Regression test: ModelSingleDataFetcher cache keys include hidden dependency columns preventing collisions across relations")
+    void testHiddenRelationshipDependenciesInCacheKeys() throws Exception {
+        ModelSingleDataFetcher singleFetcher = new ModelSingleDataFetcher(
+                studentModel,
+                registry,
+                executor
+        );
+
+        TenantContext.setTenantId("tenant-alpha");
+
+        // Query 1 requests: student { id name department { id } }
+        DataFetchingEnvironment envDept = createMockEnvironmentWithFieldsAndRelations(
+                Map.of("id", 1L),
+                List.of("id", "name"),
+                Map.of("department", List.of("id"))
+        );
+
+        Map<String, Object> resultDept = singleFetcher.get(envDept);
+        assertThat(resultDept).isNotNull();
+        assertThat(resultDept.get("id")).isEqualTo(1L);
+        assertThat(resultDept.get("name")).isEqualTo("Alice");
+        assertThat(resultDept.get("departmentId")).isEqualTo(10L);
+        assertThat(resultDept.get("advisorId")).isNull();
+        assertThat(queryExecutionCount.get()).isEqualTo(1);
+
+        // Query 2 requests: student { id name advisor { id } }
+        // Both use the same student ID and tenant!
+        DataFetchingEnvironment envAdvisor = createMockEnvironmentWithFieldsAndRelations(
+                Map.of("id", 1L),
+                List.of("id", "name"),
+                Map.of("advisor", List.of("id"))
+        );
+
+        Map<String, Object> resultAdvisor = singleFetcher.get(envAdvisor);
+        assertThat(resultAdvisor).isNotNull();
+        assertThat(resultAdvisor.get("id")).isEqualTo(1L);
+        assertThat(resultAdvisor.get("name")).isEqualTo("Alice");
+        // Verify second query gets correct relationship dependency (advisorId) and does not reuse incompatible cached row
+        assertThat(resultAdvisor.get("advisorId")).isEqualTo(20L);
+        assertThat(resultAdvisor.get("departmentId")).isNull();
+        assertThat(queryExecutionCount.get()).isEqualTo(2);
+
+        // Re-executing Query 1 hits cache!
+        Map<String, Object> cachedDept = singleFetcher.get(envDept);
+        assertThat(cachedDept.get("departmentId")).isEqualTo(10L);
+        assertThat(queryExecutionCount.get()).isEqualTo(2);
+
+        // Re-executing Query 2 hits cache!
+        Map<String, Object> cachedAdvisor = singleFetcher.get(envAdvisor);
+        assertThat(cachedAdvisor.get("advisorId")).isEqualTo(20L);
         assertThat(queryExecutionCount.get()).isEqualTo(2);
     }
 }

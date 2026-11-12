@@ -118,7 +118,7 @@ public class ViewSingleDataFetcher implements DataFetcher<Map<String, Object>> {
             String tenantId = view.isMultiTenant()
                     ? QueryGuards.requireTenantContext(view, "SELECT")
                     : TenantContext.getCurrentTenantId().orElse(null);
-            Collection<String> projected = analyzed != null ? analyzed.requestedScalarFields() : Collections.emptyList();
+            Collection<String> projected = analyzed != null ? analyzed.completeProjectedFields() : Collections.emptyList();
             String cacheKey = CacheKeyBuilder.forEntityId(view.name(), tenantId, idValue, projected);
             Optional<Map> cached = cm.get(cacheKey, Map.class);
             if (cached.isPresent()) {

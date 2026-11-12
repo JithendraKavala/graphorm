@@ -116,7 +116,7 @@ public class ModelSingleDataFetcher implements DataFetcher<Map<String, Object>> 
             String tenantId = model.isMultiTenant()
                     ? QueryGuards.requireTenantContext(model, "SELECT")
                     : TenantContext.getCurrentTenantId().orElse(null);
-            Collection<String> projected = analyzed != null ? analyzed.requestedScalarFields() : Collections.emptyList();
+            Collection<String> projected = analyzed != null ? analyzed.completeProjectedFields() : Collections.emptyList();
             String cacheKey = CacheKeyBuilder.forEntityId(model.name(), tenantId, idValue, projected);
             Optional<Map> cached = cm.get(cacheKey, Map.class);
             if (cached.isPresent()) {

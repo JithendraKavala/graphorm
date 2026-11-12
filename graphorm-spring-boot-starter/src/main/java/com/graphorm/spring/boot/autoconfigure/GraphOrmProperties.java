@@ -382,6 +382,14 @@ public class GraphOrmProperties {
         private String jwtClaim = "tenant_id";
         private boolean allowBypass = false;
 
+        /**
+         * Whether header-based tenant selection requires explicit authorization via {@link com.graphorm.spring.boot.tenant.TenantAuthorizationStrategy}.
+         * Defaults to {@code true}. When enabled, HTTP request headers (e.g. {@code X-Tenant-ID}) are rejected unless
+         * authorized by a configured {@link com.graphorm.spring.boot.tenant.TenantAuthorizationStrategy} bean.
+         * Must only be disabled in isolated testing environments where headers are implicitly trusted.
+         */
+        private boolean requireHeaderAuthorization = true;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -404,6 +412,14 @@ public class GraphOrmProperties {
 
         public void setAllowHeaderOverride(boolean allowHeaderOverride) {
             this.allowHeaderOverride = allowHeaderOverride;
+        }
+
+        public boolean isRequireHeaderAuthorization() {
+            return requireHeaderAuthorization;
+        }
+
+        public void setRequireHeaderAuthorization(boolean requireHeaderAuthorization) {
+            this.requireHeaderAuthorization = requireHeaderAuthorization;
         }
 
         public String getHeaderName() {
