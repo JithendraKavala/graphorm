@@ -34,6 +34,19 @@ public class TenantHeaderFilter extends OncePerRequestFilter {
     private final TenantAuthorizationStrategy authorizationStrategy;
     private final String headerName;
 
+    /**
+     * Legacy constructor retained for backwards compatibility and unit testing.
+     * <p>
+     * <b>Security Note:</b> This constructor enables header extraction but sets
+     * {@code requireHeaderAuthorization = false} and configures no {@link TenantAuthorizationStrategy}.
+     * It should not be used in production applications where tenant spoofing must be guarded.
+     *
+     * @param headerName the request header name (defaults to {@code X-Tenant-ID} if null or blank)
+     * @deprecated since 0.1.0, scheduled for removal. Prefer
+     *             {@link #TenantHeaderFilter(GraphOrmProperties.TenantProperties, TenantAuthorizationStrategy)}
+     *             to enforce proper tenant authorization policies.
+     */
+    @Deprecated(since = "0.1.0", forRemoval = true)
     public TenantHeaderFilter(String headerName) {
         this.headerName = headerName != null && !headerName.isBlank() ? headerName : "X-Tenant-ID";
         GraphOrmProperties.TenantProperties props = new GraphOrmProperties.TenantProperties();
