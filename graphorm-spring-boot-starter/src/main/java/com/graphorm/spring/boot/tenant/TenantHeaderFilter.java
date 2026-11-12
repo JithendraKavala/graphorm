@@ -6,23 +6,27 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Optional;
 
 /**
  * HTTP filter extracting the tenant identifier from the configured request header (default {@code X-Tenant-ID})
- * and binding it to {@link TenantContext} for the duration of the HTTP request.
+ * and binding it to a scoped {@link TenantContext} for the duration of the HTTP request.
  * <p>
  * <b>Security Requirements:</b>
- * HTTP request headers are untrusted client inputs. Header-based tenant selection requires explicit opt-in
- * via {@code graphorm.tenant.header-enabled=true} and verification via {@link TenantAuthorizationStrategy}.
- * An authenticated tenant identity in the security context takes precedence over headers unless
- * {@code allowHeaderOverride} is explicitly configured and authorized.
+ * <ul>
+ *   <li>HTTP request headers are untrusted client inputs. Header-based tenant selection requires explicit opt-in
+ *       via {@code graphorm.tenant.header-enabled=true} and verification via {@link TenantAuthorizationStrategy}.</li>
+ *   <li>An authenticated tenant identity in the security context takes precedence over headers unless
+ *       {@code allowHeaderOverride} is explicitly configured and authorized.</li>
+ *   <li>Active trusted programmatic overrides are never overwritten by HTTP headers.</li>
+ *   <li>Previous tenant contexts are preserved and restored upon filter completion, even on exceptions.</li>
+ * </ul>
  */
 public class TenantHeaderFilter extends OncePerRequestFilter {
 
@@ -66,34 +70,20 @@ public class TenantHeaderFilter extends OncePerRequestFilter {
             return;
         }
 
-        String tenantId = request.getHeader(headerName);
-        if (tenantId != null && !tenantId.isBlank()) {
-            String candidateTenant = tenantId.trim();
-            Authentication auth = getAuthentication();
+        String rawHeader = request.getHeader(headerName);
+        Authentication auth = getAuthentication();
+        Optional<String> securityTenant = TenantHeaderAuthorizer.resolveSecurityTenant(auth, properties);
+        Optional<String> authorizedTenant = TenantHeaderAuthorizer.authorize(
+                rawHeader,
+                securityTenant,
+                auth,
+                properties,
+                authorizationStrategy
+        );
 
-            // An authenticated tenant must not be overridden by an arbitrary request header unless explicit override is configured
-            if (!properties.isAllowHeaderOverride() && hasAuthenticatedSecurityContext(auth)) {
+        if (authorizedTenant.isPresent()) {
+            try (TenantContext.TenantScope scope = TenantContext.openHeaderScope(authorizedTenant.get())) {
                 filterChain.doFilter(request, response);
-                return;
-            }
-
-            // Verify header tenant against TenantAuthorizationStrategy
-            if (authorizationStrategy != null) {
-                if (!authorizationStrategy.isTenantAuthorized(candidateTenant, auth)) {
-                    filterChain.doFilter(request, response);
-                    return;
-                }
-            } else if (properties.isRequireHeaderAuthorization()) {
-                // Untrusted header rejected because no validation strategy is configured
-                filterChain.doFilter(request, response);
-                return;
-            }
-
-            try {
-                TenantContext.setTenantId(candidateTenant);
-                filterChain.doFilter(request, response);
-            } finally {
-                TenantContext.clear();
             }
         } else {
             filterChain.doFilter(request, response);
@@ -107,10 +97,6 @@ public class TenantHeaderFilter extends OncePerRequestFilter {
         } catch (NoClassDefFoundError | Exception ignored) {
             return null;
         }
-    }
-
-    private boolean hasAuthenticatedSecurityContext(Authentication auth) {
-        return auth != null && auth.isAuthenticated() && !(auth instanceof AnonymousAuthenticationToken);
     }
 
     public String getHeaderName() {

@@ -57,7 +57,6 @@ class SpringTenantContextProviderTest {
     @Test
     @DisplayName("Programmatic tenant switching (TenantContext.runAsTenant) must take precedence over authenticated security context")
     void shouldPreserveProgrammaticTenantSwitchingOverSecurityContext() {
-        // Authenticated user with tenant-A
         TestingAuthenticationToken auth = new TestingAuthenticationToken(
                 Map.of("tenant_id", "security-tenant-A"), null
         );
@@ -85,30 +84,110 @@ class SpringTenantContextProviderTest {
     }
 
     @Test
-    @DisplayName("Should prioritize authenticated security context over request header by default")
-    void shouldPrioritizeSecurityContextOverHeaderByDefault() {
-        properties.setHeaderEnabled(true);
-        properties.setRequireHeaderAuthorization(false); // even if header authorization is relaxed
+    @DisplayName("Programmatic override cannot be replaced or overwritten by an HTTP header in filter or provider")
+    void shouldNotOverwriteProgrammaticOverrideWithHttpHeader() throws ServletException, IOException {
+        GraphOrmProperties.TenantProperties props = new GraphOrmProperties.TenantProperties();
+        props.setHeaderEnabled(true);
+        props.setAllowHeaderOverride(true);
+        props.setRequireHeaderAuthorization(false);
 
-        TestingAuthenticationToken auth = new TestingAuthenticationToken(
-                Map.of("tenant_id", "security-tenant-A"), null
-        );
-        auth.setAuthenticated(true);
-        SecurityContextHolder.getContext().setAuthentication(auth);
+        TenantHeaderFilter filter = new TenantHeaderFilter(props);
 
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("X-Tenant-ID", "header-tenant-B");
+        request.addHeader("X-Tenant-ID", "malicious-header-tenant");
+        MockHttpServletResponse response = new MockHttpServletResponse();
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
 
-        // Authenticated tenant A must not be overridden by untrusted header tenant B
-        assertThat(provider.getCurrentTenantId()).contains("security-tenant-A");
+        TenantContext.runAsTenant("trusted-programmatic-tenant", () -> {
+            assertThat(TenantContext.getProgrammaticTenantId()).contains("trusted-programmatic-tenant");
+            assertThat(TenantContext.getTenantId()).contains("trusted-programmatic-tenant");
+            assertThat(provider.getCurrentTenantId()).contains("trusted-programmatic-tenant");
+
+            // Execute filter inside programmatic scope
+            try {
+                filter.doFilter(request, response, (req, res) -> {
+                    // Header must NOT overwrite the active trusted programmatic override!
+                    assertThat(TenantContext.getProgrammaticTenantId()).contains("trusted-programmatic-tenant");
+                    assertThat(TenantContext.getTenantId()).contains("trusted-programmatic-tenant");
+                    assertThat(provider.getCurrentTenantId()).contains("trusted-programmatic-tenant");
+                });
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+
+            // After filter, programmatic override remains intact
+            assertThat(TenantContext.getProgrammaticTenantId()).contains("trusted-programmatic-tenant");
+            assertThat(TenantContext.getTenantId()).contains("trusted-programmatic-tenant");
+        });
+
+        // After runAsTenant block exits, context is cleaned up
+        assertThat(TenantContext.getProgrammaticTenantId()).isEmpty();
+        assertThat(TenantContext.getTenantId()).isEmpty();
     }
 
     @Test
-    @DisplayName("Reject request header when user has no tenant claim and requireHeaderAuthorization is true without strategy")
-    void shouldRejectHeaderWhenNoSecurityTenantClaimAndNoAuthorizationStrategy() {
+    @DisplayName("Nested runAsTenant context restoration after filter execution")
+    void testNestedRunAsTenantContextRestorationAfterFilter() throws ServletException, IOException {
+        TenantHeaderFilter filter = new TenantHeaderFilter("X-Tenant-ID");
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Tenant-ID", "filter-header-tenant");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        // Start with pre-existing thread tenant
+        TenantContext.setTenantId("pre-filter-tenant");
+
+        AtomicBoolean chainRan = new AtomicBoolean(false);
+        filter.doFilter(request, response, (req, res) -> {
+            chainRan.set(true);
+            assertThat(TenantContext.getTenantId()).contains("filter-header-tenant");
+
+            // Nested programmatic tenant override
+            TenantContext.runAsTenant("nested-programmatic-tenant", () -> {
+                assertThat(TenantContext.getProgrammaticTenantId()).contains("nested-programmatic-tenant");
+                assertThat(TenantContext.getTenantId()).contains("nested-programmatic-tenant");
+            });
+
+            // After nested runAsTenant: restored to filter's header tenant
+            assertThat(TenantContext.getProgrammaticTenantId()).isEmpty();
+            assertThat(TenantContext.getTenantId()).contains("filter-header-tenant");
+        });
+
+        assertThat(chainRan).isTrue();
+        // After filter completes: restored to pre-filter tenant, NOT cleared unconditionally!
+        assertThat(TenantContext.getTenantId()).contains("pre-filter-tenant");
+        assertThat(TenantContext.getProgrammaticTenantId()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Context restoration when filter chain throws an exception")
+    void testContextRestorationWhenFilterChainThrows() {
+        TenantHeaderFilter filter = new TenantHeaderFilter("X-Tenant-ID");
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Tenant-ID", "temp-filter-tenant");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        TenantContext.setTenantId("original-tenant");
+
+        try {
+            filter.doFilter(request, response, (req, res) -> {
+                assertThat(TenantContext.getTenantId()).contains("temp-filter-tenant");
+                throw new RuntimeException("Simulated filter chain explosion");
+            });
+        } catch (Exception ignored) {
+        }
+
+        // Original tenant must be restored even on exception
+        assertThat(TenantContext.getTenantId()).contains("original-tenant");
+        assertThat(TenantContext.getProgrammaticTenantId()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Authenticated user without tenant claim: rejected without authorization strategy")
+    void shouldRejectHeaderWhenUserHasNoTenantClaimAndNoStrategy() throws ServletException, IOException {
         properties.setHeaderEnabled(true);
         properties.setRequireHeaderAuthorization(true);
+
+        TenantHeaderFilter filter = new TenantHeaderFilter(properties, null);
 
         TestingAuthenticationToken auth = new TestingAuthenticationToken(
                 Map.of("sub", "user-without-tenant"), null
@@ -118,15 +197,25 @@ class SpringTenantContextProviderTest {
 
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-Tenant-ID", "untrusted-candidate-tenant");
+        MockHttpServletResponse response = new MockHttpServletResponse();
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
 
-        // Untrusted header must be rejected
+        // Provider rejects header
         assertThat(provider.getCurrentTenantId()).isEmpty();
+
+        // Filter rejects header and does not expose it to raw ThreadLocal
+        AtomicBoolean chainRan = new AtomicBoolean(false);
+        filter.doFilter(request, response, (req, res) -> {
+            chainRan.set(true);
+            assertThat(TenantContext.getTenantId()).isEmpty();
+        });
+        assertThat(chainRan).isTrue();
+        assertThat(TenantContext.getTenantId()).isEmpty();
     }
 
     @Test
-    @DisplayName("Accept request header when user has no tenant claim and TenantAuthorizationStrategy authorizes it")
-    void shouldAcceptHeaderWhenAuthorizedByStrategy() {
+    @DisplayName("Authenticated user without tenant claim: accepted when TenantAuthorizationStrategy approves")
+    void shouldAcceptHeaderWhenUserHasNoTenantClaimAndStrategyApproves() throws ServletException, IOException {
         properties.setHeaderEnabled(true);
         properties.setRequireHeaderAuthorization(true);
 
@@ -134,6 +223,7 @@ class SpringTenantContextProviderTest {
                 "allowed-tenant".equals(tenantId) && auth != null && auth.isAuthenticated();
 
         SpringTenantContextProvider secureProvider = new SpringTenantContextProvider(properties, strategy);
+        TenantHeaderFilter filter = new TenantHeaderFilter(properties, strategy);
 
         TestingAuthenticationToken auth = new TestingAuthenticationToken(
                 Map.of("sub", "user-without-tenant"), null
@@ -141,17 +231,96 @@ class SpringTenantContextProviderTest {
         auth.setAuthenticated(true);
         SecurityContextHolder.getContext().setAuthentication(auth);
 
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("X-Tenant-ID", "allowed-tenant");
-        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        // 1. Authorized header
+        MockHttpServletRequest request1 = new MockHttpServletRequest();
+        request1.addHeader("X-Tenant-ID", "allowed-tenant");
+        MockHttpServletResponse response1 = new MockHttpServletResponse();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request1));
 
-        // Authorized candidate tenant accepted
         assertThat(secureProvider.getCurrentTenantId()).contains("allowed-tenant");
 
-        // Unauthorized candidate tenant rejected
-        request.removeHeader("X-Tenant-ID");
-        request.addHeader("X-Tenant-ID", "forbidden-tenant");
+        AtomicBoolean chainRan1 = new AtomicBoolean(false);
+        filter.doFilter(request1, response1, (req, res) -> {
+            chainRan1.set(true);
+            assertThat(TenantContext.getTenantId()).contains("allowed-tenant");
+        });
+        assertThat(chainRan1).isTrue();
+        assertThat(TenantContext.getTenantId()).isEmpty();
+
+        // 2. Unauthorized header
+        MockHttpServletRequest request2 = new MockHttpServletRequest();
+        request2.addHeader("X-Tenant-ID", "forbidden-tenant");
+        MockHttpServletResponse response2 = new MockHttpServletResponse();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request2));
+
         assertThat(secureProvider.getCurrentTenantId()).isEmpty();
+
+        AtomicBoolean chainRan2 = new AtomicBoolean(false);
+        filter.doFilter(request2, response2, (req, res) -> {
+            chainRan2.set(true);
+            assertThat(TenantContext.getTenantId()).isEmpty();
+        });
+        assertThat(chainRan2).isTrue();
+    }
+
+    @Test
+    @DisplayName("Header override authorization for user with an existing tenant claim")
+    void testHeaderOverrideAuthorizationForUserWithExistingTenantClaim() throws ServletException, IOException {
+        properties.setHeaderEnabled(true);
+        properties.setRequireHeaderAuthorization(true);
+
+        TenantAuthorizationStrategy strategy = (tenantId, auth) -> "approved-override-tenant".equals(tenantId);
+
+        TestingAuthenticationToken auth = new TestingAuthenticationToken(
+                Map.of("tenant_id", "security-tenant-A"), null
+        );
+        auth.setAuthenticated(true);
+        SecurityContextHolder.getContext().setAuthentication(auth);
+
+        // Subcase A: allowHeaderOverride = false (default)
+        properties.setAllowHeaderOverride(false);
+        SpringTenantContextProvider providerA = new SpringTenantContextProvider(properties, strategy);
+        TenantHeaderFilter filterA = new TenantHeaderFilter(properties, strategy);
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Tenant-ID", "approved-override-tenant");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        assertThat(providerA.getCurrentTenantId()).contains("security-tenant-A");
+        filterA.doFilter(request, response, (req, res) -> {
+            assertThat(TenantContext.getTenantId()).isEmpty();
+        });
+
+        // Subcase B: allowHeaderOverride = true, but strategy denies the requested override
+        properties.setAllowHeaderOverride(true);
+        MockHttpServletRequest reqDenied = new MockHttpServletRequest();
+        reqDenied.addHeader("X-Tenant-ID", "unapproved-tenant");
+        MockHttpServletResponse respDenied = new MockHttpServletResponse();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(reqDenied));
+
+        assertThat(providerA.getCurrentTenantId()).contains("security-tenant-A");
+        filterA.doFilter(reqDenied, respDenied, (req, res) -> {
+            assertThat(TenantContext.getTenantId()).isEmpty();
+        });
+
+        // Subcase C: allowHeaderOverride = true, and strategy approves the requested override
+        SpringTenantContextProvider providerC = new SpringTenantContextProvider(properties, strategy);
+        TenantHeaderFilter filterC = new TenantHeaderFilter(properties, strategy);
+
+        MockHttpServletRequest reqApproved = new MockHttpServletRequest();
+        reqApproved.addHeader("X-Tenant-ID", "approved-override-tenant");
+        MockHttpServletResponse respApproved = new MockHttpServletResponse();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(reqApproved));
+
+        assertThat(providerC.getCurrentTenantId()).contains("approved-override-tenant");
+        AtomicBoolean chainRanC = new AtomicBoolean(false);
+        filterC.doFilter(reqApproved, respApproved, (req, res) -> {
+            chainRanC.set(true);
+            assertThat(TenantContext.getTenantId()).contains("approved-override-tenant");
+        });
+        assertThat(chainRanC).isTrue();
+        assertThat(TenantContext.getTenantId()).isEmpty();
     }
 
     @Test
@@ -171,29 +340,6 @@ class SpringTenantContextProviderTest {
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
 
         assertThat(provider.getCurrentTenantId()).contains("header-tenant-fallback");
-    }
-
-    @Test
-    @DisplayName("Should allow header override when allowHeaderOverride is true and authorized")
-    void shouldAllowHeaderOverrideWhenExplicitlyConfiguredAndAuthorized() {
-        properties.setHeaderEnabled(true);
-        properties.setAllowHeaderOverride(true);
-        properties.setRequireHeaderAuthorization(true);
-
-        TenantAuthorizationStrategy strategy = (tenantId, auth) -> "override-tenant-B".equals(tenantId);
-        SpringTenantContextProvider secureProvider = new SpringTenantContextProvider(properties, strategy);
-
-        TestingAuthenticationToken auth = new TestingAuthenticationToken(
-                Map.of("tenant_id", "security-tenant-A"), null
-        );
-        auth.setAuthenticated(true);
-        SecurityContextHolder.getContext().setAuthentication(auth);
-
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("X-Tenant-ID", "override-tenant-B");
-        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
-
-        assertThat(secureProvider.getCurrentTenantId()).contains("override-tenant-B");
     }
 
     @Test
@@ -229,125 +375,6 @@ class SpringTenantContextProviderTest {
         SecurityContextHolder.getContext().setAuthentication(auth);
 
         assertThat(provider.getCurrentTenantId()).contains("details-tenant");
-    }
-
-    @Test
-    @DisplayName("TenantHeaderFilter should populate TenantContext for filter chain and clear it afterwards")
-    void testTenantHeaderFilter() throws ServletException, IOException {
-        TenantHeaderFilter filter = new TenantHeaderFilter("X-Tenant-ID");
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("X-Tenant-ID", "chain-tenant");
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        AtomicBoolean chainExecuted = new AtomicBoolean(false);
-        FilterChain filterChain = (req, res) -> {
-            chainExecuted.set(true);
-            assertThat(TenantContext.getTenantId()).contains("chain-tenant");
-        };
-
-        filter.doFilter(request, response, filterChain);
-
-        assertThat(chainExecuted).isTrue();
-        assertThat(TenantContext.getTenantId()).isEmpty(); // Cleaned up
-    }
-
-    @Test
-    @DisplayName("TenantHeaderFilter should enforce TenantAuthorizationStrategy when configured")
-    void testTenantHeaderFilterWithStrategy() throws ServletException, IOException {
-        GraphOrmProperties.TenantProperties props = new GraphOrmProperties.TenantProperties();
-        props.setHeaderEnabled(true);
-        props.setRequireHeaderAuthorization(true);
-
-        TenantAuthorizationStrategy strategy = (tenantId, auth) -> "valid-tenant".equals(tenantId);
-        TenantHeaderFilter filter = new TenantHeaderFilter(props, strategy);
-
-        // 1. Authorized tenant header
-        MockHttpServletRequest request1 = new MockHttpServletRequest();
-        request1.addHeader("X-Tenant-ID", "valid-tenant");
-        MockHttpServletResponse response1 = new MockHttpServletResponse();
-
-        AtomicBoolean chainRan1 = new AtomicBoolean(false);
-        filter.doFilter(request1, response1, (req, res) -> {
-            chainRan1.set(true);
-            assertThat(TenantContext.getTenantId()).contains("valid-tenant");
-        });
-        assertThat(chainRan1).isTrue();
-        assertThat(TenantContext.getTenantId()).isEmpty();
-
-        // 2. Unauthorized tenant header
-        MockHttpServletRequest request2 = new MockHttpServletRequest();
-        request2.addHeader("X-Tenant-ID", "evil-tenant");
-        MockHttpServletResponse response2 = new MockHttpServletResponse();
-
-        AtomicBoolean chainRan2 = new AtomicBoolean(false);
-        filter.doFilter(request2, response2, (req, res) -> {
-            chainRan2.set(true);
-            assertThat(TenantContext.getTenantId()).isEmpty();
-        });
-        assertThat(chainRan2).isTrue();
-    }
-
-    @Test
-    @DisplayName("TenantHeaderFilter should reliably clear context on exceptions and thread reuse")
-    void testTenantHeaderFilterExceptionCleanupAndReuse() {
-        TenantHeaderFilter filter = new TenantHeaderFilter("X-Tenant-ID");
-        MockHttpServletRequest request1 = new MockHttpServletRequest();
-        request1.addHeader("X-Tenant-ID", "failing-tenant");
-        MockHttpServletResponse response1 = new MockHttpServletResponse();
-
-        // 1. Exception thrown inside chain
-        try {
-            filter.doFilter(request1, response1, (req, res) -> {
-                throw new RuntimeException("Simulated filter failure");
-            });
-        } catch (Exception ignored) {
-        }
-        assertThat(TenantContext.getTenantId()).isEmpty();
-
-        // 2. Subsequent request on same thread proceeds cleanly
-        MockHttpServletRequest request2 = new MockHttpServletRequest();
-        MockHttpServletResponse response2 = new MockHttpServletResponse();
-        AtomicBoolean secondChainRan = new AtomicBoolean(false);
-        try {
-            filter.doFilter(request2, response2, (req, res) -> {
-                secondChainRan.set(true);
-                assertThat(TenantContext.getTenantId()).isEmpty();
-            });
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        assertThat(secondChainRan).isTrue();
-        assertThat(TenantContext.getTenantId()).isEmpty();
-    }
-
-    @Test
-    @DisplayName("TenantHeaderFilter should ignore header when authenticated and allowHeaderOverride is false")
-    void testTenantHeaderFilterWithAuthenticatedUser() throws ServletException, IOException {
-        GraphOrmProperties.TenantProperties props = new GraphOrmProperties.TenantProperties();
-        props.setHeaderEnabled(true);
-        props.setAllowHeaderOverride(false);
-        TenantHeaderFilter filter = new TenantHeaderFilter(props);
-
-        TestingAuthenticationToken auth = new TestingAuthenticationToken(
-                Map.of("tenant_id", "auth-tenant"), null
-        );
-        auth.setAuthenticated(true);
-        SecurityContextHolder.getContext().setAuthentication(auth);
-
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("X-Tenant-ID", "untrusted-header-tenant");
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        AtomicBoolean chainExecuted = new AtomicBoolean(false);
-        FilterChain filterChain = (req, res) -> {
-            chainExecuted.set(true);
-            // Header value should NOT have overwritten TenantContext
-            assertThat(TenantContext.getTenantId()).isEmpty();
-        };
-
-        filter.doFilter(request, response, filterChain);
-        assertThat(chainExecuted).isTrue();
-        assertThat(TenantContext.getTenantId()).isEmpty();
     }
 
     @Test
