@@ -377,6 +377,12 @@ public class GraphOrmProperties {
     public static class TenantProperties {
         private boolean enabled = true;
         private boolean headerEnabled = false;
+        /**
+         * Whether HTTP request headers are permitted to override an authenticated user's authoritative tenant claim.
+         * Defaults to {@code false}. Even when enabled, cross-tenant header overrides always require an explicit
+         * {@link com.graphorm.spring.boot.tenant.TenantAuthorizationStrategy} bean to authorize the target tenant,
+         * regardless of {@link #requireHeaderAuthorization}.
+         */
         private boolean allowHeaderOverride = false;
         private String headerName = "X-Tenant-ID";
         private String jwtClaim = "tenant_id";

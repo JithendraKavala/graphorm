@@ -166,7 +166,7 @@ public final class TenantHeaderAuthorizer {
                 return Optional.empty();
             }
 
-            // allowHeaderOverride is enabled: header must be explicitly authorized by TenantAuthorizationStrategy
+            // allowHeaderOverride is enabled: cross-tenant header override requires an explicit TenantAuthorizationStrategy
             if (authorizationStrategy != null) {
                 if (authorizationStrategy.isTenantAuthorized(candidate, authentication)) {
                     return Optional.of(candidate);
@@ -176,13 +176,11 @@ public final class TenantHeaderAuthorizer {
                 return Optional.empty();
             }
 
-            if (properties.isRequireHeaderAuthorization()) {
-                log.warn("Header tenant override '{}' rejected: requireHeaderAuthorization is true but no TenantAuthorizationStrategy bean is configured",
-                        candidate);
-                return Optional.empty();
-            }
-
-            return Optional.of(candidate);
+            // Cross-tenant header overrides without an authorization strategy are NEVER permitted,
+            // even if requireHeaderAuthorization=false.
+            log.warn("Cross-tenant header override from '{}' to '{}' rejected: cross-tenant switching requires an explicit TenantAuthorizationStrategy bean",
+                    authenticatedTenant, candidate);
+            return Optional.empty();
         }
 
         // 2. Authenticated user has NO tenant claim, or unauthenticated:

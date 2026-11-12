@@ -324,6 +324,40 @@ class SpringTenantContextProviderTest {
     }
 
     @Test
+    @DisplayName("Cross-tenant header overrides are rejected without an authorization strategy even when requireHeaderAuthorization is false")
+    void shouldRejectCrossTenantHeaderOverrideWithoutStrategyEvenWhenRequireHeaderAuthorizationFalse() throws ServletException, IOException {
+        properties.setHeaderEnabled(true);
+        properties.setAllowHeaderOverride(true);
+        properties.setRequireHeaderAuthorization(false); // deliberately false!
+
+        SpringTenantContextProvider providerNoStrategy = new SpringTenantContextProvider(properties, null);
+        TenantHeaderFilter filterNoStrategy = new TenantHeaderFilter(properties, null);
+
+        TestingAuthenticationToken auth = new TestingAuthenticationToken(
+                Map.of("tenant_id", "security-tenant-A"), null
+        );
+        auth.setAuthenticated(true);
+        SecurityContextHolder.getContext().setAuthentication(auth);
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Tenant-ID", "malicious-cross-tenant-B");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        // Cross-tenant override must be rejected: provider falls back to authenticated security-tenant-A
+        assertThat(providerNoStrategy.getCurrentTenantId()).contains("security-tenant-A");
+
+        // Filter must NOT bind malicious cross-tenant override to TenantContext
+        AtomicBoolean chainRan = new AtomicBoolean(false);
+        filterNoStrategy.doFilter(request, response, (req, res) -> {
+            chainRan.set(true);
+            assertThat(TenantContext.getTenantId()).isEmpty();
+        });
+        assertThat(chainRan).isTrue();
+        assertThat(TenantContext.getTenantId()).isEmpty();
+    }
+
+    @Test
     @DisplayName("Should allow header when requireHeaderAuthorization is explicitly disabled for testing")
     void shouldAllowHeaderWhenAuthorizationExplicitlyDisabled() {
         properties.setHeaderEnabled(true);
