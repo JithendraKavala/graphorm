@@ -23,7 +23,7 @@ export const ShowcaseHero: React.FC<ShowcaseHeroProps> = ({ onOpenPortal }) => {
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#161B22] border border-[#30363D]">
             <span className="flex h-2 w-2 rounded-full bg-emerald-400" />
             <span className="text-xs font-mono font-medium text-[#8B949E]">
-              GraphORM v1.0.0 — Production Ready for Java 21 & Spring Boot 3
+              GraphORM v1.0.0 — 24 Phases Complete · PostgreSQL · MySQL 8+ · SQLite
             </span>
           </div>
 
@@ -140,7 +140,7 @@ export const ShowcaseHero: React.FC<ShowcaseHeroProps> = ({ onOpenPortal }) => {
         </div>
 
         {/* Feature Badges Grid */}
-        <div className="mt-10 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto text-center font-mono text-xs">
+        <div className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-4 max-w-4xl mx-auto text-center font-mono text-xs">
           <div className="p-3 rounded-lg bg-[#161B22] border border-[#30363D]">
             <p className="text-[#8B949E] text-[10px] uppercase tracking-wider font-semibold">Language</p>
             <p className="text-[#F0F6FC] font-bold mt-1 text-sm">Java 21 Records</p>
@@ -150,8 +150,16 @@ export const ShowcaseHero: React.FC<ShowcaseHeroProps> = ({ onOpenPortal }) => {
             <p className="text-[#F0F6FC] font-bold mt-1 text-sm">Spring Boot 3.3.x</p>
           </div>
           <div className="p-3 rounded-lg bg-[#161B22] border border-[#30363D]">
-            <p className="text-[#8B949E] text-[10px] uppercase tracking-wider font-semibold">Database Engine</p>
-            <p className="text-[#F0F6FC] font-bold mt-1 text-sm">PostgreSQL 15+</p>
+            <p className="text-[#8B949E] text-[10px] uppercase tracking-wider font-semibold">Dialects</p>
+            <p className="text-[#F0F6FC] font-bold mt-1 text-sm">PG · MySQL · SQLite</p>
+          </div>
+          <div className="p-3 rounded-lg bg-[#161B22] border border-[#30363D]">
+            <p className="text-[#8B949E] text-[10px] uppercase tracking-wider font-semibold">Phases Complete</p>
+            <p className="text-emerald-400 font-bold mt-1 text-sm">24 / 24</p>
+          </div>
+          <div className="p-3 rounded-lg bg-[#161B22] border border-[#30363D]">
+            <p className="text-[#8B949E] text-[10px] uppercase tracking-wider font-semibold">Realtime</p>
+            <p className="text-[#F0F6FC] font-bold mt-1 text-sm">LISTEN / NOTIFY</p>
           </div>
           <div className="p-3 rounded-lg bg-[#161B22] border border-[#30363D]">
             <p className="text-[#8B949E] text-[10px] uppercase tracking-wider font-semibold">License</p>
