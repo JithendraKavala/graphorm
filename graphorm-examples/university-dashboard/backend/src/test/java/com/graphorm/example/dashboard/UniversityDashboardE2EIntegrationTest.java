@@ -63,7 +63,7 @@ class UniversityDashboardE2EIntegrationTest {
             password = container.getPassword();
         } else {
             log.info("Connecting to local PostgreSQL instance on localhost:5432 for Dashboard tests...");
-            jdbcUrl = "jdbc:postgresql://localhost:5432/university_db";
+            jdbcUrl = "jdbc:postgresql://localhost:5432/postgres";
             username = "postgres";
             password = "";
         }

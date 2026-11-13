@@ -26,7 +26,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -41,6 +41,10 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
+
+      - name: Prepare PostgreSQL databases
+        run: |
+          docker exec $(docker ps --filter "ancestor=postgres:16-alpine" -q | head -n 1) psql -U postgres -c "CREATE DATABASE university_db;" || true
 
       - name: Run Maven Tests
         run: mvn -B clean test
