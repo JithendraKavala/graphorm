@@ -6,7 +6,11 @@ import com.graphorm.core.tenant.TenantContext;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -18,14 +22,14 @@ public final class CacheKeyBuilder {
     private CacheKeyBuilder() {}
 
     /**
-     * Builds a cache key for a unique entity lookup by ID.
+     * Builds a cache key for a unique entity lookup by ID using the effective tenant context.
      *
      * @param entityName the entity name
      * @param id         the primary key identifier
      * @return cache key formatted as {@code <entityName>:[tenant#<tenantId>:]id#<id>}
      */
     public static String forId(String entityName, Object id) {
-        return forId(entityName, TenantContext.getTenantId().orElse(null), id);
+        return forId(entityName, TenantContext.getCurrentTenantId().orElse(null), id);
     }
 
     /**
@@ -56,14 +60,42 @@ public final class CacheKeyBuilder {
     }
 
     /**
-     * Builds a cache key for a query with an arbitrary filter, ordering, and selection payload.
+     * Builds a deterministic cache key for a unique entity lookup with an explicit tenant ID,
+     * entity ID, and canonical requested projection columns.
+     *
+     * @param entityName       the entity name
+     * @param tenantId         the tenant partition ID (optional)
+     * @param id               the primary key identifier
+     * @param projectedColumns collection of requested columns/fields (optional)
+     * @return cache key formatted as {@code <entityName>:[tenant#<tenantId>:]id#<id>[:proj#<hash>]}
+     */
+    public static String forEntityId(String entityName, String tenantId, Object id, Collection<String> projectedColumns) {
+        Objects.requireNonNull(entityName, "entityName must not be null");
+        Objects.requireNonNull(id, "id must not be null");
+
+        StringBuilder sb = new StringBuilder(entityName);
+        if (tenantId != null && !tenantId.isBlank()) {
+            sb.append(":tenant#").append(tenantId.trim());
+        }
+        sb.append(":id#").append(id);
+        if (projectedColumns != null && !projectedColumns.isEmpty()) {
+            List<String> sorted = new ArrayList<>(projectedColumns);
+            Collections.sort(sorted);
+            sb.append(":proj#").append(hashIfLong(String.join(",", sorted)));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Builds a cache key for a query with an arbitrary filter, ordering, and selection payload
+     * using the effective tenant context.
      *
      * @param entityName the entity name
      * @param payload    the query canonical representation (e.g. where/order/limit)
      * @return cache key
      */
     public static String forQuery(String entityName, String payload) {
-        return forQuery(entityName, TenantContext.getTenantId().orElse(null), payload);
+        return forQuery(entityName, TenantContext.getCurrentTenantId().orElse(null), payload);
     }
 
     /**

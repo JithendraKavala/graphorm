@@ -10,6 +10,7 @@ import java.util.function.Supplier;
 public final class TenantContext {
 
     private static final ThreadLocal<String> CURRENT_TENANT = new ThreadLocal<>();
+    private static final ThreadLocal<String> PROGRAMMATIC_OVERRIDE = new ThreadLocal<>();
     private static volatile TenantContextProvider provider = new DefaultTenantContextProvider();
 
     private TenantContext() {}
@@ -21,6 +22,17 @@ public final class TenantContext {
      */
     public static Optional<String> getTenantId() {
         return Optional.ofNullable(CURRENT_TENANT.get());
+    }
+
+    /**
+     * Resolves the active programmatic tenant override, if any.
+     * Programmatic overrides are set explicitly in server code via {@link #runAsTenant},
+     * {@link #supplyAsTenant}, or {@link #setProgrammaticTenantId}.
+     *
+     * @return an Optional containing the active programmatic tenant override, or empty
+     */
+    public static Optional<String> getProgrammaticTenantId() {
+        return Optional.ofNullable(PROGRAMMATIC_OVERRIDE.get());
     }
 
     /**
@@ -46,33 +58,124 @@ public final class TenantContext {
     }
 
     /**
+     * Sets an explicit programmatic tenant override on the active thread.
+     *
+     * @param tenantId the tenant ID, or null to clear
+     */
+    public static void setProgrammaticTenantId(String tenantId) {
+        if (tenantId != null && !tenantId.isBlank()) {
+            String trimmed = tenantId.trim();
+            PROGRAMMATIC_OVERRIDE.set(trimmed);
+            CURRENT_TENANT.set(trimmed);
+        } else {
+            PROGRAMMATIC_OVERRIDE.remove();
+            CURRENT_TENANT.remove();
+        }
+    }
+
+    /**
+     * Clears any active programmatic tenant override from the active thread.
+     */
+    public static void clearProgrammaticTenantId() {
+        PROGRAMMATIC_OVERRIDE.remove();
+    }
+
+    /**
      * Clears the current tenant identifier from the active thread.
      */
     public static void clear() {
         CURRENT_TENANT.remove();
+        PROGRAMMATIC_OVERRIDE.remove();
     }
 
     /**
-     * Executes the given action bound to the specified tenant ID,
+     * Functional interface representing a scoped tenant context that restores the previous context on close.
+     */
+    @FunctionalInterface
+    public interface TenantScope extends AutoCloseable {
+        @Override
+        void close();
+    }
+
+    /**
+     * Opens a trusted programmatic tenant scope on the active thread, binding both the active tenant
+     * and the programmatic override. Restores previous context when closed.
+     *
+     * @param tenantId the tenant ID to bind (must not be null)
+     * @return a {@link TenantScope} that restores previous context upon closing
+     */
+    public static TenantScope openProgrammaticScope(String tenantId) {
+        Objects.requireNonNull(tenantId, "Tenant ID must not be null");
+        String prevProgrammatic = PROGRAMMATIC_OVERRIDE.get();
+        String prevTenant = CURRENT_TENANT.get();
+        String trimmed = tenantId.trim();
+        PROGRAMMATIC_OVERRIDE.set(trimmed);
+        CURRENT_TENANT.set(trimmed);
+        return () -> {
+            if (prevProgrammatic != null) {
+                PROGRAMMATIC_OVERRIDE.set(prevProgrammatic);
+            } else {
+                PROGRAMMATIC_OVERRIDE.remove();
+            }
+            if (prevTenant != null) {
+                CURRENT_TENANT.set(prevTenant);
+            } else {
+                CURRENT_TENANT.remove();
+            }
+        };
+    }
+
+    /**
+     * Opens an HTTP header tenant scope on the active thread.
+     * <p>
+     * <b>Security Invariant:</b> Never overwrites an active trusted programmatic override with an HTTP header.
+     * If an explicit programmatic override is already active on the thread, this scope is a no-op and leaves
+     * the programmatic override intact. Otherwise, binds the header tenant to {@code CURRENT_TENANT}
+     * and restores previous context upon closing.
+     *
+     * @param tenantId the candidate tenant identifier
+     * @return a {@link TenantScope} that restores previous context upon closing
+     */
+    public static TenantScope openHeaderScope(String tenantId) {
+        String prevProgrammatic = PROGRAMMATIC_OVERRIDE.get();
+        if (prevProgrammatic != null) {
+            // An active trusted programmatic override is present: NEVER overwrite it with an HTTP header
+            return () -> {};
+        }
+        String prevTenant = CURRENT_TENANT.get();
+        if (tenantId != null && !tenantId.isBlank()) {
+            CURRENT_TENANT.set(tenantId.trim());
+        }
+        return () -> {
+            if (prevTenant != null) {
+                CURRENT_TENANT.set(prevTenant);
+            } else {
+                CURRENT_TENANT.remove();
+            }
+            if (prevProgrammatic != null) {
+                PROGRAMMATIC_OVERRIDE.set(prevProgrammatic);
+            } else {
+                PROGRAMMATIC_OVERRIDE.remove();
+            }
+        };
+    }
+
+    /**
+     * Executes the given action bound to the specified tenant ID as a trusted programmatic override,
      * guaranteeing restoration of previous context on completion.
      *
      * @param tenantId the tenant ID to bind
      * @param action   the action to execute
      */
     public static void runAsTenant(String tenantId, Runnable action) {
-        Objects.requireNonNull(tenantId, "Tenant ID must not be null");
         Objects.requireNonNull(action, "Action must not be null");
-        String previous = CURRENT_TENANT.get();
-        setTenantId(tenantId);
-        try {
+        try (TenantScope ignored = openProgrammaticScope(tenantId)) {
             action.run();
-        } finally {
-            CURRENT_TENANT.set(previous);
         }
     }
 
     /**
-     * Evaluates the given supplier bound to the specified tenant ID,
+     * Evaluates the given supplier bound to the specified tenant ID as a trusted programmatic override,
      * guaranteeing restoration of previous context on completion.
      *
      * @param tenantId the tenant ID to bind
@@ -81,14 +184,9 @@ public final class TenantContext {
      * @return the value returned by the supplier
      */
     public static <T> T supplyAsTenant(String tenantId, Supplier<T> supplier) {
-        Objects.requireNonNull(tenantId, "Tenant ID must not be null");
         Objects.requireNonNull(supplier, "Supplier must not be null");
-        String previous = CURRENT_TENANT.get();
-        setTenantId(tenantId);
-        try {
+        try (TenantScope ignored = openProgrammaticScope(tenantId)) {
             return supplier.get();
-        } finally {
-            CURRENT_TENANT.set(previous);
         }
     }
 

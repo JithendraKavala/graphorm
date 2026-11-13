@@ -5,11 +5,13 @@ import com.graphorm.core.event.EntityEventBroker;
 import com.graphorm.core.event.NotifyEventType;
 import com.graphorm.core.execution.QueryExecutionEngine;
 import com.graphorm.core.exception.AccessDeniedException;
+import com.graphorm.core.exception.TenantContextMissingException;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
 import com.graphorm.core.metadata.ModelRegistry;
 import com.graphorm.core.query.SelectQuery;
 import com.graphorm.core.query.WherePredicate;
+import com.graphorm.core.tenant.TenantBypassContext;
 import com.graphorm.core.tenant.TenantContext;
 import com.graphorm.graphql.security.FieldAuthorizer;
 import com.graphorm.graphql.security.FieldAuthorizerContext;
@@ -155,7 +157,7 @@ public class ModelSubscriptionDataFetcher implements DataFetcher<Publisher<Objec
 
         // 1. Zero cross-tenant event leak check
         if (model.isMultiTenant()) {
-            if (activeTenantId != null && !activeTenantId.equalsIgnoreCase(event.tenantId())) {
+            if (activeTenantId != null && !activeTenantId.equals(event.tenantId())) {
                 return false;
             }
             if (activeTenantId == null && event.tenantId() != null) {
@@ -223,22 +225,42 @@ public class ModelSubscriptionDataFetcher implements DataFetcher<Publisher<Objec
     }
 
     private String resolveActiveTenantId(DataFetchingEnvironment env) {
+        String trustedTenant = null;
         Optional<String> ctxTenant = TenantContext.getCurrentTenantId();
         if (ctxTenant.isPresent() && !ctxTenant.get().isBlank()) {
-            return ctxTenant.get();
-        }
-
-        if (env.getGraphQlContext() != null) {
+            trustedTenant = ctxTenant.get();
+        } else if (env.getGraphQlContext() != null) {
             Object tenantObj = env.getGraphQlContext().get("tenantId");
             if (tenantObj != null && !tenantObj.toString().isBlank()) {
-                return tenantObj.toString().trim();
+                trustedTenant = tenantObj.toString().trim();
             }
         }
 
+        // Never treat client-supplied tenantId argument as proof of identity.
+        // If provided, ensure it matches the authenticated tenant context.
         if (env.containsArgument("tenantId") && env.getArgument("tenantId") != null) {
-            return env.getArgument("tenantId").toString().trim();
+            String argTenant = env.getArgument("tenantId").toString().trim();
+            if (trustedTenant == null) {
+                log.warn("Client supplied tenantId argument '{}' without trusted tenant context", argTenant);
+                throw new AccessDeniedException(
+                        "UNTRUSTED_TENANT_ARGUMENT",
+                        "Client-supplied tenant argument cannot be used as proof of tenant identity"
+                );
+            }
+            if (!trustedTenant.equals(argTenant)) {
+                log.warn("Client supplied spoofed tenantId argument '{}' which does not match authenticated tenant '{}'",
+                        argTenant, trustedTenant);
+                throw new AccessDeniedException(
+                        "TENANT_MISMATCH",
+                        "Supplied tenantId argument does not match authenticated tenant context"
+                );
+            }
         }
 
-        return null;
+        if (model.isMultiTenant() && !TenantBypassContext.isBypassed() && (trustedTenant == null || trustedTenant.isBlank())) {
+            throw new TenantContextMissingException(model.name(), "SUBSCRIBE");
+        }
+
+        return trustedTenant;
     }
 }

@@ -4,6 +4,7 @@
 [![Spring Boot 3](https://img.shields.io/badge/Spring%20Boot-3.2+-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![GraalVM Native](https://img.shields.io/badge/GraalVM-Native%20Image%20Ready-blueviolet.svg)](https://www.graalvm.org/)
 [![GraphQL Java](https://img.shields.io/badge/GraphQL%20Java-21+-e10098.svg)](https://www.graphql-java.com//)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15%2B-336791.svg)](https://www.postgresql.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-success.svg)](https://github.com/graphorm/graphorm/actions)
 [![Tests](https://img.shields.io/badge/Tests-100%25%20Passing-success.svg)](https://github.com/graphorm/graphorm/actions)
@@ -38,6 +39,11 @@ GraphORM eliminates the traditional object-relational impedance mismatch by trea
   - Automated diffing between `schema.graphorm` and live PostgreSQL catalog.
   - Distributed transaction-level advisory locks (`pg_advisory_xact_lock`) and SHA-256 audit ledger.
   - Destructive change detection and `--force` safeguards.
+- **Native Multi-Tenancy & Tenant Security Isolation**:
+  - Declarative `@tenantId` field and `@@tenant(field)` model directives.
+  - Transparent SQL predicate pushdown across all query builders without application code changes.
+  - Safe-by-default HTTP header authorization (`graphorm.tenant.require-header-authorization=true`).
+  - Scoped context restoration and protection against cross-tenant header spoofing.
 - **Production-Ready Security & DoS Defense**:
   - Field-level and entity-level authorization using `@auth(roles: [...])` backed by Spring Security.
   - Backend-injected tamper-proof attributes (`@injected(from: "...")`).
@@ -181,6 +187,27 @@ query {
   }
 }
 ```
+
+---
+
+## 🔒 Multi-Tenancy & Tenant Security Configuration
+
+GraphORM provides native schema-driven multi-tenancy with strict tenant isolation and safe-by-default security policies:
+
+| Property | Default | Description |
+|---|---|---|
+| `graphorm.tenant.enabled` | `true` | Enables multi-tenant query pushdown rewriting and isolation. |
+| `graphorm.tenant.header-enabled` | `false` | Enables HTTP request header tenant extraction via `TenantHeaderFilter`. |
+| `graphorm.tenant.header-name` | `X-Tenant-ID` | HTTP request header inspected for tenant identifier. |
+| `graphorm.tenant.jwt-claim` | `tenant_id` | Security context JWT claim inspected for authenticated user tenant identity. |
+| `graphorm.tenant.require-header-authorization` | `true` | Requires that HTTP header tenant values be authorized by a `TenantAuthorizationStrategy` bean. Safe-by-default to prevent tenant spoofing. |
+| `graphorm.tenant.allow-header-override` | `false` | Whether HTTP request headers may override an authenticated user's authoritative tenant claim. Cross-tenant overrides strictly require a `TenantAuthorizationStrategy` bean regardless of `require-header-authorization`. |
+
+### Tenant Security Invariants
+- **Authoritative Identity Precedence**: An authenticated user's tenant claim cannot be overridden by request headers unless `allow-header-override=true` AND an explicit `TenantAuthorizationStrategy` approves the target tenant.
+- **Untrusted Header Protection**: HTTP request headers are untrusted input. When `header-enabled=true`, header values are rejected unless validated by a `TenantAuthorizationStrategy` bean (safe-by-default).
+- **Scoped Context Restoration**: `TenantHeaderFilter` preserves and restores any prior tenant context or programmatic override upon request completion, even when filter chain execution throws.
+- **Programmatic Override Precedence**: Trusted programmatic overrides (`TenantContext.runAsTenant()`) take precedence over HTTP headers and cannot be overwritten by incoming request headers.
 
 ---
 

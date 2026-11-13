@@ -376,9 +376,25 @@ public class GraphOrmProperties {
 
     public static class TenantProperties {
         private boolean enabled = true;
+        private boolean headerEnabled = false;
+        /**
+         * Whether HTTP request headers are permitted to override an authenticated user's authoritative tenant claim.
+         * Defaults to {@code false}. Even when enabled, cross-tenant header overrides always require an explicit
+         * {@link com.graphorm.spring.boot.tenant.TenantAuthorizationStrategy} bean to authorize the target tenant,
+         * regardless of {@link #requireHeaderAuthorization}.
+         */
+        private boolean allowHeaderOverride = false;
         private String headerName = "X-Tenant-ID";
         private String jwtClaim = "tenant_id";
         private boolean allowBypass = false;
+
+        /**
+         * Whether header-based tenant selection requires explicit authorization via {@link com.graphorm.spring.boot.tenant.TenantAuthorizationStrategy}.
+         * Defaults to {@code true}. When enabled, HTTP request headers (e.g. {@code X-Tenant-ID}) are rejected unless
+         * authorized by a configured {@link com.graphorm.spring.boot.tenant.TenantAuthorizationStrategy} bean.
+         * Must only be disabled in isolated testing environments where headers are implicitly trusted.
+         */
+        private boolean requireHeaderAuthorization = true;
 
         public boolean isEnabled() {
             return enabled;
@@ -386,6 +402,30 @@ public class GraphOrmProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public boolean isHeaderEnabled() {
+            return headerEnabled;
+        }
+
+        public void setHeaderEnabled(boolean headerEnabled) {
+            this.headerEnabled = headerEnabled;
+        }
+
+        public boolean isAllowHeaderOverride() {
+            return allowHeaderOverride;
+        }
+
+        public void setAllowHeaderOverride(boolean allowHeaderOverride) {
+            this.allowHeaderOverride = allowHeaderOverride;
+        }
+
+        public boolean isRequireHeaderAuthorization() {
+            return requireHeaderAuthorization;
+        }
+
+        public void setRequireHeaderAuthorization(boolean requireHeaderAuthorization) {
+            this.requireHeaderAuthorization = requireHeaderAuthorization;
         }
 
         public String getHeaderName() {

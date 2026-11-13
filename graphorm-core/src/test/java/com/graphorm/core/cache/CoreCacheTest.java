@@ -2,6 +2,7 @@ package com.graphorm.core.cache;
 
 import com.graphorm.core.metadata.CacheMetadata;
 import com.graphorm.core.metadata.ModelMetadata;
+import com.graphorm.core.tenant.DefaultTenantContextProvider;
 import com.graphorm.core.tenant.TenantContext;
 import com.graphorm.core.util.DurationParser;
 import org.junit.jupiter.api.AfterEach;
@@ -24,6 +25,7 @@ class CoreCacheTest {
     @AfterEach
     void cleanTenant() {
         TenantContext.clear();
+        TenantContext.setProvider(new DefaultTenantContextProvider());
     }
 
     @Test
@@ -133,5 +135,33 @@ class CoreCacheTest {
         assertThat(qAlpha).isNotEqualTo(qGamma);
         assertThat(qAlpha).contains("tenant#beta");
         assertThat(qGamma).contains("tenant#gamma");
+    }
+
+    @Test
+    @DisplayName("CacheKeyBuilder resolves tenant from TenantContextProvider when ThreadLocal is empty")
+    void testCacheKeyBuilderWithTenantContextProvider() {
+        // ThreadLocal is empty
+        assertThat(TenantContext.getTenantId()).isEmpty();
+
+        // Configure custom provider (e.g. JWT-based provider)
+        TenantContext.setProvider(() -> Optional.of("jwt-tenant-456"));
+
+        String key = CacheKeyBuilder.forId("Student", 123);
+        assertThat(key).isEqualTo("Student:tenant#jwt-tenant-456:id#123");
+
+        String qKey = CacheKeyBuilder.forQuery("Student", "all");
+        assertThat(qKey).contains(":tenant#jwt-tenant-456:");
+    }
+
+    @Test
+    @DisplayName("CacheKeyBuilder generates deterministic projection-aware keys")
+    void testCacheKeyBuilderWithProjection() {
+        String keyNarrow = CacheKeyBuilder.forEntityId("Student", "tenant-a", 123, List.of("id", "name"));
+        String keyWide = CacheKeyBuilder.forEntityId("Student", "tenant-a", 123, List.of("id", "name", "email", "gpa"));
+        String keyReordered = CacheKeyBuilder.forEntityId("Student", "tenant-a", 123, List.of("name", "id"));
+
+        assertThat(keyNarrow).isNotEqualTo(keyWide);
+        // Order-independent canonicalization: [name, id] should match [id, name]
+        assertThat(keyNarrow).isEqualTo(keyReordered);
     }
 }

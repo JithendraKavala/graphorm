@@ -276,17 +276,27 @@ public class GraphOrmAutoConfiguration {
 
         @Bean
         @ConditionalOnMissingBean(TenantContextProvider.class)
-        public TenantContextProvider tenantContextProvider(GraphOrmProperties properties) {
-            SpringTenantContextProvider provider = new SpringTenantContextProvider(properties.getTenant());
+        public TenantContextProvider tenantContextProvider(
+                GraphOrmProperties properties,
+                ObjectProvider<com.graphorm.spring.boot.tenant.TenantAuthorizationStrategy> authorizationStrategyProvider
+        ) {
+            SpringTenantContextProvider provider = new SpringTenantContextProvider(
+                    properties.getTenant(),
+                    authorizationStrategyProvider.getIfAvailable()
+            );
             TenantContext.setProvider(provider);
             return provider;
         }
 
         @Bean
         @ConditionalOnClass(name = "jakarta.servlet.Filter")
+        @ConditionalOnProperty(prefix = "graphorm.tenant", name = "header-enabled", havingValue = "true", matchIfMissing = false)
         @ConditionalOnMissingBean(TenantHeaderFilter.class)
-        public TenantHeaderFilter tenantHeaderFilter(GraphOrmProperties properties) {
-            return new TenantHeaderFilter(properties.getTenant().getHeaderName());
+        public TenantHeaderFilter tenantHeaderFilter(
+                GraphOrmProperties properties,
+                ObjectProvider<com.graphorm.spring.boot.tenant.TenantAuthorizationStrategy> authorizationStrategyProvider
+        ) {
+            return new TenantHeaderFilter(properties.getTenant(), authorizationStrategyProvider.getIfAvailable());
         }
     }
 

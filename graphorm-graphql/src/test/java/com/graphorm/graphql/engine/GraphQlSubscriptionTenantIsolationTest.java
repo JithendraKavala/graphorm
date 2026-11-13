@@ -19,6 +19,8 @@ import graphql.schema.idl.RuntimeWiring;
 import graphql.schema.idl.SchemaGenerator;
 import graphql.schema.idl.SchemaParser;
 import graphql.schema.idl.TypeDefinitionRegistry;
+import com.graphorm.core.exception.AccessDeniedException;
+import com.graphorm.core.exception.TenantContextMissingException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,6 +39,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("GraphQL Subscriptions Multi-Tenant Isolation Tests")
 class GraphQlSubscriptionTenantIsolationTest {
@@ -49,7 +52,7 @@ class GraphQlSubscriptionTenantIsolationTest {
                 orders: [Order!]!
             }
             type Subscription {
-                orderCreated: Order!
+                orderCreated(id: ID, tenantId: String): Order!
             }
             type Order {
                 id: ID!
@@ -169,5 +172,180 @@ class GraphQlSubscriptionTenantIsolationTest {
         Map<String, Object> order = (Map<String, Object>) data.get("orderCreated");
         assertThat(order.get("id").toString()).isEqualTo("101");
         assertThat(order.get("tenantId")).isEqualTo("tenant-alpha");
+    }
+
+    @Test
+    @DisplayName("Subscription rejects spoofed tenantId argument that does not match authenticated tenant")
+    void testSpoofedTenantArgumentThrowsAccessDenied() {
+        TenantContext.setTenantId("tenant-alpha");
+
+        ExecutionInput input = ExecutionInput.newExecutionInput()
+                .query("subscription { orderCreated(tenantId: \"tenant-beta\") { id } }")
+                .graphQLContext(Map.of("tenantId", "tenant-alpha"))
+                .build();
+
+        ExecutionResult result = graphQL.execute(input);
+        assertThat(result.getErrors()).isNotEmpty();
+        assertThat(result.getErrors().getFirst().getMessage()).contains("Supplied tenantId argument does not match authenticated tenant context");
+    }
+
+    @Test
+    @DisplayName("Subscription rejects tenantId argument when server context is completely absent")
+    void testUntrustedTenantArgumentWithoutContextThrowsAccessDenied() {
+        TenantContext.clear();
+
+        ExecutionInput input = ExecutionInput.newExecutionInput()
+                .query("subscription { orderCreated(tenantId: \"tenant-untrusted\") { id } }")
+                .build();
+
+        ExecutionResult result = graphQL.execute(input);
+        assertThat(result.getErrors()).isNotEmpty();
+        assertThat(result.getErrors().getFirst().getMessage()).contains("Client-supplied tenant argument cannot be used as proof of tenant identity");
+    }
+
+    @Test
+    @DisplayName("Subscription throws TenantContextMissingException when multi-tenant model has no tenant context")
+    void testMissingTenantContextThrowsException() {
+        TenantContext.clear();
+
+        ExecutionInput input = ExecutionInput.newExecutionInput()
+                .query("subscription { orderCreated { id } }")
+                .build();
+
+        ExecutionResult result = graphQL.execute(input);
+        assertThat(result.getErrors()).isNotEmpty();
+        assertThat(result.getErrors().getFirst().getMessage()).contains("Tenant context is required for SUBSCRIBE on multi-tenant entity 'Order'");
+    }
+
+    @Test
+    @DisplayName("Subscription succeeds when tenantId argument matches authenticated tenant")
+    void testMatchingTenantArgumentSucceeds() throws Exception {
+        TenantContext.setTenantId("tenant-alpha");
+
+        ExecutionInput input = ExecutionInput.newExecutionInput()
+                .query("subscription { orderCreated(tenantId: \"tenant-alpha\") { id total tenantId } }")
+                .graphQLContext(Map.of("tenantId", "tenant-alpha"))
+                .build();
+
+        ExecutionResult result = graphQL.execute(input);
+        Publisher<ExecutionResult> stream = result.getData();
+        assertThat(stream).isNotNull();
+
+        List<ExecutionResult> received = new CopyOnWriteArrayList<>();
+        CountDownLatch latch = new CountDownLatch(1);
+
+        stream.subscribe(new Subscriber<>() {
+            @Override
+            public void onSubscribe(Subscription s) {
+                s.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(ExecutionResult item) {
+                received.add(item);
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onComplete() {}
+        });
+
+        broker.publish(new EntityEvent(
+                "Order",
+                NotifyEventType.CREATE,
+                101L,
+                Map.of("id", 101L, "total", 99.5, "tenant_id", "tenant-alpha"),
+                "tenant-alpha",
+                Instant.now()
+        ));
+
+        boolean ok = latch.await(3, TimeUnit.SECONDS);
+        assertThat(ok).isTrue();
+        assertThat(received).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Subscription enforces exact case-sensitive tenant matching: casing difference rejects event")
+    void testExactTenantCaseMatchingInSubscriptionEvents() throws Exception {
+        TenantContext.setTenantId("tenant-alpha");
+
+        ExecutionInput input = ExecutionInput.newExecutionInput()
+                .query("subscription { orderCreated { id total tenantId } }")
+                .graphQLContext(Map.of("tenantId", "tenant-alpha"))
+                .build();
+
+        ExecutionResult executionResult = graphQL.execute(input);
+        Publisher<ExecutionResult> stream = executionResult.getData();
+
+        List<ExecutionResult> received = new CopyOnWriteArrayList<>();
+        CountDownLatch latch = new CountDownLatch(1);
+
+        stream.subscribe(new Subscriber<>() {
+            @Override
+            public void onSubscribe(Subscription s) {
+                s.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(ExecutionResult item) {
+                received.add(item);
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onComplete() {}
+        });
+
+        // Publish event for TENANT-ALPHA (casing mismatch with tenant-alpha - must be dropped!)
+        broker.publish(new EntityEvent(
+                "Order",
+                NotifyEventType.CREATE,
+                999L,
+                Map.of("id", 999L, "total", 500.0, "tenant_id", "TENANT-ALPHA"),
+                "TENANT-ALPHA",
+                Instant.now()
+        ));
+
+        // Publish event for tenant-alpha (exact match - must be received)
+        broker.publish(new EntityEvent(
+                "Order",
+                NotifyEventType.CREATE,
+                101L,
+                Map.of("id", 101L, "total", 99.5, "tenant_id", "tenant-alpha"),
+                "tenant-alpha",
+                Instant.now()
+        ));
+
+        boolean ok = latch.await(3, TimeUnit.SECONDS);
+        assertThat(ok).isTrue();
+        assertThat(received).hasSize(1);
+
+        Map<String, Object> data = received.getFirst().getData();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> order = (Map<String, Object>) data.get("orderCreated");
+        assertThat(order.get("id").toString()).isEqualTo("101");
+        assertThat(order.get("tenantId")).isEqualTo("tenant-alpha");
+    }
+
+    @Test
+    @DisplayName("Subscription rejects tenantId argument with differing case under exact matching")
+    void testExactTenantCaseMatchingInTenantArgumentThrowsMismatch() {
+        TenantContext.setTenantId("tenant-alpha");
+
+        ExecutionInput input = ExecutionInput.newExecutionInput()
+                .query("subscription { orderCreated(tenantId: \"TENANT-ALPHA\") { id } }")
+                .graphQLContext(Map.of("tenantId", "tenant-alpha"))
+                .build();
+
+        ExecutionResult result = graphQL.execute(input);
+        assertThat(result.getErrors()).isNotEmpty();
+        assertThat(result.getErrors().getFirst().getMessage())
+                .contains("Supplied tenantId argument does not match authenticated tenant context");
     }
 }

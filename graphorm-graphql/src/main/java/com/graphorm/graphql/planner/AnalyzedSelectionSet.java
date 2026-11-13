@@ -111,4 +111,17 @@ public class AnalyzedSelectionSet {
     public boolean hasHiddenDependencies() {
         return !hiddenDependencyFields.isEmpty();
     }
+
+    /**
+     * Returns the complete canonical set of projected fields, including both
+     * client-requested scalar fields and auto-injected hidden dependency foreign keys.
+     */
+    public Set<String> completeProjectedFields() {
+        if (hiddenDependencyFields.isEmpty()) {
+            return requestedScalarFields;
+        }
+        Set<String> all = new LinkedHashSet<>(requestedScalarFields);
+        all.addAll(hiddenDependencyFields);
+        return Collections.unmodifiableSet(all);
+    }
 }

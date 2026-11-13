@@ -12,8 +12,6 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import java.lang.reflect.Method;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -21,35 +19,67 @@ import java.util.Optional;
  * Spring-aware {@link TenantContextProvider} bridging active thread context ({@link TenantContext}),
  * Spring Security principals (JWT claims, OAuth2 attributes, custom principals),
  * and incoming HTTP request headers (e.g. {@code X-Tenant-ID}).
+ * <p>
+ * <b>Precedence Rules:</b>
+ * <ol>
+ *   <li>Trusted programmatic tenant overrides ({@link TenantContext#runAsTenant}, {@link TenantContext#supplyAsTenant})</li>
+ *   <li>Authenticated Security Context tenant identity (JWT claims, OAuth2 attributes)</li>
+ *   <li>Validated HTTP Request Header (via unified {@link TenantHeaderAuthorizer})</li>
+ *   <li>Explicit fallback to {@link TenantContext#getTenantId()}</li>
+ * </ol>
  */
 public class SpringTenantContextProvider implements TenantContextProvider {
 
     private static final Logger log = LoggerFactory.getLogger(SpringTenantContextProvider.class);
 
     private final GraphOrmProperties.TenantProperties properties;
+    private final TenantAuthorizationStrategy authorizationStrategy;
 
     public SpringTenantContextProvider(GraphOrmProperties.TenantProperties properties) {
+        this(properties, null);
+    }
+
+    public SpringTenantContextProvider(
+            GraphOrmProperties.TenantProperties properties,
+            TenantAuthorizationStrategy authorizationStrategy
+    ) {
         this.properties = Objects.requireNonNull(properties, "TenantProperties must not be null");
+        this.authorizationStrategy = authorizationStrategy;
     }
 
     @Override
     public Optional<String> getCurrentTenantId() {
-        // 1. ThreadLocal TenantContext takes first priority
-        Optional<String> explicitTenant = TenantContext.getTenantId();
-        if (explicitTenant.isPresent()) {
-            return explicitTenant;
+        // 1. Programmatic tenant override (e.g. TenantContext.runAsTenant / supplyAsTenant)
+        // is explicitly invoked by trusted application code and takes highest precedence
+        Optional<String> programmaticTenant = TenantContext.getProgrammaticTenantId();
+        if (programmaticTenant.isPresent()) {
+            return programmaticTenant;
         }
 
-        // 2. Resolve from Spring Security Context if present
+        // 2. Authenticated identity from Spring Security Context is authoritative
         Optional<String> securityTenant = resolveFromSecurityContext();
+        if (securityTenant.isPresent() && !properties.isAllowHeaderOverride()) {
+            return securityTenant;
+        }
+
+        // 3. Resolve from HTTP Request Header (untrusted user input - requires validation/authorization)
+        if (properties.isHeaderEnabled()) {
+            Optional<String> headerTenant = resolveFromRequestHeader(securityTenant);
+            if (headerTenant.isPresent()) {
+                return headerTenant;
+            }
+        }
+
+        // If authenticated security context was present but header override was allowed and not supplied/authorized,
+        // fall back to the authenticated security tenant
         if (securityTenant.isPresent()) {
             return securityTenant;
         }
 
-        // 3. Resolve from HTTP Request Header if web context is active
-        Optional<String> headerTenant = resolveFromRequestHeader();
-        if (headerTenant.isPresent()) {
-            return headerTenant;
+        // 4. ThreadLocal TenantContext fallback (if set programmatically via TenantContext.setTenantId)
+        Optional<String> explicitTenant = TenantContext.getTenantId();
+        if (explicitTenant.isPresent()) {
+            return explicitTenant;
         }
 
         return Optional.empty();
@@ -59,91 +89,35 @@ public class SpringTenantContextProvider implements TenantContextProvider {
         return properties;
     }
 
-    private Optional<String> resolveFromSecurityContext() {
-        try {
-            SecurityContext context = SecurityContextHolder.getContext();
-            if (context == null) {
-                return Optional.empty();
-            }
-            Authentication auth = context.getAuthentication();
-            if (auth == null || !auth.isAuthenticated()) {
-                return Optional.empty();
-            }
-
-            Object principal = auth.getPrincipal();
-            if (principal == null) {
-                return Optional.empty();
-            }
-
-            String claimName = properties.getJwtClaim() != null ? properties.getJwtClaim() : "tenant_id";
-
-            // Check if principal is a Map (common in tokens or custom details)
-            if (principal instanceof Map<?, ?> map) {
-                Object val = map.get(claimName);
-                if (val != null) {
-                    return Optional.of(String.valueOf(val).trim());
-                }
-            }
-
-            // Check if principal has getClaims() (e.g. Jwt)
-            try {
-                Method getClaims = principal.getClass().getMethod("getClaims");
-                Object claimsObj = getClaims.invoke(principal);
-                if (claimsObj instanceof Map<?, ?> claimsMap) {
-                    Object val = claimsMap.get(claimName);
-                    if (val != null) {
-                        return Optional.of(String.valueOf(val).trim());
-                    }
-                }
-            } catch (NoSuchMethodException ignored) {
-            }
-
-            // Check if principal has getAttributes() (e.g. OAuth2AuthenticatedPrincipal)
-            try {
-                Method getAttributes = principal.getClass().getMethod("getAttributes");
-                Object attrsObj = getAttributes.invoke(principal);
-                if (attrsObj instanceof Map<?, ?> attrsMap) {
-                    Object val = attrsMap.get(claimName);
-                    if (val != null) {
-                        return Optional.of(String.valueOf(val).trim());
-                    }
-                }
-            } catch (NoSuchMethodException ignored) {
-            }
-
-            // Check if principal has getClaimAsString(String)
-            try {
-                Method getClaim = principal.getClass().getMethod("getClaimAsString", String.class);
-                Object val = getClaim.invoke(principal, claimName);
-                if (val != null) {
-                    return Optional.of(String.valueOf(val).trim());
-                }
-            } catch (NoSuchMethodException ignored) {
-            }
-
-            // Check auth.getDetails()
-            Object details = auth.getDetails();
-            if (details instanceof Map<?, ?> detailsMap) {
-                Object val = detailsMap.get(claimName);
-                if (val != null) {
-                    return Optional.of(String.valueOf(val).trim());
-                }
-            }
-        } catch (NoClassDefFoundError | Exception e) {
-            log.trace("Unable to resolve tenant ID from security context: {}", e.getMessage());
-        }
-        return Optional.empty();
+    public TenantAuthorizationStrategy authorizationStrategy() {
+        return authorizationStrategy;
     }
 
-    private Optional<String> resolveFromRequestHeader() {
+    private Optional<String> resolveFromSecurityContext() {
+        return TenantHeaderAuthorizer.resolveSecurityTenant(properties);
+    }
+
+    private Optional<String> resolveFromRequestHeader(Optional<String> securityTenant) {
         try {
             RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
             if (requestAttributes instanceof ServletRequestAttributes servletAttributes) {
                 String headerName = properties.getHeaderName() != null ? properties.getHeaderName() : "X-Tenant-ID";
                 String headerVal = servletAttributes.getRequest().getHeader(headerName);
-                if (headerVal != null && !headerVal.isBlank()) {
-                    return Optional.of(headerVal.trim());
+                Authentication auth = null;
+                try {
+                    SecurityContext context = SecurityContextHolder.getContext();
+                    if (context != null) {
+                        auth = context.getAuthentication();
+                    }
+                } catch (Exception ignored) {
                 }
+                return TenantHeaderAuthorizer.authorize(
+                        headerVal,
+                        securityTenant,
+                        auth,
+                        properties,
+                        authorizationStrategy
+                );
             }
         } catch (NoClassDefFoundError | Exception e) {
             log.trace("Unable to resolve tenant ID from request header: {}", e.getMessage());
