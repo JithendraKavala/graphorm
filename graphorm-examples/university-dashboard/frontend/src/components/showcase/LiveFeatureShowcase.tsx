@@ -23,7 +23,7 @@ import { Connection, Student, AuditLog, StudentDashboard, AcademicRole, ROLE_PRO
 
 export const LiveFeatureShowcase: React.FC = () => {
   const [activeSection, setActiveSection] = useState<
-    'relay' | 'optimistic' | 'upsert' | 'batch' | 'realtime' | 'tenant' | 'cache' | 'rbac' | 'dialect'
+    'relay' | 'optimistic' | 'upsert' | 'batch' | 'realtime' | 'tenant' | 'cache' | 'rbac'
   >('relay');
 
   // 1. Relay Pagination State
@@ -294,13 +294,12 @@ export const LiveFeatureShowcase: React.FC = () => {
       </div>
 
       {/* Feature Selector Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
         {[
           { id: 'relay', label: 'Relay Cursors', icon: Database, badge: 'P1' },
           { id: 'optimistic', label: '@version Locking', icon: Lock, badge: 'P2' },
           { id: 'upsert', label: 'Idempotent Upsert', icon: Zap, badge: 'P1' },
           { id: 'batch', label: 'Batch Insert', icon: Layers, badge: 'P1' },
-          { id: 'dialect', label: 'Multi-Dialect', icon: Database, badge: 'PG/MySQL/SQLite' },
           { id: 'realtime', label: 'CDC & @@notify', icon: Radio, badge: 'Realtime' },
           { id: 'tenant', label: 'Multi-Tenant', icon: Building, badge: 'Isolation' },
           { id: 'cache', label: 'L2 @cached', icon: RefreshCw, badge: 'Eviction' },
@@ -750,96 +749,7 @@ RETURNING *`}
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 5: MULTI-DIALECT SPI (PostgreSQL / MySQL / SQLite) */}
-        {/* ========================================================================= */}
-        {activeSection === 'dialect' && (
-          <div className="space-y-6">
-            <div className="border-b border-[#30363D] pb-4">
-              <h3 className="text-lg font-bold text-[#F0F6FC] flex items-center gap-2">
-                <Database className="w-5 h-5 text-sky-400" />
-                Multi-Dialect SPI — PostgreSQL · MySQL 8+ · SQLite
-              </h3>
-              <p className="text-xs text-[#8B949E] mt-1">
-                GraphORM's <code className="text-sky-300 font-mono">QueryExecutionEngine</code> SPI abstracts all SQL
-                generation behind dialect-specific implementations. The correct dialect is auto-detected via JDBC
-                metadata (<code className="text-sky-300 font-mono">SqlDialect.fromDatabaseProductName</code>), so no
-                code changes are needed when switching databases.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* PostgreSQL */}
-              <div className="bg-[#0D1117] border border-[#30363D] rounded-lg p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sky-400 font-mono font-bold text-sm">PostgreSQL 15+</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/30">Default</span>
-                </div>
-                <ul className="text-xs text-[#8B949E] space-y-1.5 font-mono">
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span><code className="text-sky-200">RETURNING</code> clause (zero extra round-trips)</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span><code className="text-sky-200">pg_advisory_xact_lock</code> for migrations</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>LISTEN/NOTIFY subscription events</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>Full-text search & JSONB operators</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>ON CONFLICT DO UPDATE (upsert)</span></li>
-                </ul>
-              </div>
-
-              {/* MySQL */}
-              <div className="bg-[#0D1117] border border-[#30363D] rounded-lg p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-amber-400 font-mono font-bold text-sm">MySQL 8+</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">MySqlDialect</span>
-                </div>
-                <ul className="text-xs text-[#8B949E] space-y-1.5 font-mono">
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>Backtick identifier quoting</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span><code className="text-amber-200">LIMIT ? OFFSET ?</code> pagination</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>ON DUPLICATE KEY UPDATE (upsert)</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>Error codes 1062, 1451/1452, 3819/4025</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>MariaDB compatibility</span></li>
-                </ul>
-              </div>
-
-              {/* SQLite */}
-              <div className="bg-[#0D1117] border border-[#30363D] rounded-lg p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-purple-400 font-mono font-bold text-sm">SQLite 3</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/30">SqliteDialect</span>
-                </div>
-                <ul className="text-xs text-[#8B949E] space-y-1.5 font-mono">
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>INTEGER PRIMARY KEY AUTOINCREMENT</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>Boolean ↔ integer coercion</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span><code className="text-purple-200">LIMIT -1 OFFSET ?</code> pagination</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>In-memory test suite (no Docker)</span></li>
-                  <li className="flex gap-2"><span className="text-emerald-400">✓</span> <span>Multi-tenancy isolation tests</span></li>
-                </ul>
-              </div>
-            </div>
-
-            {/* Auto-detection code snippet */}
-            <div className="bg-[#0D1117] border border-[#30363D] rounded-lg p-4 font-mono text-xs space-y-2">
-              <div className="text-sky-400 font-semibold">Auto-Detection (Spring Boot Auto-Config):</div>
-              <pre className="bg-[#161B22] p-2.5 rounded text-[11px] text-emerald-200 overflow-x-auto">{`// No manual configuration required:
-@Bean
-@ConditionalOnMissingBean
-public SqlDialect sqlDialect(DataSource dataSource) {
-    // Reads JDBC DatabaseMetaData.getDatabaseProductName()
-    return SqlDialect.fromDatabaseProductName(dataSource);
-    // → PostgreSqlDialect | MySqlDialect | SqliteDialect
-}
-
-// Virtual-thread safe — ReentrantLock replaces synchronized
-// for Loom carrier-thread pinning prevention`}</pre>
-            </div>
-
-            <div className="p-4 rounded-lg bg-sky-500/5 border border-sky-500/20 text-xs text-sky-300 font-mono">
-              <span className="font-semibold text-sky-400">ℹ Note:</span>{' '}
-              Real-time subscriptions (@@notify) require PostgreSQL's LISTEN/NOTIFY. MySQL and SQLite fall back to the
-              in-memory <code className="text-sky-200">InMemoryEntityEventBroker</code> for local dev testing.
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* TAB 6: REAL-TIME NOTIFICATIONS (@@notify & SSE) */}
+        {/* TAB 5: REAL-TIME NOTIFICATIONS (@@notify & SSE) */}
         {/* ========================================================================= */}
         {activeSection === 'realtime' && (
           <div className="space-y-6">

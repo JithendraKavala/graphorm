@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cpu, Zap, ShieldCheck, Database, Terminal, Activity, Layers, Lock, GitBranch } from 'lucide-react';
+import { Cpu, Zap, ShieldCheck, Database, Terminal, Activity, Layers, Lock } from 'lucide-react';
 
 export const FeaturesGrid: React.FC = () => {
   const features = [
@@ -39,35 +39,27 @@ export const FeaturesGrid: React.FC = () => {
       color: 'text-amber-400',
     },
     {
-      icon: GitBranch,
-      title: 'Multi-Dialect SPI (PG / MySQL / SQLite)',
-      description: 'QueryExecutionEngine SPI with PostgreSQL 15+, MySQL 8+, and SQLite dialects. Auto-detected via JDBC metadata with Loom virtual-thread safety.',
-      tag: 'Phase 21 Dialects',
-      color: 'text-sky-400',
-    },
-    {
       icon: Activity,
       title: 'Real-Time CDC (@@notify & SSE)',
       description: 'PostgreSQL LISTEN/NOTIFY integrated with Spring SSE and EntityEventBroker, streaming live mutations to web clients with zero polling.',
-      tag: 'Phase 24 Realtime',
+      tag: 'Realtime Bus',
       color: 'text-rose-400',
     },
     {
       icon: ShieldCheck,
       title: 'Multi-Tenant Isolation (@tenantId)',
       description: 'Thread-local TenantContext scopes all queries and mutations with transparent partition filtering and cross-tenant leakage prevention.',
-      tag: 'Phase 22 Isolation',
+      tag: 'Partition Scoped',
       color: 'text-indigo-400',
     },
     {
       icon: Terminal,
       title: 'L2 Cache & Mutation Eviction',
       description: 'Caffeine L2 caching for @cached view models with automatic tag-based cache eviction whenever underlying source models are mutated.',
-      tag: 'Phase 23 Sub-ms L2',
+      tag: 'Sub-Millisecond L2',
       color: 'text-emerald-400',
     },
   ];
-
 
   return (
     <section id="features" className="py-20 bg-[#0D1117] border-t border-[#30363D]">
@@ -87,7 +79,7 @@ export const FeaturesGrid: React.FC = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
           {features.map((feature) => {
             const Icon = feature.icon;
             return (

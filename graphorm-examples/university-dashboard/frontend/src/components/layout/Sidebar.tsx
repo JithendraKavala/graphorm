@@ -47,7 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const engineItems = [
-    { id: 'features-showcase' as ActiveTab, label: 'Live Feature Lab', icon: Zap, badge: 'P0 – P24' },
+    { id: 'features-showcase' as ActiveTab, label: 'Live Feature Lab', icon: Zap, badge: 'P0 - P3' },
     { id: 'landing' as ActiveTab, label: 'Product Showcase', icon: Sparkles, badge: 'Overview' },
     { id: 'analytics' as ActiveTab, label: 'View Models & Analytics', icon: BarChart3, badge: 'Stage 1 & 2' },
     { id: 'schema-explorer' as ActiveTab, label: 'Schema Engine & AST', icon: Code2, badge: 'DSL' },

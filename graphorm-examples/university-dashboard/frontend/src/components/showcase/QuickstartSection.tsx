@@ -186,7 +186,7 @@ public class StudentService {
               </span>
             </h3>
             <p className="text-[#8B949E] text-xs font-sans max-w-xl leading-relaxed">
-              Experience GraphORM running in an end-to-end full stack application with CRUD operations, AST Schema Inspector, live GraphQL playground, View Models analytics, real-time subscriptions, multi-tenant isolation, L2 caching, and multi-dialect SPI.
+              Experience GraphORM running in an end-to-end full stack application with CRUD operations, AST Schema Inspector, live GraphQL playground, and View Models analytics.
             </p>
           </div>
 
