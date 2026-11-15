@@ -3,33 +3,28 @@ name: CI
 on:
   push:
     branches:
+      - main
       - master
-      - 'fix/**'
       - 'feat/**'
+      - 'fix/**'
+      - 'hotfix/**'
+      - 'refactor/**'
+      - 'test/**'
+      - 'chore/**'
   pull_request:
     branches:
+      - main
       - master
 
-jobs:
-  build:
-    name: Maven Build & Test
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
+  checks: write
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ""
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+jobs:
+  # ─── Fast unit tests (no Docker required) ─────────────────────────────────
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -42,9 +37,77 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Prepare PostgreSQL databases
-        run: |
-          docker exec $(docker ps --filter "ancestor=postgres:16-alpine" -q | head -n 1) psql -U postgres -c "CREATE DATABASE university_db;" || true
+      - name: Compile all modules
+        run: mvn -B clean compile -DskipTests
 
-      - name: Run Maven Tests
-        run: mvn -B clean test
+      - name: Run unit tests
+        run: mvn -B test -P unit-tests
+
+      - name: Publish unit test results
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: '**/target/surefire-reports/TEST-*.xml'
+          check_name: Unit Test Results
+
+  # ─── Integration tests (PostgreSQL via Testcontainers) ────────────────────
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run integration tests (Testcontainers manages PostgreSQL)
+        run: mvn -B verify -P integration-tests
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "false"
+
+      - name: Publish integration test results
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: '**/target/failsafe-reports/TEST-*.xml'
+          check_name: Integration Test Results
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-reports
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          retention-days: 7
+
+  # ─── Full build verification ───────────────────────────────────────────────
+  verify:
+    name: Full Build Verification
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Full Maven verify
+        run: mvn -B clean verify
+
+      - name: Check for circular dependencies
+        run: mvn -B dependency:analyze -DfailOnWarning=false
