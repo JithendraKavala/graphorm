@@ -8,25 +8,37 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Technical Studio & GitHub Dark Neutral Charcoal
+        canvas: 'var(--color-canvas)',
+        surface: 'var(--color-surface)',
+        elevated: 'var(--color-elevated)',
+        sidebar: 'var(--color-sidebar)',
+        border: 'var(--color-border)',
+        accent: 'var(--color-accent)',
+        'accent-secondary': 'var(--color-accent-secondary)',
+        'accent-hover': 'var(--color-accent-hover)',
+        'text-primary': 'var(--color-text-primary)',
+        'text-muted': 'var(--color-text-muted)',
+        'text-on-accent': 'var(--color-text-on-accent)',
+
+        // Neutral aliases mapped to CSS variables for complete compatibility
         charcoal: {
-          canvas: '#0D1117',
-          surface: '#161B22',
-          elevated: '#21262D',
-          border: '#30363D',
+          canvas: 'var(--color-canvas)',
+          surface: 'var(--color-surface)',
+          elevated: 'var(--color-elevated)',
+          border: 'var(--color-border)',
         },
-        // Mapped ink colors to GitHub Dark tokens
         ink: {
-          950: '#0D1117',
-          900: '#161B22',
-          850: '#161B22',
-          800: '#21262D',
-          750: '#30363D',
-          700: '#30363D',
-          600: '#484F58',
-          500: '#6E7681',
-          400: '#8B949E',
+          950: 'var(--color-canvas)',
+          900: 'var(--color-surface)',
+          850: 'var(--color-surface)',
+          800: 'var(--color-elevated)',
+          750: 'var(--color-border)',
+          700: 'var(--color-border)',
+          600: 'var(--color-text-muted)',
+          500: 'var(--color-text-muted)',
+          400: 'var(--color-text-muted)',
         },
+
         // Mapped gold / amber
         gold: {
           50: '#FFFBEB',
@@ -70,15 +82,15 @@ export default {
           600: '#334466',
           500: '#475d85',
         },
-        // Sky Blue primary accent
+        // Brand accent alias
         brand: {
           50: '#f0f9ff',
           100: '#e0f2fe',
           200: '#bae6fd',
           300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#38bdf8',
-          600: '#0284c7',
+          400: 'var(--color-accent)',
+          500: 'var(--color-accent)',
+          600: 'var(--color-accent-hover)',
           700: '#0369a1',
         },
         // Vibrant Cyan / Telemetry
@@ -141,8 +153,8 @@ export default {
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       boxShadow: {
-        'subtle': '0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.4)',
-        'elevated': '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+        'subtle': '0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 1px 2px -1px rgba(0, 0, 0, 0.2)',
+        'elevated': '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3)',
       },
     },
   },

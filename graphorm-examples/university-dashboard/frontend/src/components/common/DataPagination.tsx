@@ -65,28 +65,28 @@ export const DataPagination: React.FC<DataPaginationProps> = ({
 
   return (
     <div
-      className={`flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-[#161B22]/90 border border-[#30363D] rounded-xl text-xs select-none ${className}`}
+      className={`flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-surface/90 border border-border rounded-xl text-xs select-none ${className}`}
       data-testid="data-pagination"
     >
       {/* Left: Range and Totals */}
-      <div className="flex items-center gap-3 text-[#8B949E]">
+      <div className="flex items-center gap-3 text-text-muted">
         <span>
           Showing{' '}
-          <strong className="text-[#F0F6FC] font-mono">
+          <strong className="text-text-primary font-mono">
             {startItem}–{endItem}
           </strong>{' '}
           of{' '}
-          <strong className="text-[#F0F6FC] font-mono">{totalItems}</strong>{' '}
+          <strong className="text-text-primary font-mono">{totalItems}</strong>{' '}
           {label}
         </span>
 
         {onPageSizeChange && (
-          <div className="flex items-center gap-1.5 pl-3 border-l border-[#30363D]">
-            <span className="text-[#8B949E]">Per page:</span>
+          <div className="flex items-center gap-1.5 pl-3 border-l border-border">
+            <span className="text-text-muted">Per page:</span>
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="bg-[#0D1117] border border-[#30363D] rounded-md px-2 py-0.5 text-xs text-[#F0F6FC] focus:outline-none focus:border-[#388BFD]"
+              className="bg-canvas border border-border rounded-md px-2 py-0.5 text-xs text-text-primary focus:outline-none focus:border-accent"
               aria-label="Records per page"
             >
               {pageSizeOptions.map((opt) => (
@@ -106,7 +106,7 @@ export const DataPagination: React.FC<DataPaginationProps> = ({
           onClick={() => onPageChange(1)}
           disabled={currentPage <= 1}
           aria-label="First page"
-          className="p-1.5 rounded-lg text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
         >
           <ChevronsLeft className="w-3.5 h-3.5" />
         </button>
@@ -116,7 +116,7 @@ export const DataPagination: React.FC<DataPaginationProps> = ({
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
           aria-label="Go to previous page"
-          className="p-1.5 rounded-lg text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
         >
           <ChevronLeft className="w-3.5 h-3.5" />
         </button>
@@ -128,17 +128,17 @@ export const DataPagination: React.FC<DataPaginationProps> = ({
               <button
                 key={idx}
                 onClick={() => onPageChange(p)}
-                className={`min-w-[28px] h-7 px-2 rounded-lg font-mono text-xs transition-colors ${
+                className={`min-w-[28px] h-7 px-2 rounded-lg font-mono text-xs transition-colors cursor-pointer ${
                   currentPage === p
-                    ? 'bg-[#1F6FEB] text-white font-semibold shadow-sm'
-                    : 'text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D]'
+                    ? 'bg-accent text-text-on-accent font-semibold shadow-sm'
+                    : 'text-text-muted hover:text-text-primary hover:bg-elevated'
                 }`}
                 aria-current={currentPage === p ? 'page' : undefined}
               >
                 {p}
               </button>
             ) : (
-              <span key={idx} className="px-1 text-[#484F58]">
+              <span key={idx} className="px-1 text-text-muted">
                 {p}
               </span>
             )
@@ -150,7 +150,7 @@ export const DataPagination: React.FC<DataPaginationProps> = ({
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= totalPages}
           aria-label="Go to next page"
-          className="p-1.5 rounded-lg text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
         >
           <ChevronRight className="w-3.5 h-3.5" />
         </button>
@@ -160,7 +160,7 @@ export const DataPagination: React.FC<DataPaginationProps> = ({
           onClick={() => onPageChange(totalPages)}
           disabled={currentPage >= totalPages}
           aria-label="Last page"
-          className="p-1.5 rounded-lg text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
         >
           <ChevronsRight className="w-3.5 h-3.5" />
         </button>

@@ -42,7 +42,7 @@ export const ProtectedField: React.FC<ProtectedFieldProps> = ({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#21262D]/90 border border-amber-500/30 text-amber-300 text-[11px] font-mono select-none cursor-help ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-elevated/90 border border-amber-500/30 text-amber-300 text-[11px] font-mono select-none cursor-help ${className}`}
       title={`Protected field: requires ${requiredRoles.join(' or ')} privilege (@auth)`}
     >
       <Lock className="w-3 h-3 text-amber-400" />

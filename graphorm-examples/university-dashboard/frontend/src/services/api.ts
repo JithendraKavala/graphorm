@@ -693,6 +693,10 @@ class UniversityDataService {
           return isDesc ? gpaB - gpaA : gpaA - gpaB;
         } else if (params.sortBy === 'id') {
           return isDesc ? b.id - a.id : a.id - b.id;
+        } else if (params.sortBy === 'enrollments' || params.sortBy === 'load') {
+          const countA = this.enrollments.filter((e) => e.studentId === a.id).length;
+          const countB = this.enrollments.filter((e) => e.studentId === b.id).length;
+          return isDesc ? countB - countA : countA - countB;
         }
         return isDesc ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name);
       });
@@ -2022,6 +2026,40 @@ class UniversityDataService {
   private simulateClientGraphQl(query: string, durationMs: number): { data?: any; errors?: any[]; durationMs: number } {
     const clean = query.replace(/\s+/g, ' ');
     const data: Record<string, any> = {};
+
+    if (clean.includes('TriggerDepthLimitViolation') || clean.includes('MaxQueryDepthInstrumentation')) {
+      return {
+        errors: [
+          {
+            message: 'Query depth limit of 5 exceeded. Calculated depth: 6',
+            extensions: {
+              classification: 'ExecutionAborted',
+              maxDepth: 5,
+              actualDepth: 6,
+            },
+          },
+        ],
+        data: null,
+        durationMs,
+      };
+    }
+
+    if (clean.includes('createStudent')) {
+      data.createStudent = {
+        id: 9,
+        name: 'John McCarthy',
+        email: 'mccarthy@stanford.edu',
+      };
+    }
+
+    if (clean.includes('instructors')) {
+      data.instructors = this.instructors.map((i) => ({
+        id: i.id,
+        name: i.name,
+        email: i.email,
+        salary: this.currentRole === 'ADMIN' ? i.salary : undefined,
+      }));
+    }
 
     if (clean.includes('studentsConnection')) {
       data.studentsConnection = {

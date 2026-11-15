@@ -201,7 +201,7 @@ export const ROLE_PROFILES: Record<AcademicRole, UserRoleProfile> = {
   INSTRUCTOR: {
     id: 'INSTRUCTOR',
     label: 'Faculty / Instructor',
-    badgeColor: 'border-sky-500/40 text-sky-400 bg-sky-950/30',
+    badgeColor: 'border-accent/40 text-accent bg-accent/10',
     username: 'instructor',
     authHeaderValue: 'instructor:prof123',
     badgeText: 'FACULTY',

@@ -54,7 +54,7 @@ export const WidgetCustomizerModal: React.FC<WidgetCustomizerModalProps> = ({
       badge="Preferences"
     >
       <div className="space-y-4">
-        <p className="text-xs text-[#8B949E] leading-relaxed">
+        <p className="text-xs text-text-muted leading-relaxed">
           Toggle widget visibility and adjust position to optimize your registrar desk view.
         </p>
 
@@ -62,15 +62,15 @@ export const WidgetCustomizerModal: React.FC<WidgetCustomizerModalProps> = ({
           {widgets.map((widget, idx) => (
             <div
               key={widget.id}
-              className="flex items-center justify-between p-3 rounded-lg bg-[#0D1117] border border-[#30363D] transition-colors"
+              className="flex items-center justify-between p-3 rounded-lg bg-canvas border border-border transition-colors"
             >
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => toggleVisibility(widget.id)}
                   className={`p-1.5 rounded-md transition-colors cursor-pointer ${
                     widget.visible
-                      ? 'text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30'
-                      : 'text-[#8B949E] bg-[#21262D] hover:bg-slate-700 border border-[#30363D]'
+                      ? 'text-accent bg-accent/10 hover:bg-accent/20 border border-accent/30'
+                      : 'text-text-muted bg-elevated hover:bg-surface border border-border'
                   }`}
                   title={widget.visible ? 'Hide widget' : 'Display widget'}
                 >
@@ -78,7 +78,7 @@ export const WidgetCustomizerModal: React.FC<WidgetCustomizerModalProps> = ({
                 </button>
                 <span
                   className={`text-xs font-semibold ${
-                    widget.visible ? 'text-[#F0F6FC]' : 'text-[#8B949E] line-through'
+                    widget.visible ? 'text-text-primary' : 'text-text-muted line-through'
                   }`}
                 >
                   {widget.title}
@@ -89,7 +89,7 @@ export const WidgetCustomizerModal: React.FC<WidgetCustomizerModalProps> = ({
                 <button
                   onClick={() => move(idx, 'up')}
                   disabled={idx === 0}
-                  className="p-1.5 text-[#8B949E] hover:text-[#F0F6FC] disabled:opacity-25 disabled:pointer-events-none rounded hover:bg-[#21262D] transition-colors cursor-pointer"
+                  className="p-1.5 text-text-muted hover:text-text-primary disabled:opacity-25 disabled:pointer-events-none rounded hover:bg-elevated transition-colors cursor-pointer"
                   title="Move Up"
                 >
                   <MoveUp className="w-3.5 h-3.5" />
@@ -97,7 +97,7 @@ export const WidgetCustomizerModal: React.FC<WidgetCustomizerModalProps> = ({
                 <button
                   onClick={() => move(idx, 'down')}
                   disabled={idx === widgets.length - 1}
-                  className="p-1.5 text-[#8B949E] hover:text-[#F0F6FC] disabled:opacity-25 disabled:pointer-events-none rounded hover:bg-[#21262D] transition-colors cursor-pointer"
+                  className="p-1.5 text-text-muted hover:text-text-primary disabled:opacity-25 disabled:pointer-events-none rounded hover:bg-elevated transition-colors cursor-pointer"
                   title="Move Down"
                 >
                   <MoveDown className="w-3.5 h-3.5" />
@@ -107,17 +107,17 @@ export const WidgetCustomizerModal: React.FC<WidgetCustomizerModalProps> = ({
           ))}
         </div>
 
-        <div className="pt-4 border-t border-[#30363D] flex items-center justify-between">
+        <div className="pt-4 border-t border-border flex items-center justify-between">
           <button
             onClick={resetDefaults}
-            className="flex items-center gap-1.5 text-xs text-[#8B949E] hover:text-[#F0F6FC] transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Reset Defaults</span>
           </button>
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-[#0D1117] font-mono font-bold text-xs transition-colors cursor-pointer shadow-sm"
+            className="px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-text-on-accent font-mono font-bold text-xs transition-colors cursor-pointer shadow-sm"
           >
             Save Layout
           </button>

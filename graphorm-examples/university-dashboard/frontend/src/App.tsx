@@ -111,17 +111,7 @@ export function App() {
     window.location.hash = tab;
   };
 
-  // Load data on-demand for the current active page/tab only
-  const loadDataForTab = useCallback(async (tab: ActiveTab) => {
-    // Only 'dashboard' aggregates telemetry across all entities in a single unified query.
-    // List pages (students, departments, courses, enrollments) and analytics manage
-    // their own self-contained server-side single query with pagination and relations!
-    if (tab !== 'dashboard') {
-      setIsConnected(api.isConnected());
-      return;
-    }
-
-    setIsRefreshing(true);
+  const refreshOverview = useCallback(async () => {
     try {
       const overview = await api.getDashboardOverview();
       setDepartments(overview.departments);
@@ -134,12 +124,25 @@ export function App() {
       setIsConnected(api.isConnected());
     } catch (err) {
       console.error("Failed to load dashboard overview:", err);
-    } finally {
-      setIsRefreshing(false);
     }
   }, []);
 
-  // Fetch data only for the current active page
+  // Fetch initial overview so KPI metrics are immediately available
+  useEffect(() => {
+    refreshOverview();
+  }, [refreshOverview]);
+
+  // Load data on-demand for the current active page/tab
+  const loadDataForTab = useCallback(async (tab: ActiveTab) => {
+    setIsRefreshing(true);
+    try {
+      await refreshOverview();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [refreshOverview]);
+
+  // Fetch data when activeTab changes
   useEffect(() => {
     loadDataForTab(activeTab);
   }, [activeTab, loadDataForTab]);
@@ -147,10 +150,33 @@ export function App() {
   // Subscribe to changes (e.g. after mutations in mock or live backend)
   useEffect(() => {
     const unsubscribe = api.subscribe(() => {
-      loadDataForTab(activeTab);
+      refreshOverview();
     });
     return () => unsubscribe();
-  }, [activeTab, loadDataForTab]);
+  }, [refreshOverview]);
+
+  const handleCreateStudent = async (input: CreateStudentInput): Promise<Student> => {
+    const created = await api.createStudent(input);
+    setStudents((prev) => {
+      if (prev.some((s) => s.id === created.id)) {
+        return prev.map((s) => (s.id === created.id ? created : s));
+      }
+      return [...prev, created];
+    });
+    return created;
+  };
+
+  const handleUpdateStudent = async (id: number, input: UpdateStudentInput): Promise<Student> => {
+    const updated = await api.updateStudent(id, input);
+    setStudents((prev) => prev.map((s) => (s.id === id ? { ...s, ...updated } : s)));
+    return updated;
+  };
+
+  const handleDeleteStudent = async (id: number): Promise<boolean> => {
+    const res = await api.deleteStudent(id);
+    setStudents((prev) => prev.filter((s) => s.id !== id));
+    return res;
+  };
 
   const handleDataSourceModeChange = (mode: DataSourceMode) => {
     setDataSourceMode(mode);
@@ -212,7 +238,7 @@ export function App() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#0D1117] text-[#F0F6FC] font-sans antialiased">
+    <div className="flex min-h-screen bg-canvas text-text-primary font-sans antialiased">
       {/* Sidebar with Desktop Sticky & Mobile Drawer */}
       <Sidebar
         activeTab={activeTab}
@@ -285,9 +311,9 @@ export function App() {
               students={students}
               departments={departments}
               currentRole={currentRole}
-              onCreateStudent={(input) => api.createStudent(input)}
-              onUpdateStudent={(id, input) => api.updateStudent(id, input)}
-              onDeleteStudent={(id) => api.deleteStudent(id)}
+              onCreateStudent={handleCreateStudent}
+              onUpdateStudent={handleUpdateStudent}
+              onDeleteStudent={handleDeleteStudent}
             />
           )}
 
@@ -363,7 +389,7 @@ export function App() {
         student={null}
         departments={departments}
         onSubmit={async (input) => {
-          await api.createStudent(input as CreateStudentInput);
+          await handleCreateStudent(input as CreateStudentInput);
         }}
       />
 

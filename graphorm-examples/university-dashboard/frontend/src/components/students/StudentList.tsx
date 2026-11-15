@@ -15,6 +15,8 @@ import { ProtectedField } from '../common/ProtectedField';
 import {
   UserPlus,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   Eye,
   Edit2,
   Trash2,
@@ -53,7 +55,7 @@ export const StudentList: React.FC<StudentListProps> = ({
   const [search, setSearch] = useState('');
   const [selectedDeptId, setSelectedDeptId] = useState<string>('all');
   const [minGpa, setMinGpa] = useState<number>(0);
-  const [sortField, setSortField] = useState<'name' | 'gpa' | 'id'>('name');
+  const [sortField, setSortField] = useState<'name' | 'gpa' | 'id' | 'enrollments'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [currentPage, setCurrentPage] = useState(1);
@@ -113,14 +115,29 @@ export const StudentList: React.FC<StudentListProps> = ({
     fetchStudents();
   }, [fetchStudents]);
 
-  const toggleSort = (field: 'name' | 'gpa' | 'id') => {
+  const toggleSort = (field: 'name' | 'gpa' | 'id' | 'enrollments') => {
     if (sortField === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
-      setSortOrder('asc');
+      setSortOrder(field === 'gpa' || field === 'enrollments' ? 'desc' : 'asc');
     }
     setCurrentPage(1);
+  };
+
+  const renderSortIndicator = (field: 'name' | 'gpa' | 'id' | 'enrollments') => {
+    if (sortField === field) {
+      return sortOrder === 'asc' ? (
+        <span className="inline-flex items-center text-accent font-bold" title="Sorted Ascending">
+          <ArrowUp className="w-3.5 h-3.5" />
+        </span>
+      ) : (
+        <span className="inline-flex items-center text-accent font-bold" title="Sorted Descending">
+          <ArrowDown className="w-3.5 h-3.5" />
+        </span>
+      );
+    }
+    return <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-60" />;
   };
 
   const handleFormSubmit = async (
@@ -193,7 +210,7 @@ export const StudentList: React.FC<StudentListProps> = ({
                 setMinGpa(parseFloat(e.target.value));
                 setCurrentPage(1);
               }}
-              className="w-20 accent-sky-500 cursor-pointer"
+              className="w-20 accent-accent cursor-pointer"
               aria-label="Filter by minimum GPA"
             />
             <span className="font-mono text-white text-[11px] font-semibold w-7">
@@ -208,7 +225,7 @@ export const StudentList: React.FC<StudentListProps> = ({
               value={`${sortField}-${sortOrder}`}
               onChange={(e) => {
                 const [f, o] = e.target.value.split('-');
-                setSortField(f as 'name' | 'gpa' | 'id');
+                setSortField(f as 'name' | 'gpa' | 'id' | 'enrollments');
                 setSortOrder(o as 'asc' | 'desc');
                 setCurrentPage(1);
               }}
@@ -220,11 +237,14 @@ export const StudentList: React.FC<StudentListProps> = ({
               <option value="gpa-desc" className="bg-ink-900 text-slate-200">GPA (High-Low)</option>
               <option value="gpa-asc" className="bg-ink-900 text-slate-200">GPA (Low-High)</option>
               <option value="id-asc" className="bg-ink-900 text-slate-200">ID (Low-High)</option>
+              <option value="id-desc" className="bg-ink-900 text-slate-200">ID (High-Low)</option>
+              <option value="enrollments-desc" className="bg-ink-900 text-slate-200">Enrollment Load (High-Low)</option>
+              <option value="enrollments-asc" className="bg-ink-900 text-slate-200">Enrollment Load (Low-High)</option>
             </select>
           </div>
 
           {isLoading && (
-            <div className="flex items-center gap-1 text-[11px] font-mono text-sky-400 animate-pulse ml-1">
+            <div className="flex items-center gap-1 text-[11px] font-mono text-accent animate-pulse ml-1">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               <span>Querying...</span>
             </div>
@@ -268,7 +288,7 @@ export const StudentList: React.FC<StudentListProps> = ({
             disabled={!canMutate}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold shadow-sm transition-all ${
               canMutate
-                ? 'bg-sky-500 hover:bg-sky-400 text-[#0D1117] cursor-pointer'
+                ? 'bg-accent hover:bg-accent-hover text-text-on-accent cursor-pointer'
                 : 'bg-ink-800 text-slate-500 border border-ink-700 opacity-60 cursor-not-allowed'
             }`}
             title={
@@ -293,7 +313,7 @@ export const StudentList: React.FC<StudentListProps> = ({
           }}
           className={`px-2.5 py-1 rounded-lg font-mono text-[11px] transition-colors cursor-pointer ${
             presetFilter === 'all'
-              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+              ? 'bg-accent/20 text-accent border border-accent/40'
               : 'bg-ink-900 text-slate-400 border border-ink-750 hover:text-slate-200'
           }`}
         >
@@ -346,36 +366,56 @@ export const StudentList: React.FC<StudentListProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="bg-ink-900/80 border-b border-ink-750/70 text-slate-400 font-medium">
+                <tr className="bg-ink-900/80 border-b border-ink-750/70 text-slate-400 font-medium select-none">
                   <th
-                    className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
+                    className={`py-3 px-5 cursor-pointer transition-colors ${
+                      sortField === 'id' ? 'text-accent font-semibold' : 'hover:text-white'
+                    }`}
                     onClick={() => toggleSort('id')}
+                    title="Sort by Scholar ID"
                   >
                     <div className="flex items-center gap-1.5 font-mono text-[11px]">
                       <span>ID</span>
-                      <ArrowUpDown className="w-3 h-3" />
+                      {renderSortIndicator('id')}
                     </div>
                   </th>
                   <th
-                    className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
+                    className={`py-3 px-5 cursor-pointer transition-colors ${
+                      sortField === 'name' ? 'text-accent font-semibold' : 'hover:text-white'
+                    }`}
                     onClick={() => toggleSort('name')}
+                    title="Sort by Scholar Name"
                   >
                     <div className="flex items-center gap-1.5">
                       <span>Scholar Dossier</span>
-                      <ArrowUpDown className="w-3 h-3" />
+                      {renderSortIndicator('name')}
                     </div>
                   </th>
                   <th className="py-3 px-5">Faculty & Department</th>
                   <th
-                    className="py-3 px-5 cursor-pointer hover:text-white transition-colors"
+                    className={`py-3 px-5 cursor-pointer transition-colors ${
+                      sortField === 'gpa' ? 'text-accent font-semibold' : 'hover:text-white'
+                    }`}
                     onClick={() => toggleSort('gpa')}
+                    title="Sort by Cumulative GPA"
                   >
                     <div className="flex items-center gap-1.5">
                       <span>Cumulative GPA</span>
-                      <ArrowUpDown className="w-3 h-3" />
+                      {renderSortIndicator('gpa')}
                     </div>
                   </th>
-                  <th className="py-3 px-5">Enrollment Load</th>
+                  <th
+                    className={`py-3 px-5 cursor-pointer transition-colors ${
+                      sortField === 'enrollments' ? 'text-accent font-semibold' : 'hover:text-white'
+                    }`}
+                    onClick={() => toggleSort('enrollments')}
+                    title="Sort by Enrollment Load"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Enrollment Load</span>
+                      {renderSortIndicator('enrollments')}
+                    </div>
+                  </th>
                   <th className="py-3 px-5 text-right">Actions</th>
                 </tr>
               </thead>

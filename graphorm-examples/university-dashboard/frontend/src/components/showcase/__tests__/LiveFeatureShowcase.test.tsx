@@ -71,4 +71,17 @@ describe('LiveFeatureShowcase Component', () => {
     const successBadge = await screen.findByText(/Upsert Succeeded/i);
     expect(successBadge).toBeInTheDocument();
   });
+
+  it('triggers optimistic locking conflict and displays HTTP 409 OptimisticLockException', async () => {
+    render(<LiveFeatureShowcase />);
+    const versionTab = screen.getByText('@version Locking');
+    fireEvent.click(versionTab);
+
+    const conflictBtn = await screen.findByText(/Trigger Conflict/i);
+    expect(conflictBtn).toBeInTheDocument();
+    fireEvent.click(conflictBtn);
+
+    const conflictHeader = await screen.findByText(/HTTP 409 Conflict — OptimisticLockException/i);
+    expect(conflictHeader).toBeInTheDocument();
+  });
 });
