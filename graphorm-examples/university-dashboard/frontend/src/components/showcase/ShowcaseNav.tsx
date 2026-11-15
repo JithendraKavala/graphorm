@@ -19,17 +19,17 @@ export const ShowcaseNav: React.FC<ShowcaseNavProps> = ({ onOpenPortal }) => {
   ];
 
   return (
-    <header className="sticky top-0 z-50 bg-[#0D1117]/95 backdrop-blur-md border-b border-[#30363D]">
+    <header className="sticky top-0 z-50 bg-canvas/95 backdrop-blur-md border-b border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand / Logo */}
         <div className="flex items-center gap-3">
           <a href="#" className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 rounded-lg bg-[#161B22] border border-[#30363D] flex items-center justify-center text-sky-400 group-hover:border-sky-400 transition-colors">
-              <Database className="w-5 h-5 text-sky-400" />
+            <div className="w-9 h-9 rounded-lg bg-surface border border-border flex items-center justify-center text-accent group-hover:border-accent transition-colors">
+              <Database className="w-5 h-5 text-accent" />
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="font-mono font-bold text-lg text-[#F0F6FC] tracking-tight">
-                Graph<span className="text-sky-400">ORM</span>
+              <span className="font-mono font-bold text-lg text-text-primary tracking-tight">
+                Graph<span className="text-accent">ORM</span>
               </span>
               <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                 v1.0.0
@@ -44,7 +44,7 @@ export const ShowcaseNav: React.FC<ShowcaseNavProps> = ({ onOpenPortal }) => {
             <a
               key={link.label}
               href={link.href}
-              className="text-sm font-medium text-[#8B949E] hover:text-[#F0F6FC] transition-colors"
+              className="text-sm font-medium text-text-muted hover:text-text-primary transition-colors"
             >
               {link.label}
             </a>
@@ -54,10 +54,10 @@ export const ShowcaseNav: React.FC<ShowcaseNavProps> = ({ onOpenPortal }) => {
         {/* Action Controls */}
         <div className="hidden sm:flex items-center gap-3">
           <a
-            href="https://github.com/jithendra/graphorm"
+            href="https://github.com/graphorm/graphorm"
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono font-medium text-[#F0F6FC] bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] hover:border-slate-500 transition-colors cursor-pointer"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono font-medium text-text-primary bg-surface hover:bg-elevated border border-border hover:border-accent transition-colors cursor-pointer"
           >
             <GithubIcon className="w-4 h-4" />
             <span>GitHub</span>
@@ -65,9 +65,9 @@ export const ShowcaseNav: React.FC<ShowcaseNavProps> = ({ onOpenPortal }) => {
 
           <button
             onClick={onOpenPortal}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-semibold text-slate-950 bg-sky-400 hover:bg-sky-300 transition-colors cursor-pointer"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-semibold text-text-on-accent bg-accent hover:bg-accent-hover transition-colors cursor-pointer"
           >
-            <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+            <Sparkles className="w-3.5 h-3.5 text-text-on-accent" />
             <span>Launch Live Portal</span>
             <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
@@ -77,7 +77,7 @@ export const ShowcaseNav: React.FC<ShowcaseNavProps> = ({ onOpenPortal }) => {
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           aria-label="Toggle navigation menu"
-          className="lg:hidden p-2 text-[#8B949E] hover:text-white hover:bg-[#21262D] rounded-md transition-colors"
+          className="lg:hidden p-2 text-text-muted hover:text-text-primary hover:bg-elevated rounded-md transition-colors"
         >
           {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
@@ -85,35 +85,35 @@ export const ShowcaseNav: React.FC<ShowcaseNavProps> = ({ onOpenPortal }) => {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="lg:hidden bg-[#161B22] border-b border-[#30363D] px-4 pt-3 pb-6 space-y-3">
+        <div className="lg:hidden bg-surface border-b border-border px-4 pt-3 pb-6 space-y-3">
           <nav className="flex flex-col space-y-2">
             {navLinks.map((link) => (
               <a
                 key={link.label}
                 href={link.href}
                 onClick={() => setMobileMenuOpen(false)}
-                className="px-3 py-2 text-sm font-medium text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D] rounded-md transition-colors"
+                className="px-3 py-2 text-sm font-medium text-text-muted hover:text-text-primary hover:bg-elevated rounded-md transition-colors"
               >
                 {link.label}
               </a>
             ))}
           </nav>
-          <div className="pt-3 border-t border-[#30363D] flex flex-col gap-2">
+          <div className="pt-3 border-t border-border flex flex-col gap-2">
             <button
               onClick={() => {
                 setMobileMenuOpen(false);
                 onOpenPortal();
               }}
-              className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-semibold text-slate-950 bg-sky-400 hover:bg-sky-300 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-semibold text-text-on-accent bg-accent hover:bg-accent-hover transition-colors cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 text-slate-950" />
+              <Sparkles className="w-4 h-4 text-text-on-accent" />
               <span>Launch Live University Portal</span>
             </button>
             <a
-              href="https://github.com/jithendra/graphorm"
+              href="https://github.com/graphorm/graphorm"
               target="_blank"
               rel="noreferrer"
-              className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-mono text-[#F0F6FC] bg-[#21262D] hover:bg-slate-700 border border-[#30363D] transition-colors"
+              className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-mono text-text-primary bg-elevated hover:bg-surface border border-border transition-colors"
             >
               <GithubIcon className="w-4 h-4" />
               <span>View GitHub Source</span>

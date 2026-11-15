@@ -12,7 +12,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({ onAction }) => {
       title: 'Matriculate Scholar',
       desc: 'Admissions & department declaration',
       icon: UserPlus,
-      iconColor: 'text-sky-400',
+      iconColor: 'text-accent',
     },
     {
       id: 'course',
@@ -26,7 +26,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({ onAction }) => {
       title: 'Course Enrollment',
       desc: 'Register semester & award credits',
       icon: GraduationCap,
-      iconColor: 'text-sky-400',
+      iconColor: 'text-accent',
     },
     {
       id: 'department',
@@ -40,7 +40,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({ onAction }) => {
       title: 'Schema Grammar',
       desc: 'Inspect GraphORM model AST & views',
       icon: Code2,
-      iconColor: 'text-sky-400',
+      iconColor: 'text-accent',
     },
     {
       id: 'graphql',
@@ -52,13 +52,13 @@ export const QuickActions: React.FC<QuickActionsProps> = ({ onAction }) => {
   ];
 
   return (
-    <div className="p-6 rounded-lg bg-[#161B22] border border-[#30363D] shadow-sm">
+    <div className="p-6 rounded-lg bg-surface border border-border shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="font-bold text-base text-[#F0F6FC] tracking-tight">
+          <h3 className="font-bold text-base text-text-primary tracking-tight">
             Operational Registry Shortcuts
           </h3>
-          <p className="text-xs text-[#8B949E] mt-0.5 font-mono">
+          <p className="text-xs text-text-muted mt-0.5 font-mono">
             Direct actions for registrars, faculty leads, and database architects
           </p>
         </div>
@@ -71,16 +71,16 @@ export const QuickActions: React.FC<QuickActionsProps> = ({ onAction }) => {
             <button
               key={act.id}
               onClick={() => onAction(act.id)}
-              className="p-3.5 rounded-lg border border-[#30363D] bg-[#0D1117] hover:bg-[#21262D] hover:border-slate-500 transition-colors text-left flex flex-col justify-between group cursor-pointer"
+              className="p-3.5 rounded-lg border border-border bg-canvas hover:bg-elevated hover:border-accent transition-colors text-left flex flex-col justify-between group cursor-pointer"
             >
-              <div className="p-2 rounded-md w-fit bg-[#161B22] border border-[#30363D] transition-colors">
+              <div className="p-2 rounded-md w-fit bg-surface border border-border transition-colors">
                 <Icon className={`w-4 h-4 ${act.iconColor}`} />
               </div>
               <div className="mt-3">
-                <p className="text-xs font-semibold text-[#F0F6FC] group-hover:text-white transition-colors">
+                <p className="text-xs font-semibold text-text-primary group-hover:text-accent transition-colors">
                   {act.title}
                 </p>
-                <p className="text-[11px] text-[#8B949E] mt-0.5 line-clamp-1">{act.desc}</p>
+                <p className="text-[11px] text-text-muted mt-0.5 line-clamp-1">{act.desc}</p>
               </div>
             </button>
           );

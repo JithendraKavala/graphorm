@@ -30,20 +30,20 @@ export const Badge: React.FC<BadgeProps> = ({
 }) => {
   const variantStyles: Record<BadgeVariant, { container: string; dot: string }> = {
     brand: {
-      container: 'bg-sky-500/10 text-sky-400 border-sky-500/30',
-      dot: 'bg-sky-400',
+      container: 'bg-accent/10 text-accent border-accent/30',
+      dot: 'bg-accent',
     },
     sky: {
-      container: 'bg-sky-500/10 text-sky-400 border-sky-500/30',
-      dot: 'bg-sky-400',
+      container: 'bg-accent/10 text-accent border-accent/30',
+      dot: 'bg-accent',
     },
     cobalt: {
-      container: 'bg-sky-500/10 text-sky-400 border-sky-500/30',
-      dot: 'bg-sky-400',
+      container: 'bg-accent/10 text-accent border-accent/30',
+      dot: 'bg-accent',
     },
     purple: {
-      container: 'bg-sky-500/10 text-sky-400 border-sky-500/30',
-      dot: 'bg-sky-400',
+      container: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+      dot: 'bg-purple-400',
     },
     success: {
       container: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
@@ -70,8 +70,8 @@ export const Badge: React.FC<BadgeProps> = ({
       dot: 'bg-rose-400',
     },
     slate: {
-      container: 'bg-[#21262D] text-[#8B949E] border-[#30363D]',
-      dot: 'bg-[#8B949E]',
+      container: 'bg-elevated text-text-muted border-border',
+      dot: 'bg-text-muted',
     },
   };
 

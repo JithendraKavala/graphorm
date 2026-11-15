@@ -57,19 +57,19 @@ export const ArchitectureExplorer: React.FC = () => {
   };
 
   return (
-    <section id="architecture" className="py-20 bg-[#0D1117] border-t border-[#30363D]">
+    <section id="architecture" className="py-20 bg-canvas border-t border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto space-y-4 mb-14">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#161B22] border border-sky-500/30 text-sky-400 font-mono text-xs font-semibold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-surface border border-accent/30 text-accent font-mono text-xs font-semibold">
             <Box className="w-3.5 h-3.5" />
             <span>Zero-Leakage Architecture</span>
           </div>
 
-          <h2 className="text-2xl sm:text-4xl font-bold text-[#F0F6FC] tracking-tight">
+          <h2 className="text-2xl sm:text-4xl font-bold text-text-primary tracking-tight">
             Multi-Module Architecture & Invariants
           </h2>
 
-          <p className="text-[#8B949E] text-sm sm:text-base leading-relaxed">
+          <p className="text-text-muted text-sm sm:text-base leading-relaxed">
             GraphORM enforces strict dependency boundaries between modules. Foundation modules have zero database or framework dependencies, ensuring high portability and testability.
           </p>
         </div>
@@ -79,9 +79,9 @@ export const ArchitectureExplorer: React.FC = () => {
           {/* Module Diagram Grid (Left) */}
           <div className="lg:col-span-7 space-y-3 font-mono text-xs">
             {/* Tier 1: Foundation */}
-            <div className="p-3 rounded-lg bg-[#161B22] border border-[#30363D] flex items-center justify-between">
-              <span className="text-[#8B949E] font-semibold uppercase text-[10px] tracking-wider">Foundation Tier</span>
-              <span className="text-[10px] text-emerald-400 bg-[#21262D] px-2 py-0.5 rounded border border-[#30363D]">Zero DB / Spring</span>
+            <div className="p-3 rounded-lg bg-surface border border-border flex items-center justify-between">
+              <span className="text-text-muted font-semibold uppercase text-[10px] tracking-wider">Foundation Tier</span>
+              <span className="text-[10px] text-emerald-400 bg-elevated px-2 py-0.5 rounded border border-border">Zero DB / Spring</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -89,30 +89,30 @@ export const ArchitectureExplorer: React.FC = () => {
                 onClick={() => setSelectedModule('core')}
                 className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                   selectedModule === 'core'
-                    ? 'bg-[#21262D] border-sky-400 text-[#F0F6FC]'
-                    : 'bg-[#161B22] border-[#30363D] text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D]'
+                    ? 'bg-elevated border-accent text-text-primary'
+                    : 'bg-surface border-border text-text-muted hover:text-text-primary hover:bg-elevated'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#F0F6FC]">graphorm-core</span>
-                  <Box className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="font-bold text-text-primary">graphorm-core</span>
+                  <Box className="w-3.5 h-3.5 text-accent" />
                 </div>
-                <p className="text-[10px] text-[#6E7681] mt-1">AST, Models, Exceptions</p>
+                <p className="text-[10px] text-text-muted mt-1">AST, Models, Exceptions</p>
               </button>
 
               <button
                 onClick={() => setSelectedModule('schema')}
                 className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                   selectedModule === 'schema'
-                    ? 'bg-[#21262D] border-sky-400 text-[#F0F6FC]'
-                    : 'bg-[#161B22] border-[#30363D] text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D]'
+                    ? 'bg-elevated border-accent text-text-primary'
+                    : 'bg-surface border-border text-text-muted hover:text-text-primary hover:bg-elevated'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#F0F6FC]">graphorm-schema</span>
-                  <Cpu className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="font-bold text-text-primary">graphorm-schema</span>
+                  <Cpu className="w-3.5 h-3.5 text-accent" />
                 </div>
-                <p className="text-[10px] text-[#6E7681] mt-1">ANTLR4 Grammar & Validator</p>
+                <p className="text-[10px] text-text-muted mt-1">ANTLR4 Grammar & Validator</p>
               </button>
             </div>
 
@@ -127,30 +127,30 @@ export const ArchitectureExplorer: React.FC = () => {
                 onClick={() => setSelectedModule('generator')}
                 className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                   selectedModule === 'generator'
-                    ? 'bg-[#21262D] border-sky-400 text-[#F0F6FC]'
-                    : 'bg-[#161B22] border-[#30363D] text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D]'
+                    ? 'bg-elevated border-accent text-text-primary'
+                    : 'bg-surface border-border text-text-muted hover:text-text-primary hover:bg-elevated'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#F0F6FC]">graphorm-generator</span>
+                  <span className="font-bold text-text-primary">graphorm-generator</span>
                   <Cpu className="w-3.5 h-3.5 text-amber-400" />
                 </div>
-                <p className="text-[10px] text-[#6E7681] mt-1">JavaPoet Java 21 Records</p>
+                <p className="text-[10px] text-text-muted mt-1">JavaPoet Java 21 Records</p>
               </button>
 
               <button
                 onClick={() => setSelectedModule('jdbc')}
                 className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                   selectedModule === 'jdbc'
-                    ? 'bg-[#21262D] border-sky-400 text-[#F0F6FC]'
-                    : 'bg-[#161B22] border-[#30363D] text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D]'
+                    ? 'bg-elevated border-accent text-text-primary'
+                    : 'bg-surface border-border text-text-muted hover:text-text-primary hover:bg-elevated'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#F0F6FC]">graphorm-jdbc</span>
+                  <span className="font-bold text-text-primary">graphorm-jdbc</span>
                   <Database className="w-3.5 h-3.5 text-emerald-400" />
                 </div>
-                <p className="text-[10px] text-[#6E7681] mt-1">PostgresDialect & RowMapper</p>
+                <p className="text-[10px] text-text-muted mt-1">PostgresDialect & RowMapper</p>
               </button>
             </div>
 
@@ -165,72 +165,72 @@ export const ArchitectureExplorer: React.FC = () => {
                 onClick={() => setSelectedModule('graphql')}
                 className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                   selectedModule === 'graphql'
-                    ? 'bg-[#21262D] border-sky-400 text-[#F0F6FC]'
-                    : 'bg-[#161B22] border-[#30363D] text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D]'
+                    ? 'bg-elevated border-accent text-text-primary'
+                    : 'bg-surface border-border text-text-muted hover:text-text-primary hover:bg-elevated'
                 }`}
               >
-                <span className="font-bold text-[#F0F6FC] block truncate">graphorm-graphql</span>
-                <p className="text-[10px] text-[#6E7681] mt-1">DataLoaders & Fetchers</p>
+                <span className="font-bold text-text-primary block truncate">graphorm-graphql</span>
+                <p className="text-[10px] text-text-muted mt-1">DataLoaders & Fetchers</p>
               </button>
 
               <button
                 onClick={() => setSelectedModule('starter')}
                 className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                   selectedModule === 'starter'
-                    ? 'bg-[#21262D] border-sky-400 text-[#F0F6FC]'
-                    : 'bg-[#161B22] border-[#30363D] text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D]'
+                    ? 'bg-elevated border-accent text-text-primary'
+                    : 'bg-surface border-border text-text-muted hover:text-text-primary hover:bg-elevated'
                 }`}
               >
-                <span className="font-bold text-[#F0F6FC] block truncate">spring-boot-starter</span>
-                <p className="text-[10px] text-[#6E7681] mt-1">Auto-Configuration</p>
+                <span className="font-bold text-text-primary block truncate">spring-boot-starter</span>
+                <p className="text-[10px] text-text-muted mt-1">Auto-Configuration</p>
               </button>
 
               <button
                 onClick={() => setSelectedModule('cli')}
                 className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                   selectedModule === 'cli'
-                    ? 'bg-[#21262D] border-sky-400 text-[#F0F6FC]'
-                    : 'bg-[#161B22] border-[#30363D] text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D]'
+                    ? 'bg-elevated border-accent text-text-primary'
+                    : 'bg-surface border-border text-text-muted hover:text-text-primary hover:bg-elevated'
                 }`}
               >
-                <span className="font-bold text-[#F0F6FC] block truncate">graphorm-cli</span>
-                <p className="text-[10px] text-[#6E7681] mt-1">Developer CLI Tool</p>
+                <span className="font-bold text-text-primary block truncate">graphorm-cli</span>
+                <p className="text-[10px] text-text-muted mt-1">Developer CLI Tool</p>
               </button>
             </div>
           </div>
 
           {/* Module Inspector Detail Box (Right) */}
-          <div className="lg:col-span-5 rounded-lg bg-[#161B22] border border-[#30363D] overflow-hidden font-mono text-xs shadow-md">
-            <div className="bg-[#161B22] px-4 py-3 border-b border-[#30363D] flex items-center justify-between">
-              <span className="text-[#F0F6FC] font-bold">{modules[selectedModule].name}</span>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-[#21262D] text-sky-400 border border-[#30363D]">
+          <div className="lg:col-span-5 rounded-lg bg-surface border border-border overflow-hidden font-mono text-xs shadow-md">
+            <div className="bg-surface px-4 py-3 border-b border-border flex items-center justify-between">
+              <span className="text-text-primary font-bold">{modules[selectedModule].name}</span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-elevated text-accent border border-border">
                 Module Inspector
               </span>
             </div>
 
             <div className="p-5 space-y-4">
               <div>
-                <p className="text-[10px] text-[#8B949E] uppercase tracking-wider font-semibold">Responsibility</p>
-                <p className="text-[#F0F6FC] font-semibold mt-0.5">{modules[selectedModule].role}</p>
+                <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Responsibility</p>
+                <p className="text-text-primary font-semibold mt-0.5">{modules[selectedModule].role}</p>
               </div>
 
               <div>
-                <p className="text-[10px] text-[#8B949E] uppercase tracking-wider font-semibold">Dependency Invariant</p>
+                <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Dependency Invariant</p>
                 <p className="text-emerald-400 font-medium mt-0.5">{modules[selectedModule].deps}</p>
               </div>
 
               <div>
-                <p className="text-[10px] text-[#8B949E] uppercase tracking-wider font-semibold">Architecture Details</p>
+                <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Architecture Details</p>
                 <p className="text-slate-300 text-xs leading-relaxed mt-0.5 font-sans">
                   {modules[selectedModule].description}
                 </p>
               </div>
 
               <div>
-                <p className="text-[10px] text-[#8B949E] uppercase tracking-wider font-semibold">Key Classes</p>
+                <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Key Classes</p>
                 <div className="flex flex-wrap gap-1.5 mt-1">
                   {modules[selectedModule].files.map((file) => (
-                    <span key={file} className="px-2 py-0.5 rounded bg-[#0D1117] text-[#8B949E] border border-[#30363D] text-[10px]">
+                    <span key={file} className="px-2 py-0.5 rounded bg-canvas text-text-muted border border-border text-[10px]">
                       {file}
                     </span>
                   ))}
@@ -238,7 +238,7 @@ export const ArchitectureExplorer: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-3 bg-[#161B22] border-t border-[#30363D] flex items-center gap-2 text-emerald-400 text-[11px]">
+            <div className="p-3 bg-surface border-t border-border flex items-center gap-2 text-emerald-400 text-[11px]">
               <ShieldCheck className="w-4 h-4 shrink-0" />
               <span>Verified Invariant: Tested with JSR-199 & Testcontainers</span>
             </div>

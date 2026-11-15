@@ -214,7 +214,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               onClick={() => setActiveTab('telemetry')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'telemetry'
-                  ? 'bg-sky-500 text-ink-950 font-bold shadow-sm'
+                  ? 'bg-accent text-text-on-accent font-bold shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -681,7 +681,7 @@ GROUP BY d.id, d.dept_name;`}
           {/* Header */}
           <div className="p-4 rounded-2xl bg-ink-850/90 border border-ink-700/70 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
             <div className="flex items-center gap-3.5">
-              <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400">
+              <div className="p-2.5 rounded-xl bg-accent/10 border border-accent/20 text-accent">
                 <Zap className="w-5 h-5" />
               </div>
               <div>
@@ -709,7 +709,7 @@ GROUP BY d.id, d.dept_name;`}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="font-display font-bold text-sm text-white flex items-center gap-2">
-                    <Code className="w-4 h-4 text-sky-400" />
+                    <Code className="w-4 h-4 text-accent" />
                     <span>Dynamic SQL Join Pruner Simulator</span>
                   </h4>
                   <Badge variant={!includeDeptJoin || !includeEnrollmentJoin ? 'laurel' : 'slate'} size="sm">
@@ -727,17 +727,17 @@ GROUP BY d.id, d.dept_name;`}
                       type="checkbox"
                       checked={true}
                       disabled={true}
-                      className="accent-sky-500"
+                      className="accent-accent"
                     />
                     <span>s.id, s.name (Root Table: Student)</span>
                     <span className="text-[10px] text-slate-500 ml-auto font-sans">Required Root</span>
                   </label>
-                  <label className="flex items-center gap-2.5 text-sky-300 cursor-pointer">
+                  <label className="flex items-center gap-2.5 text-accent cursor-pointer">
                     <input
                       type="checkbox"
                       checked={includeDeptJoin}
                       onChange={(e) => setIncludeDeptJoin(e.target.checked)}
-                      className="accent-sky-500"
+                      className="accent-accent"
                     />
                     <span>d.dept_name (Requires Department Join)</span>
                     {!includeDeptJoin && (
@@ -768,7 +768,7 @@ GROUP BY d.id, d.dept_name;`}
                 <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1.5">
                   Compiled PostgreSQL Query:
                 </span>
-                <pre className="text-sky-300 font-mono text-[11px] p-3 rounded-xl bg-ink-950 border border-ink-750 overflow-x-auto leading-relaxed">
+                <pre className="text-accent font-mono text-[11px] p-3 rounded-xl bg-ink-950 border border-ink-750 overflow-x-auto leading-relaxed">
                   {dynamicGeneratedSql}
                 </pre>
               </div>

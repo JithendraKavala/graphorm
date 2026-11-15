@@ -25,30 +25,30 @@ const trendData = [
 
 export const EnrollmentTrendChart: React.FC = () => {
   return (
-    <div className="p-6 rounded-lg bg-[#161B22] border border-[#30363D] shadow-sm">
+    <div className="p-6 rounded-lg bg-surface border border-border shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="font-bold text-base text-[#F0F6FC] tracking-tight">
+            <h3 className="font-bold text-base text-text-primary tracking-tight">
               Matriculation Velocity & Credit Progression
             </h3>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/30">
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-accent/10 text-accent border border-accent/30">
               Aggregated Stream
             </span>
           </div>
-          <p className="text-xs text-[#8B949E] mt-1 font-mono">
+          <p className="text-xs text-text-muted mt-1 font-mono">
             Semester volume compiled natively inside PostgreSQL via GraphORM query engine
           </p>
         </div>
 
         <div className="flex items-center gap-4 text-xs font-mono">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
-            <span className="text-[#F0F6FC] font-medium text-[11px]">New Enrollments</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-accent" />
+            <span className="text-text-primary font-medium text-[11px]">New Enrollments</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-            <span className="text-[#F0F6FC] font-medium text-[11px]">Units Conferred</span>
+            <span className="text-text-primary font-medium text-[11px]">Units Conferred</span>
           </div>
         </div>
       </div>
@@ -58,32 +58,32 @@ export const EnrollmentTrendChart: React.FC = () => {
           <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="skyAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#38BDF8" stopOpacity={0.35} />
-                <stop offset="95%" stopColor="#38BDF8" stopOpacity={0.0} />
+                <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.35} />
+                <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0.0} />
               </linearGradient>
               <linearGradient id="emeraldAreaGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#10B981" stopOpacity={0.25} />
                 <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#21262D" vertical={false} />
-            <XAxis dataKey="month" stroke="#8B949E" fontSize={11} fontFamily="'JetBrains Mono', monospace" tickLine={false} />
-            <YAxis stroke="#8B949E" fontSize={11} fontFamily="'JetBrains Mono', monospace" tickLine={false} axisLine={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+            <XAxis dataKey="month" stroke="var(--color-text-muted)" fontSize={11} fontFamily="'JetBrains Mono', monospace" tickLine={false} />
+            <YAxis stroke="var(--color-text-muted)" fontSize={11} fontFamily="'JetBrains Mono', monospace" tickLine={false} axisLine={false} />
             <Tooltip
               contentStyle={{
-                backgroundColor: '#161B22',
-                borderColor: '#30363D',
+                backgroundColor: 'var(--color-surface)',
+                borderColor: 'var(--color-border)',
                 borderRadius: '8px',
-                color: '#F0F6FC',
+                color: 'var(--color-text-primary)',
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: '12px',
-                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.6)',
+                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
               }}
             />
             <Area
               type="monotone"
               dataKey="enrollments"
-              stroke="#38BDF8"
+              stroke="var(--color-accent)"
               strokeWidth={2.5}
               fillOpacity={1}
               fill="url(#skyAreaGrad)"

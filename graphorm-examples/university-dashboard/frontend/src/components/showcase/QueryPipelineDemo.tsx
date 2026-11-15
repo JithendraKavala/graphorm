@@ -73,20 +73,20 @@ LIMIT 1;`;
   ];
 
   return (
-    <section id="pipeline" className="py-20 bg-[#0D1117] border-t border-[#30363D]">
+    <section id="pipeline" className="py-20 bg-canvas border-t border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto space-y-4 mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#161B22] border border-sky-500/30 text-sky-400 font-mono text-xs font-semibold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-surface border border-accent/30 text-accent font-mono text-xs font-semibold">
             <Zap className="w-3.5 h-3.5" />
             <span>Interactive Query Pipeline</span>
           </div>
 
-          <h2 className="text-2xl sm:text-4xl font-bold text-[#F0F6FC] tracking-tight">
+          <h2 className="text-2xl sm:text-4xl font-bold text-text-primary tracking-tight">
             From Schema to Optimized SQL in Real Time
           </h2>
 
-          <p className="text-[#8B949E] text-sm sm:text-base leading-relaxed">
+          <p className="text-text-muted text-sm sm:text-base leading-relaxed">
             Experience how GraphORM compiles a single high-level model into type-safe Java code, GraphQL schemas, and optimal database SQL with zero unnecessary joins.
           </p>
         </div>
@@ -102,56 +102,56 @@ LIMIT 1;`;
                 onClick={() => setActiveStage(stage.id as any)}
                 className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                   isActive
-                    ? 'bg-[#21262D] border-sky-400 text-[#F0F6FC] ring-1 ring-sky-400/50'
-                    : 'bg-[#161B22] border-[#30363D] text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D]'
+                    ? 'bg-elevated border-accent text-text-primary ring-1 ring-accent/50'
+                    : 'bg-surface border-border text-text-muted hover:text-text-primary hover:bg-elevated'
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-sky-400' : 'text-[#8B949E]'}`} />
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-accent' : 'text-text-muted'}`} />
                   <span className="text-xs font-semibold">{stage.label}</span>
                 </div>
-                <p className="text-[10px] text-[#6E7681] mt-1 truncate">{stage.desc}</p>
+                <p className="text-[10px] text-text-muted mt-1 truncate">{stage.desc}</p>
               </button>
             );
           })}
         </div>
 
         {/* Interactive Optimizer Bar */}
-        <div className="mb-6 p-4 rounded-lg bg-[#161B22] border border-[#30363D] flex flex-wrap items-center justify-between gap-4">
+        <div className="mb-6 p-4 rounded-lg bg-surface border border-border flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span className="text-xs font-mono font-semibold text-[#F0F6FC]">
+            <span className="text-xs font-mono font-semibold text-text-primary">
               Interactive Field Selector (Toggle to observe dynamic SQL pruning):
             </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-xs font-mono text-[#F0F6FC] bg-[#0D1117] px-3 py-1.5 rounded border border-[#30363D] cursor-pointer hover:border-slate-500 transition-colors">
+            <label className="flex items-center gap-2 text-xs font-mono text-text-primary bg-canvas px-3 py-1.5 rounded border border-border cursor-pointer hover:border-accent transition-colors">
               <input
                 type="checkbox"
                 checked={includeDepartment}
                 onChange={(e) => setIncludeDepartment(e.target.checked)}
-                className="rounded border-[#30363D] bg-[#161B22] text-sky-500 focus:ring-0"
+                className="rounded border-border bg-surface text-accent focus:ring-0"
               />
               <span>departmentName</span>
             </label>
 
-            <label className="flex items-center gap-2 text-xs font-mono text-[#F0F6FC] bg-[#0D1117] px-3 py-1.5 rounded border border-[#30363D] cursor-pointer hover:border-slate-500 transition-colors">
+            <label className="flex items-center gap-2 text-xs font-mono text-text-primary bg-canvas px-3 py-1.5 rounded border border-border cursor-pointer hover:border-accent transition-colors">
               <input
                 type="checkbox"
                 checked={includeCourseCount}
                 onChange={(e) => setIncludeCourseCount(e.target.checked)}
-                className="rounded border-[#30363D] bg-[#161B22] text-sky-500 focus:ring-0"
+                className="rounded border-border bg-surface text-accent focus:ring-0"
               />
               <span>enrolledCourses (count)</span>
             </label>
 
-            <label className="flex items-center gap-2 text-xs font-mono text-[#F0F6FC] bg-[#0D1117] px-3 py-1.5 rounded border border-[#30363D] cursor-pointer hover:border-slate-500 transition-colors">
+            <label className="flex items-center gap-2 text-xs font-mono text-text-primary bg-canvas px-3 py-1.5 rounded border border-border cursor-pointer hover:border-accent transition-colors">
               <input
                 type="checkbox"
                 checked={includeGpa}
                 onChange={(e) => setIncludeGpa(e.target.checked)}
-                className="rounded border-[#30363D] bg-[#161B22] text-sky-500 focus:ring-0"
+                className="rounded border-border bg-surface text-accent focus:ring-0"
               />
               <span>avgGpa (expression)</span>
             </label>
@@ -159,16 +159,16 @@ LIMIT 1;`;
         </div>
 
         {/* Stage Content Window */}
-        <div className="rounded-lg bg-[#161B22] border border-[#30363D] overflow-hidden font-mono text-xs shadow-md">
+        <div className="rounded-lg bg-surface border border-border overflow-hidden font-mono text-xs shadow-md">
           {/* Editor Header Bar */}
-          <div className="bg-[#161B22] px-4 py-3 border-b border-[#30363D] flex items-center justify-between">
+          <div className="bg-surface px-4 py-3 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#30363D] inline-block" />
-                <span className="w-2.5 h-2.5 rounded-full bg-[#30363D] inline-block" />
-                <span className="w-2.5 h-2.5 rounded-full bg-[#30363D] inline-block" />
+                <span className="w-2.5 h-2.5 rounded-full bg-border inline-block" />
+                <span className="w-2.5 h-2.5 rounded-full bg-border inline-block" />
+                <span className="w-2.5 h-2.5 rounded-full bg-border inline-block" />
               </div>
-              <span className="text-[#F0F6FC] font-semibold ml-2">
+              <span className="text-text-primary font-semibold ml-2">
                 {activeStage === 1 && 'src/main/resources/schema.graphorm (View Model Definition)'}
                 {activeStage === 2 && 'StudentDashboardService.java (Type-Safe Client API)'}
                 {activeStage === 3 && 'GraphQL Request (Selection Set)'}
@@ -178,7 +178,7 @@ LIMIT 1;`;
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-[10px] px-2 py-0.5 rounded bg-[#21262D] text-[#8B949E] border border-[#30363D]">
+              <span className="text-[10px] px-2 py-0.5 rounded bg-elevated text-text-muted border border-border">
                 {activeStage === 1 && 'ANTLR4 Grammar'}
                 {activeStage === 2 && 'JavaPoet Java 21'}
                 {activeStage === 3 && 'Spring for GraphQL'}
@@ -189,7 +189,7 @@ LIMIT 1;`;
           </div>
 
           {/* Editor Code Area */}
-          <div className="p-5 bg-[#0A0D12] text-[#F0F6FC] overflow-x-auto leading-relaxed min-h-[320px]">
+          <div className="p-5 bg-canvas text-text-primary overflow-x-auto leading-relaxed min-h-[320px]">
             {activeStage === 1 && (
               <pre className="text-slate-200">
 {`// Declarative View Model with Virtual Joins & Aggregations
@@ -245,7 +245,7 @@ public class StudentDashboardService {
 
             {activeStage === 4 && (
               <div>
-                <div className="mb-3 p-2.5 rounded bg-[#161B22] border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between">
+                <div className="mb-3 p-2.5 rounded bg-surface border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Zap className="w-4 h-4 text-emerald-400" />
                     <span>
@@ -265,12 +265,12 @@ public class StudentDashboardService {
             )}
 
             {activeStage === 5 && (
-              <pre className="text-sky-300">{getResultJson()}</pre>
+              <pre className="text-accent">{getResultJson()}</pre>
             )}
           </div>
 
           {/* Footnote Bar with Controls */}
-          <div className="p-3 bg-[#161B22] border-t border-[#30363D] flex items-center justify-between text-xs text-[#8B949E]">
+          <div className="p-3 bg-surface border-t border-border flex items-center justify-between text-xs text-text-muted">
             <div>
               <span>Stage {activeStage} of 5</span>
             </div>
@@ -279,7 +279,7 @@ public class StudentDashboardService {
               <button
                 disabled={activeStage === 1}
                 onClick={() => setActiveStage((prev) => (prev > 1 ? ((prev - 1) as any) : 1))}
-                className="px-3 py-1 rounded bg-[#21262D] hover:bg-slate-700 disabled:opacity-40 text-[#F0F6FC] transition-colors cursor-pointer"
+                className="px-3 py-1 rounded bg-elevated hover:bg-surface disabled:opacity-40 text-text-primary transition-colors cursor-pointer"
               >
                 Previous Step
               </button>
@@ -287,7 +287,7 @@ public class StudentDashboardService {
               <button
                 disabled={activeStage === 5}
                 onClick={() => setActiveStage((prev) => (prev < 5 ? ((prev + 1) as any) : 5))}
-                className="px-3 py-1 rounded bg-sky-400 hover:bg-sky-300 disabled:opacity-40 text-slate-950 font-semibold transition-colors cursor-pointer"
+                className="px-3 py-1 rounded bg-accent hover:bg-accent-hover disabled:opacity-40 text-text-on-accent font-semibold transition-colors cursor-pointer"
               >
                 Next Step
               </button>

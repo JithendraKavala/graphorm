@@ -8,14 +8,14 @@ export const FeaturesGrid: React.FC = () => {
       title: 'P0 Cryptographic Migrations',
       description: 'Zero-downtime versioned migrations ledger (_graphorm_migrations) with SHA-256 checksums, tamper protection, and database advisory locking.',
       tag: 'P0 Ledger Engine',
-      color: 'text-sky-400',
+      color: 'text-accent',
     },
     {
       icon: Zap,
       title: 'P1 Relay Keyset Pagination',
       description: 'Relay-compliant Connection, Edge, and PageInfo specifications using base64 opaque cursors for O(1) performance over arbitrary dataset offsets.',
       tag: 'P1 Keyset Spec',
-      color: 'text-sky-400',
+      color: 'text-accent',
     },
     {
       icon: Layers,
@@ -62,19 +62,19 @@ export const FeaturesGrid: React.FC = () => {
   ];
 
   return (
-    <section id="features" className="py-20 bg-[#0D1117] border-t border-[#30363D]">
+    <section id="features" className="py-20 bg-canvas border-t border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto space-y-4 mb-14">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#161B22] border border-emerald-500/30 text-emerald-400 font-mono text-xs font-semibold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-surface border border-emerald-500/30 text-emerald-400 font-mono text-xs font-semibold">
             <ShieldCheck className="w-3.5 h-3.5" />
             <span>Enterprise Engine</span>
           </div>
 
-          <h2 className="text-2xl sm:text-4xl font-bold text-[#F0F6FC] tracking-tight">
+          <h2 className="text-2xl sm:text-4xl font-bold text-text-primary tracking-tight">
             Engineered for High-Velocity Backend Teams
           </h2>
 
-          <p className="text-[#8B949E] text-sm sm:text-base leading-relaxed">
+          <p className="text-text-muted text-sm sm:text-base leading-relaxed">
             Every capability in GraphORM is backed by rigorous integration tests, JSR-199 in-memory compilation checks, and real PostgreSQL execution.
           </p>
         </div>
@@ -85,23 +85,23 @@ export const FeaturesGrid: React.FC = () => {
             return (
               <div
                 key={feature.title}
-                className="p-5 rounded-lg bg-[#161B22] border border-[#30363D] hover:border-slate-500 transition-colors flex flex-col justify-between group shadow-sm"
+                className="p-5 rounded-lg bg-surface border border-border hover:border-accent transition-colors flex flex-col justify-between group shadow-sm"
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <div className="w-9 h-9 rounded-md bg-[#0D1117] border border-[#30363D] flex items-center justify-center">
+                    <div className="w-9 h-9 rounded-md bg-canvas border border-border flex items-center justify-center">
                       <Icon className={`w-5 h-5 ${feature.color}`} />
                     </div>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0D1117] text-[#8B949E] border border-[#30363D]">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-canvas text-text-muted border border-border">
                       {feature.tag}
                     </span>
                   </div>
 
-                  <h3 className="text-sm font-semibold text-[#F0F6FC] group-hover:text-white transition-colors">
+                  <h3 className="text-sm font-semibold text-text-primary group-hover:text-accent transition-colors">
                     {feature.title}
                   </h3>
 
-                  <p className="text-xs text-[#8B949E] leading-relaxed mt-2 font-sans">
+                  <p className="text-xs text-text-muted leading-relaxed mt-2 font-sans">
                     {feature.description}
                   </p>
                 </div>

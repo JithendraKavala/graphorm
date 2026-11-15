@@ -15,7 +15,7 @@ interface ProductShowcaseProps {
 
 export const ProductShowcase: React.FC<ProductShowcaseProps> = ({ onOpenPortal }) => {
   return (
-    <div className="min-h-screen bg-[#0D1117] text-slate-100 font-sans selection:bg-sky-500/30 selection:text-sky-200">
+    <div className="min-h-screen bg-canvas text-text-primary font-sans selection:bg-accent/30 selection:text-accent">
       <ShowcaseNav onOpenPortal={onOpenPortal} />
       <main>
         <ShowcaseHero onOpenPortal={onOpenPortal} />

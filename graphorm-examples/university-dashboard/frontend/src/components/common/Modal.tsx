@@ -108,7 +108,7 @@ export const Modal: React.FC<ModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-[#0D1117]/80 backdrop-blur-sm transition-opacity duration-200"
+        className="fixed inset-0 bg-canvas/80 backdrop-blur-sm transition-opacity duration-200"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -116,39 +116,39 @@ export const Modal: React.FC<ModalProps> = ({
       {/* Modal Card */}
       <div
         ref={modalRef}
-        className={`relative w-full ${maxWidthClass} bg-[#161B22] border border-[#30363D] rounded-lg shadow-2xl overflow-hidden transform transition-all z-10 my-auto`}
+        className={`relative w-full ${maxWidthClass} bg-surface border border-border rounded-lg shadow-2xl overflow-hidden transform transition-all z-10 my-auto`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
       >
         {/* Header Banner */}
-        <div className="flex items-start justify-between px-6 py-5 border-b border-[#30363D] bg-[#161B22]">
+        <div className="flex items-start justify-between px-6 py-5 border-b border-border bg-surface">
           <div>
             <div className="flex items-center gap-2">
-              <h3 id={titleId} className="text-base font-bold tracking-tight text-[#F0F6FC]">
+              <h3 id={titleId} className="text-base font-bold tracking-tight text-text-primary">
                 {title}
               </h3>
               {badge && (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/30">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-accent/10 text-accent border border-accent/30">
                   {badge}
                 </span>
               )}
             </div>
             {subtitle && (
-              <p className="text-xs text-[#8B949E] mt-1 leading-relaxed font-mono">
+              <p className="text-xs text-text-muted mt-1 leading-relaxed font-mono">
                 {subtitle}
               </p>
             )}
           </div>
 
           <div className="flex items-center gap-2 ml-4">
-            <span className="hidden sm:inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#21262D] text-[#8B949E] border border-[#30363D]">
+            <span className="hidden sm:inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-elevated text-text-muted border border-border">
               ESC
             </span>
             <button
               onClick={onClose}
-              className="p-1.5 text-[#8B949E] hover:text-[#F0F6FC] hover:bg-[#21262D] rounded-md transition-colors cursor-pointer"
+              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-elevated rounded-md transition-colors cursor-pointer"
               aria-label="Close dialog"
             >
               <X className="w-4 h-4" />
