@@ -56,19 +56,10 @@ jobs:
         run: |
           docker exec $(docker ps --filter "ancestor=postgres:16-alpine" -q | head -n 1) psql -U postgres -c "CREATE DATABASE university_db;" || true
 
-      - name: Compile all modules
-        run: mvn -B clean test-compile -DskipTests
-
-      - name: Run tests
-        run: mvn -B test
+      - name: Maven Build and Verify
+        run: mvn -B clean verify
         env:
           TESTCONTAINERS_RYUK_DISABLED: "false"
-
-      - name: Package project
-        run: mvn -B package -DskipTests
-
-      - name: Verify dependency hierarchy
-        run: mvn -B dependency:analyze -DfailOnWarning=false
 
       - name: Publish test results
         uses: mikepenz/action-junit-report@v4
