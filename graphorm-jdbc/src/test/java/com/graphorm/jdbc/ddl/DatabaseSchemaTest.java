@@ -121,4 +121,28 @@ class DatabaseSchemaTest {
         assertThat(fk.targetColumns()).containsExactly("id");
         assertThat(fk.onDelete()).isEqualTo(ReferentialAction.CASCADE);
     }
+
+    @Test
+    @DisplayName("Should quote unquoted string default values in ColumnDefinition")
+    void shouldQuoteStringDefaultValues() {
+        ModelMetadata itemModel = ModelMetadata.builder("Item")
+                .tableName("items")
+                .addField(FieldMetadata.builder("id", Integer.class).primaryKey(true).generated(true).defaultValue("autoincrement()").build())
+                .addField(FieldMetadata.builder("status", String.class).nullable(false).defaultValue("ACTIVE").build())
+                .addField(FieldMetadata.builder("count", Integer.class).nullable(false).defaultValue("0").build())
+                .addField(FieldMetadata.builder("active", Boolean.class).nullable(false).defaultValue("true").build())
+                .addPrimaryKeyField("id")
+                .build();
+
+        ModelRegistry registry = ModelRegistry.builder()
+                .addModel(itemModel)
+                .build();
+
+        DatabaseSchema schema = DatabaseSchema.fromModelRegistry(registry);
+        TableDefinition table = schema.findTable("items").orElseThrow();
+
+        assertThat(table.findColumn("status").orElseThrow().defaultValue()).isEqualTo("'ACTIVE'");
+        assertThat(table.findColumn("count").orElseThrow().defaultValue()).isEqualTo("0");
+        assertThat(table.findColumn("active").orElseThrow().defaultValue()).isEqualTo("TRUE");
+    }
 }

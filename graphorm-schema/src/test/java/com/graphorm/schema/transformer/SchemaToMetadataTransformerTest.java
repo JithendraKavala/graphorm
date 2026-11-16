@@ -308,4 +308,30 @@ class SchemaToMetadataTransformerTest {
         assertThat(summaryView.hasAuthRoles()).isTrue();
         assertThat(summaryView.authRoles()).containsExactly("AUDITOR");
     }
+
+    @Test
+    @DisplayName("Verify literal defaults (Int, Float, Boolean, String) are extracted as clean strings without AST node artifacts")
+    void shouldTransformDefaultLiteralValuesAccurately() {
+        String schema = """
+                datasource db {
+                    provider = "postgresql"
+                }
+
+                model Item {
+                    id     Int     @id @default(autoincrement())
+                    count  Int     @default(0)
+                    price  Float   @default(9.99)
+                    active Boolean @default(true)
+                    status String  @default("ACTIVE")
+                }
+                """;
+
+        ModelRegistry registry = SchemaToMetadataTransformer.transform(schema);
+        ModelMetadata item = registry.getModel("Item");
+
+        assertThat(item.getField("count").defaultValue()).isEqualTo("0");
+        assertThat(item.getField("price").defaultValue()).isEqualTo("9.99");
+        assertThat(item.getField("active").defaultValue()).isEqualTo("true");
+        assertThat(item.getField("status").defaultValue()).isEqualTo("ACTIVE");
+    }
 }

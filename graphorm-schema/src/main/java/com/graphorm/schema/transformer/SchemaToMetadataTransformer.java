@@ -558,6 +558,12 @@ public final class SchemaToMetadataTransformer {
             return ident.name();
         } else if (expr instanceof QualifiedIdentifierNode qid) {
             return qid.asQualifiedString();
+        } else if (expr instanceof IntLiteralNode intLit) {
+            return String.valueOf(intLit.value());
+        } else if (expr instanceof FloatLiteralNode floatLit) {
+            return String.valueOf(floatLit.value());
+        } else if (expr instanceof BooleanLiteralNode boolLit) {
+            return String.valueOf(boolLit.value());
         }
         return expr != null ? expr.toString() : null;
     }

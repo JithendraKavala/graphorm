@@ -104,6 +104,10 @@ public record DatabaseSchema(
                         defaultVal = "CURRENT_TIMESTAMP";
                     } else if (raw.equalsIgnoreCase("true") || raw.equalsIgnoreCase("false")) {
                         defaultVal = raw.toUpperCase(Locale.ROOT);
+                    } else if (("String".equals(field.typeName()) || String.class.equals(field.javaType())
+                            || sqlType.startsWith("VARCHAR") || sqlType.equals("TEXT"))
+                            && !raw.startsWith("'") && !raw.endsWith("()")) {
+                        defaultVal = "'" + raw.replace("'", "''") + "'";
                     } else {
                         defaultVal = raw;
                     }
