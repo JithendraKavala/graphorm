@@ -464,6 +464,7 @@ public final class SchemaToMetadataTransformer {
                 .orElse(name);
 
         String defaultValue = null;
+        DefaultValue defaultValueDefinition = null;
         boolean isGenerated = false;
         Optional<FieldAttributeNode> defaultAttr = field.defaultAttribute();
         if (defaultAttr.isPresent()) {
@@ -471,12 +472,44 @@ public final class SchemaToMetadataTransformer {
             if (valOpt.isPresent()) {
                 ExpressionNode valNode = valOpt.get();
                 if (valNode instanceof FunctionCallNode func) {
-                    defaultValue = func.functionName() + "()";
+                    defaultValue = extractStringValue(func);
                     if ("autoincrement".equalsIgnoreCase(func.functionName())) {
                         isGenerated = true;
                     }
+                    defaultValueDefinition = DefaultValue.ofExpression(defaultValue);
+                } else if (valNode instanceof StringLiteralNode str) {
+                    defaultValue = str.value();
+                    defaultValueDefinition = DefaultValue.ofString(str.value());
+                } else if (valNode instanceof IntLiteralNode intLit) {
+                    defaultValue = extractStringValue(intLit);
+                    defaultValueDefinition = DefaultValue.ofNumeric(defaultValue);
+                } else if (valNode instanceof FloatLiteralNode floatLit) {
+                    defaultValue = extractStringValue(floatLit);
+                    defaultValueDefinition = DefaultValue.ofNumeric(defaultValue);
+                } else if (valNode instanceof BooleanLiteralNode boolLit) {
+                    defaultValue = extractStringValue(boolLit);
+                    defaultValueDefinition = DefaultValue.ofBoolean(boolLit.value());
+                } else if (valNode instanceof IdentifierNode ident) {
+                    String identName = ident.name();
+                    if ("null".equalsIgnoreCase(identName)) {
+                        defaultValue = "NULL";
+                        defaultValueDefinition = DefaultValue.ofNull();
+                    } else if ("true".equalsIgnoreCase(identName) || "false".equalsIgnoreCase(identName)) {
+                        boolean b = Boolean.parseBoolean(identName);
+                        defaultValue = String.valueOf(b);
+                        defaultValueDefinition = DefaultValue.ofBoolean(b);
+                    } else if (isSqlExpressionKeyword(identName)) {
+                        defaultValue = identName;
+                        defaultValueDefinition = DefaultValue.ofExpression(identName);
+                    } else {
+                        defaultValue = identName;
+                        defaultValueDefinition = DefaultValue.ofString(identName);
+                    }
                 } else {
                     defaultValue = extractStringValue(valNode);
+                    if (defaultValue != null) {
+                        defaultValueDefinition = DefaultValue.from(defaultValue, javaType, typeName);
+                    }
                 }
             }
         }
@@ -547,11 +580,27 @@ public final class SchemaToMetadataTransformer {
                 isInjected,
                 injectedFrom,
                 isVersion,
-                isTenant
+                isTenant,
+                defaultValueDefinition
         );
     }
 
-    private static String extractStringValue(ExpressionNode expr) {
+    private static final Set<String> SQL_EXPRESSION_KEYWORDS = Set.of(
+            "CURRENT_TIMESTAMP",
+            "CURRENT_DATE",
+            "CURRENT_TIME",
+            "LOCALTIMESTAMP",
+            "LOCALTIME"
+    );
+
+    private static boolean isSqlExpressionKeyword(String name) {
+        return name != null && SQL_EXPRESSION_KEYWORDS.contains(name.toUpperCase(Locale.ROOT));
+    }
+
+    public static String extractStringValue(ExpressionNode expr) {
+        if (expr == null) {
+            return null;
+        }
         if (expr instanceof StringLiteralNode str) {
             return str.value();
         } else if (expr instanceof IdentifierNode ident) {
@@ -559,13 +608,36 @@ public final class SchemaToMetadataTransformer {
         } else if (expr instanceof QualifiedIdentifierNode qid) {
             return qid.asQualifiedString();
         } else if (expr instanceof IntLiteralNode intLit) {
-            return String.valueOf(intLit.value());
+            return intLit.rawText() != null ? intLit.rawText() : String.valueOf(intLit.value());
         } else if (expr instanceof FloatLiteralNode floatLit) {
-            return String.valueOf(floatLit.value());
+            return floatLit.rawText() != null ? floatLit.rawText() : String.valueOf(floatLit.value());
         } else if (expr instanceof BooleanLiteralNode boolLit) {
             return String.valueOf(boolLit.value());
+        } else if (expr instanceof FunctionCallNode func) {
+            if (func.arguments().isEmpty()) {
+                return func.functionName() + "()";
+            }
+            StringBuilder sb = new StringBuilder(func.functionName()).append("(");
+            for (int i = 0; i < func.arguments().size(); i++) {
+                if (i > 0) sb.append(", ");
+                ArgumentNode arg = func.arguments().get(i);
+                if (arg.isNamed()) {
+                    sb.append(arg.name()).append(": ");
+                }
+                sb.append(extractStringValue(arg.value()));
+            }
+            sb.append(")");
+            return sb.toString();
+        } else if (expr instanceof ArrayLiteralNode arr) {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < arr.elements().size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(extractStringValue(arr.elements().get(i)));
+            }
+            sb.append("]");
+            return sb.toString();
         }
-        return expr != null ? expr.toString() : null;
+        return expr.toString();
     }
 
     private static List<String> extractStringList(ExpressionNode expr) {
