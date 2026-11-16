@@ -1,5 +1,8 @@
 package com.graphorm.jdbc.ddl;
 
+import com.graphorm.core.metadata.DefaultValue;
+import com.graphorm.jdbc.dialect.SqlDialect;
+import com.graphorm.jdbc.dialect.PostgreSqlDialect;
 import com.graphorm.core.metadata.EnumMetadata;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.IndexMetadata;
@@ -72,7 +75,20 @@ public record DatabaseSchema(
      * @return the corresponding DatabaseSchema
      */
     public static DatabaseSchema fromModelRegistry(ModelRegistry registry) {
+        return fromModelRegistry(registry, new PostgreSqlDialect());
+    }
+
+    /**
+     * Translates an immutable {@link ModelRegistry} into an abstract {@link DatabaseSchema} using
+     * the specified database dialect for SQL type and default-value rendering.
+     *
+     * @param registry the compiled model registry
+     * @param dialect  the SQL dialect to use for rendering defaults and SQL types
+     * @return the corresponding DatabaseSchema
+     */
+    public static DatabaseSchema fromModelRegistry(ModelRegistry registry, SqlDialect dialect) {
         Objects.requireNonNull(registry, "ModelRegistry must not be null");
+        Objects.requireNonNull(dialect, "SqlDialect must not be null");
 
         Map<String, List<String>> enums = new LinkedHashMap<>();
         for (EnumMetadata enumMeta : registry.getAllEnums()) {
@@ -98,18 +114,12 @@ public record DatabaseSchema(
                         || (field.defaultValue() != null && field.defaultValue().toLowerCase(Locale.ROOT).contains("autoincrement"));
 
                 String defaultVal = null;
-                if (!isGen && field.defaultValue() != null && !field.defaultValue().isBlank()) {
-                    String raw = field.defaultValue().trim();
-                    if (raw.equalsIgnoreCase("now()") || raw.equalsIgnoreCase("current_timestamp")) {
-                        defaultVal = "CURRENT_TIMESTAMP";
-                    } else if (raw.equalsIgnoreCase("true") || raw.equalsIgnoreCase("false")) {
-                        defaultVal = raw.toUpperCase(Locale.ROOT);
-                    } else if (("String".equals(field.typeName()) || String.class.equals(field.javaType())
-                            || sqlType.startsWith("VARCHAR") || sqlType.equals("TEXT"))
-                            && !raw.startsWith("'") && !raw.endsWith("()")) {
-                        defaultVal = "'" + raw.replace("'", "''") + "'";
-                    } else {
-                        defaultVal = raw;
+                if (!isGen) {
+                    if (field.defaultValueDefinition() != null) {
+                        defaultVal = dialect.renderDefaultValue(field.defaultValueDefinition(), field);
+                    } else if (field.defaultValue() != null && !field.defaultValue().isBlank()) {
+                        DefaultValue def = DefaultValue.from(field.defaultValue(), field.javaType(), field.typeName());
+                        defaultVal = dialect.renderDefaultValue(def, field);
                     }
                 }
 
@@ -120,6 +130,7 @@ public record DatabaseSchema(
                         .unique(field.isUnique())
                         .generated(isGen)
                         .defaultValue(defaultVal)
+                        .defaultValueDefinition(field.defaultValueDefinition())
                         .build();
 
                 tableBuilder.addColumn(col);

@@ -1,5 +1,6 @@
 package com.graphorm.jdbc.dialect;
 
+import com.graphorm.core.metadata.DefaultValue;
 import com.graphorm.core.metadata.CheckConstraintMetadata;
 import com.graphorm.core.metadata.IndexMetadata;
 import com.graphorm.core.metadata.IndexType;
@@ -123,5 +124,63 @@ class PostgreSqlDialectDdlTest {
     void shouldBuildAdvisoryLockStatements() {
         assertThat(dialect.buildAdvisoryLockSql(12345678L)).isEqualTo("SELECT pg_advisory_lock(12345678);");
         assertThat(dialect.buildAdvisoryUnlockSql(12345678L)).isEqualTo("SELECT pg_advisory_unlock(12345678);");
+    }
+
+    @Test
+    @DisplayName("Should generate correct PostgreSQL DDL for all supported default value types")
+    void shouldGenerateDdlForAllDefaultValueTypes() {
+        TableDefinition table = TableDefinition.builder("defaults_showcase")
+                .addColumn(ColumnDefinition.builder("id").type("INTEGER").generated(true).primaryKey(true).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("status").type("VARCHAR(50)").defaultValue("'ACTIVE'").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("quote").type("VARCHAR(255)").defaultValue("'John''s'").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("empty").type("VARCHAR(10)").defaultValue("''").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("count").type("INTEGER").defaultValue("0").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("offset").type("INTEGER").defaultValue("-5").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("price").type("NUMERIC(10, 2)").defaultValue("9.99").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("active").type("BOOLEAN").defaultValue("TRUE").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("inactive").type("BOOLEAN").defaultValue("FALSE").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("none").type("TEXT").defaultValue("NULL").nullable(true).build())
+                .addColumn(ColumnDefinition.builder("created_at").type("TIMESTAMPTZ").defaultValue("now()").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("updated_at").type("TIMESTAMPTZ").defaultValue("CURRENT_TIMESTAMP").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("today").type("DATE").defaultValue("CURRENT_DATE").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("token").type("UUID").defaultValue("gen_random_uuid()").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("role").type("\"UserRole\"").defaultValue("'USER'").nullable(false).build())
+                .addPrimaryKeyColumn("id")
+                .build();
+
+        String sql = dialect.buildCreateTableSql(table);
+
+        assertThat(sql).contains("\"id\" SERIAL PRIMARY KEY");
+        assertThat(sql).contains("\"status\" VARCHAR(50) NOT NULL DEFAULT 'ACTIVE'");
+        assertThat(sql).contains("\"quote\" VARCHAR(255) NOT NULL DEFAULT 'John''s'");
+        assertThat(sql).contains("\"empty\" VARCHAR(10) NOT NULL DEFAULT ''");
+        assertThat(sql).contains("\"count\" INTEGER NOT NULL DEFAULT 0");
+        assertThat(sql).contains("\"offset\" INTEGER NOT NULL DEFAULT -5");
+        assertThat(sql).contains("\"price\" NUMERIC(10, 2) NOT NULL DEFAULT 9.99");
+        assertThat(sql).contains("\"active\" BOOLEAN NOT NULL DEFAULT TRUE");
+        assertThat(sql).contains("\"inactive\" BOOLEAN NOT NULL DEFAULT FALSE");
+        assertThat(sql).contains("\"none\" TEXT DEFAULT NULL");
+        assertThat(sql).contains("\"created_at\" TIMESTAMPTZ NOT NULL DEFAULT now()");
+        assertThat(sql).contains("\"updated_at\" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP");
+        assertThat(sql).contains("\"today\" DATE NOT NULL DEFAULT CURRENT_DATE");
+        assertThat(sql).contains("\"token\" UUID NOT NULL DEFAULT gen_random_uuid()");
+        assertThat(sql).contains("\"role\" \"UserRole\" NOT NULL DEFAULT 'USER'");
+    }
+
+    @Test
+    @DisplayName("Should build ALTER TABLE ALTER COLUMN SET DEFAULT with typed DefaultValue")
+    void shouldBuildAlterColumnDefaultWithTypedDefaultValue() {
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "status", DefaultValue.ofString("INACTIVE")))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'INACTIVE';");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "quote", DefaultValue.ofString("It's ok")))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"quote\" SET DEFAULT 'It''s ok';");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "active", DefaultValue.ofBoolean(true)))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"active\" SET DEFAULT TRUE;");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "count", DefaultValue.ofNumeric("100")))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"count\" SET DEFAULT 100;");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "created_at", DefaultValue.ofExpression("CURRENT_TIMESTAMP")))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "none", DefaultValue.ofNull()))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"none\" SET DEFAULT NULL;");
     }
 }

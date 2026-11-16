@@ -1,6 +1,7 @@
 package com.graphorm.jdbc.dialect;
 
 import com.graphorm.core.metadata.CheckConstraintMetadata;
+import com.graphorm.core.metadata.DefaultValue;
 import com.graphorm.core.metadata.FieldMetadata;
 import com.graphorm.core.metadata.IndexMetadata;
 import com.graphorm.core.query.BatchInsertQuery;
@@ -280,9 +281,88 @@ public interface SqlDialect {
     String buildAlterColumnNullabilitySql(String tableName, String columnName, boolean nullable);
 
     /**
+     * Renders a semantic default value as a SQL expression for this dialect.
+     *
+     * @param defaultValue the semantic default value
+     * @param columnType   the physical SQL column type
+     * @return the SQL default clause expression (e.g. "'ACTIVE'", "0", "TRUE", "CURRENT_TIMESTAMP", "NULL")
+     */
+    default String renderDefaultValue(DefaultValue defaultValue, String columnType) {
+        if (defaultValue == null) {
+            return null;
+        }
+        return switch (defaultValue) {
+            case DefaultValue.NullValue n -> "NULL";
+            case DefaultValue.BooleanValue b -> renderBooleanLiteral(b.value());
+            case DefaultValue.NumericValue num -> num.value();
+            case DefaultValue.StringValue s -> renderStringLiteral(s.value());
+            case DefaultValue.ExpressionValue e -> renderExpression(e.expression());
+        };
+    }
+
+    /**
+     * Renders a default value as a SQL expression for this dialect using field metadata context.
+     *
+     * @param defaultValue the semantic default value
+     * @param field        the field metadata
+     * @return the SQL default clause expression
+     */
+    default String renderDefaultValue(DefaultValue defaultValue, FieldMetadata field) {
+        String colType = field != null ? field.typeName() : null;
+        return renderDefaultValue(defaultValue, colType);
+    }
+
+    /**
+     * Formats a boolean literal for SQL DDL.
+     *
+     * @param value boolean value
+     * @return formatted SQL boolean literal
+     */
+    default String renderBooleanLiteral(boolean value) {
+        return value ? "TRUE" : "FALSE";
+    }
+
+    /**
+     * Formats a string literal for SQL DDL, safely escaping single quotes and preventing double-quoting.
+     *
+     * @param value unquoted or quoted string value
+     * @return safely quoted SQL string literal
+     */
+    default String renderStringLiteral(String value) {
+        if (value == null) {
+            return "NULL";
+        }
+        // Do not double-quote already quoted string literals
+        if (value.startsWith("'") && value.endsWith("'") && value.length() >= 2) {
+            return value;
+        }
+        return "'" + value.replace("'", "''") + "'";
+    }
+
+    /**
+     * Formats a SQL expression default value for this dialect.
+     *
+     * @param expression the raw SQL expression
+     * @return formatted SQL expression
+     */
+    default String renderExpression(String expression) {
+        if (expression == null || expression.isBlank()) {
+            return null;
+        }
+        return expression.trim();
+    }
+
+    /**
      * Generates an ALTER TABLE ... ALTER COLUMN ... SET DEFAULT SQL statement.
      */
     String buildAlterColumnDefaultSql(String tableName, String columnName, String defaultValue);
+
+    /**
+     * Generates an ALTER TABLE ... ALTER COLUMN ... SET DEFAULT SQL statement with typed DefaultValue.
+     */
+    default String buildAlterColumnDefaultSql(String tableName, String columnName, DefaultValue defaultValue) {
+        return buildAlterColumnDefaultSql(tableName, columnName, renderDefaultValue(defaultValue, (String) null));
+    }
 
     /**
      * Generates an ALTER TABLE ... ALTER COLUMN ... DROP DEFAULT SQL statement.

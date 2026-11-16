@@ -1,5 +1,6 @@
 package com.graphorm.jdbc.ddl;
 
+import com.graphorm.core.metadata.DefaultValue;
 import com.graphorm.core.metadata.CheckConstraintMetadata;
 import com.graphorm.core.metadata.EnumMetadata;
 import com.graphorm.core.metadata.FieldMetadata;
@@ -123,26 +124,83 @@ class DatabaseSchemaTest {
     }
 
     @Test
-    @DisplayName("Should quote unquoted string default values in ColumnDefinition")
-    void shouldQuoteStringDefaultValues() {
+    @DisplayName("Should correctly map and render all default value types in ColumnDefinition")
+    void shouldRenderAllDefaultValueTypesInColumnDefinition() {
+        EnumMetadata roleEnum = EnumMetadata.builder("Role")
+                .values("USER", "ADMIN")
+                .build();
+
         ModelMetadata itemModel = ModelMetadata.builder("Item")
                 .tableName("items")
+                // Autoincrement
                 .addField(FieldMetadata.builder("id", Integer.class).primaryKey(true).generated(true).defaultValue("autoincrement()").build())
-                .addField(FieldMetadata.builder("status", String.class).nullable(false).defaultValue("ACTIVE").build())
-                .addField(FieldMetadata.builder("count", Integer.class).nullable(false).defaultValue("0").build())
-                .addField(FieldMetadata.builder("active", Boolean.class).nullable(false).defaultValue("true").build())
+                // Ordinary string
+                .addField(FieldMetadata.builder("status", String.class).nullable(false).defaultValue(DefaultValue.ofString("ACTIVE")).build())
+                // String with apostrophe
+                .addField(FieldMetadata.builder("quote", String.class).nullable(false).defaultValue(DefaultValue.ofString("John's")).build())
+                // Empty string
+                .addField(FieldMetadata.builder("empty", String.class).nullable(false).defaultValue(DefaultValue.ofString("")).build())
+                // Numerics
+                .addField(FieldMetadata.builder("count", Integer.class).nullable(false).defaultValue(DefaultValue.ofNumeric("0")).build())
+                .addField(FieldMetadata.builder("offset", Integer.class).nullable(false).defaultValue(DefaultValue.ofNumeric("-5")).build())
+                .addField(FieldMetadata.builder("price", Double.class).nullable(false).defaultValue(DefaultValue.ofNumeric("9.99")).build())
+                .addField(FieldMetadata.builder("negFloat", Double.class).nullable(false).defaultValue(DefaultValue.ofNumeric("-3.14")).build())
+                // Booleans
+                .addField(FieldMetadata.builder("active", Boolean.class).nullable(false).defaultValue(DefaultValue.ofBoolean(true)).build())
+                .addField(FieldMetadata.builder("inactive", Boolean.class).nullable(false).defaultValue(DefaultValue.ofBoolean(false)).build())
+                // Null
+                .addField(FieldMetadata.builder("none", String.class).nullable(true).defaultValue(DefaultValue.ofNull()).build())
+                // Expressions
+                .addField(FieldMetadata.builder("createdAt", java.time.Instant.class).nullable(false).defaultValue(DefaultValue.ofExpression("now()")).build())
+                .addField(FieldMetadata.builder("updatedAt", java.time.Instant.class).nullable(false).defaultValue(DefaultValue.ofExpression("CURRENT_TIMESTAMP")).build())
+                .addField(FieldMetadata.builder("today", java.time.LocalDate.class).nullable(false).defaultValue(DefaultValue.ofExpression("CURRENT_DATE")).build())
+                .addField(FieldMetadata.builder("token", String.class).nullable(false).defaultValue(DefaultValue.ofExpression("gen_random_uuid()")).build())
+                // Enum defaults
+                .addField(FieldMetadata.builder("role").typeName("Role").nullable(false).defaultValue(DefaultValue.ofString("USER")).build())
+                // Already represented string literal (legacy/fallback)
+                .addField(FieldMetadata.builder("legacyQuoted", String.class).nullable(false).defaultValue("'ACTIVE'").build())
                 .addPrimaryKeyField("id")
                 .build();
 
         ModelRegistry registry = ModelRegistry.builder()
+                .addEnum(roleEnum)
                 .addModel(itemModel)
                 .build();
 
         DatabaseSchema schema = DatabaseSchema.fromModelRegistry(registry);
         TableDefinition table = schema.findTable("items").orElseThrow();
 
+        // Autoincrement: isGenerated=true, defaultValue=null
+        ColumnDefinition idCol = table.findColumn("id").orElseThrow();
+        assertThat(idCol.isGenerated()).isTrue();
+        assertThat(idCol.defaultValue()).isNull();
+
+        // Strings
         assertThat(table.findColumn("status").orElseThrow().defaultValue()).isEqualTo("'ACTIVE'");
+        assertThat(table.findColumn("quote").orElseThrow().defaultValue()).isEqualTo("'John''s'");
+        assertThat(table.findColumn("empty").orElseThrow().defaultValue()).isEqualTo("''");
+        assertThat(table.findColumn("legacyQuoted").orElseThrow().defaultValue()).isEqualTo("'ACTIVE'");
+
+        // Numerics (unquoted)
         assertThat(table.findColumn("count").orElseThrow().defaultValue()).isEqualTo("0");
+        assertThat(table.findColumn("offset").orElseThrow().defaultValue()).isEqualTo("-5");
+        assertThat(table.findColumn("price").orElseThrow().defaultValue()).isEqualTo("9.99");
+        assertThat(table.findColumn("negFloat").orElseThrow().defaultValue()).isEqualTo("-3.14");
+
+        // Booleans (TRUE / FALSE)
         assertThat(table.findColumn("active").orElseThrow().defaultValue()).isEqualTo("TRUE");
+        assertThat(table.findColumn("inactive").orElseThrow().defaultValue()).isEqualTo("FALSE");
+
+        // Null (unquoted NULL)
+        assertThat(table.findColumn("none").orElseThrow().defaultValue()).isEqualTo("NULL");
+
+        // Expressions (unquoted expressions)
+        assertThat(table.findColumn("createdAt").orElseThrow().defaultValue()).isEqualTo("now()");
+        assertThat(table.findColumn("updatedAt").orElseThrow().defaultValue()).isEqualTo("CURRENT_TIMESTAMP");
+        assertThat(table.findColumn("today").orElseThrow().defaultValue()).isEqualTo("CURRENT_DATE");
+        assertThat(table.findColumn("token").orElseThrow().defaultValue()).isEqualTo("gen_random_uuid()");
+
+        // Enum default (quoted string for PostgreSQL enum)
+        assertThat(table.findColumn("role").orElseThrow().defaultValue()).isEqualTo("'USER'");
     }
 }
