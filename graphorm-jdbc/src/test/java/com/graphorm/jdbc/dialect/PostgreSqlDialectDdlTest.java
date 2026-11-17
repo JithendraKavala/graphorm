@@ -1,5 +1,6 @@
 package com.graphorm.jdbc.dialect;
 
+import com.graphorm.core.metadata.DefaultValue;
 import com.graphorm.core.metadata.CheckConstraintMetadata;
 import com.graphorm.core.metadata.IndexMetadata;
 import com.graphorm.core.metadata.IndexType;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("PostgreSqlDialect DDL Generation Unit Tests")
 class PostgreSqlDialectDdlTest {
@@ -123,5 +125,198 @@ class PostgreSqlDialectDdlTest {
     void shouldBuildAdvisoryLockStatements() {
         assertThat(dialect.buildAdvisoryLockSql(12345678L)).isEqualTo("SELECT pg_advisory_lock(12345678);");
         assertThat(dialect.buildAdvisoryUnlockSql(12345678L)).isEqualTo("SELECT pg_advisory_unlock(12345678);");
+    }
+
+    @Test
+    @DisplayName("Should generate correct PostgreSQL DDL for all supported default value types")
+    void shouldGenerateDdlForAllDefaultValueTypes() {
+        TableDefinition table = TableDefinition.builder("defaults_showcase")
+                .addColumn(ColumnDefinition.builder("id").type("INTEGER").generated(true).primaryKey(true).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("status").type("VARCHAR(50)").defaultValue("'ACTIVE'").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("quote").type("VARCHAR(255)").defaultValue("'John''s'").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("empty").type("VARCHAR(10)").defaultValue("''").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("count").type("INTEGER").defaultValue("0").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("offset").type("INTEGER").defaultValue("-5").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("price").type("NUMERIC(10, 2)").defaultValue("9.99").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("active").type("BOOLEAN").defaultValue("TRUE").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("inactive").type("BOOLEAN").defaultValue("FALSE").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("none").type("TEXT").defaultValue("NULL").nullable(true).build())
+                .addColumn(ColumnDefinition.builder("created_at").type("TIMESTAMPTZ").defaultValue("now()").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("updated_at").type("TIMESTAMPTZ").defaultValue("CURRENT_TIMESTAMP").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("today").type("DATE").defaultValue("CURRENT_DATE").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("token").type("UUID").defaultValue("gen_random_uuid()").nullable(false).build())
+                .addColumn(ColumnDefinition.builder("role").type("\"UserRole\"").defaultValue("'USER'").nullable(false).build())
+                // Columns created with typed DefaultValue directly (verifying dialect rendering from defaultValueDefinition)
+                .addColumn(ColumnDefinition.builder("str_null").type("VARCHAR(50)").defaultValueDefinition(DefaultValue.ofString("null")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("str_true").type("VARCHAR(50)").defaultValueDefinition(DefaultValue.ofString("true")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("str_false").type("VARCHAR(50)").defaultValueDefinition(DefaultValue.ofString("false")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("scientific").type("REAL").defaultValueDefinition(DefaultValue.ofNumeric("1.5e-3")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("exp_large").type("REAL").defaultValueDefinition(DefaultValue.ofNumeric("1e5")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("typed_null").type("TEXT").defaultValueDefinition(DefaultValue.ofNull()).nullable(true).build())
+                .addColumn(ColumnDefinition.builder("typed_active").type("BOOLEAN").defaultValueDefinition(DefaultValue.ofBoolean(true)).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("typed_func").type("VARCHAR(100)").defaultValueDefinition(DefaultValue.ofExpression("concat('USER-', 42)")).nullable(false).build())
+                .addPrimaryKeyColumn("id")
+                .build();
+
+        String sql = dialect.buildCreateTableSql(table);
+
+        assertThat(sql).contains("\"id\" SERIAL PRIMARY KEY");
+        assertThat(sql).contains("\"status\" VARCHAR(50) NOT NULL DEFAULT 'ACTIVE'");
+        assertThat(sql).contains("\"quote\" VARCHAR(255) NOT NULL DEFAULT 'John''s'");
+        assertThat(sql).contains("\"empty\" VARCHAR(10) NOT NULL DEFAULT ''");
+        assertThat(sql).contains("\"count\" INTEGER NOT NULL DEFAULT 0");
+        assertThat(sql).contains("\"offset\" INTEGER NOT NULL DEFAULT -5");
+        assertThat(sql).contains("\"price\" NUMERIC(10, 2) NOT NULL DEFAULT 9.99");
+        assertThat(sql).contains("\"active\" BOOLEAN NOT NULL DEFAULT TRUE");
+        assertThat(sql).contains("\"inactive\" BOOLEAN NOT NULL DEFAULT FALSE");
+        assertThat(sql).contains("\"none\" TEXT DEFAULT NULL");
+        assertThat(sql).contains("\"created_at\" TIMESTAMPTZ NOT NULL DEFAULT now()");
+        assertThat(sql).contains("\"updated_at\" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP");
+        assertThat(sql).contains("\"today\" DATE NOT NULL DEFAULT CURRENT_DATE");
+        assertThat(sql).contains("\"token\" UUID NOT NULL DEFAULT gen_random_uuid()");
+        assertThat(sql).contains("\"role\" \"UserRole\" NOT NULL DEFAULT 'USER'");
+        assertThat(sql).contains("\"str_null\" VARCHAR(50) NOT NULL DEFAULT 'null'");
+        assertThat(sql).contains("\"str_true\" VARCHAR(50) NOT NULL DEFAULT 'true'");
+        assertThat(sql).contains("\"str_false\" VARCHAR(50) NOT NULL DEFAULT 'false'");
+        assertThat(sql).contains("\"scientific\" REAL NOT NULL DEFAULT 1.5e-3");
+        assertThat(sql).contains("\"exp_large\" REAL NOT NULL DEFAULT 1e5");
+        assertThat(sql).contains("\"typed_null\" TEXT DEFAULT NULL");
+        assertThat(sql).contains("\"typed_active\" BOOLEAN NOT NULL DEFAULT TRUE");
+        assertThat(sql).contains("\"typed_func\" VARCHAR(100) NOT NULL DEFAULT concat('USER-', 42)");
+    }
+
+    @Test
+    @DisplayName("Should build ALTER TABLE ALTER COLUMN SET DEFAULT with typed DefaultValue")
+    void shouldBuildAlterColumnDefaultWithTypedDefaultValue() {
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "status", DefaultValue.ofString("INACTIVE")))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'INACTIVE';");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "quote", DefaultValue.ofString("It's ok")))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"quote\" SET DEFAULT 'It''s ok';");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "active", DefaultValue.ofBoolean(true)))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"active\" SET DEFAULT TRUE;");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "count", DefaultValue.ofNumeric("100")))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"count\" SET DEFAULT 100;");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "created_at", DefaultValue.ofExpression("CURRENT_TIMESTAMP")))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;");
+        assertThat(dialect.buildAlterColumnDefaultSql("users", "none", DefaultValue.ofNull()))
+                .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"none\" SET DEFAULT NULL;");
+    }
+
+    @Test
+    @DisplayName("Should render string literals safely without quote-detection heuristics")
+    void shouldRenderStringLiteralsSafelyWithoutQuoteHeuristics() {
+        // John's book -> 'John''s book'
+        assertThat(dialect.renderStringLiteral("John's book")).isEqualTo("'John''s book'");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString("John's book"), "VARCHAR(255)")).isEqualTo("'John''s book'");
+
+        // Empty string -> ''
+        assertThat(dialect.renderStringLiteral("")).isEqualTo("''");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString(""), "VARCHAR(10)")).isEqualTo("''");
+
+        // String containing only a single quote -> ''''
+        assertThat(dialect.renderStringLiteral("'")).isEqualTo("''''");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString("'"), "VARCHAR(10)")).isEqualTo("''''");
+
+        // String that already looks quoted, such as 'ACTIVE', must be escaped and quoted as string content
+        assertThat(dialect.renderStringLiteral("'ACTIVE'")).isEqualTo("'''ACTIVE'''");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString("'ACTIVE'"), "VARCHAR(50)")).isEqualTo("'''ACTIVE'''");
+
+        // Malicious-looking string such as ' OR 1=1 --, which must remain a safely quoted string literal
+        assertThat(dialect.renderStringLiteral("' OR 1=1 --")).isEqualTo("''' OR 1=1 --'");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString("' OR 1=1 --"), "VARCHAR(100)")).isEqualTo("''' OR 1=1 --'");
+
+        // Unicode support
+        assertThat(dialect.renderStringLiteral("Café ☕ 日本語")).isEqualTo("'Café ☕ 日本語'");
+
+        // Null handling
+        assertThat(dialect.renderStringLiteral(null)).isEqualTo("NULL");
+
+        // Keep raw SQL expressions separate from string literals
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofExpression("CURRENT_TIMESTAMP"), "TIMESTAMPTZ")).isEqualTo("CURRENT_TIMESTAMP");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofExpression("now()"), "TIMESTAMPTZ")).isEqualTo("now()");
+    }
+
+    @Test
+    @DisplayName("Should translate schema expressions into valid PostgreSQL dialect syntax")
+    void shouldTranslateExpressionsForPostgreSql() {
+        // Named arguments: days: 7, hours: 12 -> days => 7, hours => 12
+        assertThat(dialect.renderExpression("make_interval(days: 7, hours: 12)"))
+                .isEqualTo("make_interval(days => 7, hours => 12)");
+
+        // Array literals: [...] -> ARRAY[...]
+        assertThat(dialect.renderExpression("['admin', 'user', 'guest''s']"))
+                .isEqualTo("ARRAY['admin', 'user', 'guest''s']");
+
+        // Nested function calls
+        assertThat(dialect.renderExpression("coalesce(nullif(status, 'PENDING'), 'UNKNOWN')"))
+                .isEqualTo("coalesce(nullif(status, 'PENDING'), 'UNKNOWN')");
+
+        // Nested function call containing named arguments
+        assertThat(dialect.renderExpression("outer_func(inner_func(days: 7))"))
+                .isEqualTo("outer_func(inner_func(days => 7))");
+
+        // Nested function call containing array
+        assertThat(dialect.renderExpression("any(['a', 'b'])"))
+                .isEqualTo("any(ARRAY['a', 'b'])");
+
+        // Function call with multiple argument types
+        assertThat(dialect.renderExpression("record_event('order_created', 100, 29.99, TRUE, user_id)"))
+                .isEqualTo("record_event('order_created', 100, 29.99, TRUE, user_id)");
+
+        // String arguments containing apostrophes
+        assertThat(dialect.renderExpression("greet('John''s book')"))
+                .isEqualTo("greet('John''s book')");
+
+        // String argument containing colon (must not be treated as named argument separator)
+        assertThat(dialect.renderExpression("format_str('time: 12:00', 42)"))
+                .isEqualTo("format_str('time: 12:00', 42)");
+    }
+
+    @Test
+    @DisplayName("Should reject malformed expressions, trailing tokens, and syntax errors with IllegalArgumentException")
+    void shouldRejectMalformedExpressionsInPostgres() {
+        // Trailing tokens (e.g. a + b)
+        assertThatThrownBy(() -> dialect.renderExpression("a + b"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unexpected trailing token");
+
+        assertThatThrownBy(() -> dialect.renderExpression("now() + INTERVAL '1 day'"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unexpected trailing token");
+
+        // Unclosed string literal
+        assertThatThrownBy(() -> dialect.renderExpression("'unclosed string"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unclosed string literal");
+
+        assertThatThrownBy(() -> dialect.renderExpression("concat('unclosed)"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unclosed string literal");
+
+        // Unclosed parentheses
+        assertThatThrownBy(() -> dialect.renderExpression("concat('a', 42"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unclosed parenthesis");
+
+        // Unclosed array literal
+        assertThatThrownBy(() -> dialect.renderExpression("['a', 'b'"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unclosed array literal");
+
+        // Missing argument values / trailing commas
+        assertThatThrownBy(() -> dialect.renderExpression("concat('a', )"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> dialect.renderExpression("['a', ]"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // Missing value for named argument
+        assertThatThrownBy(() -> dialect.renderExpression("func(name:)"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Missing value for named argument");
+
+        assertThatThrownBy(() -> dialect.renderExpression("func(name: , other: 1)"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Missing value for named argument");
     }
 }

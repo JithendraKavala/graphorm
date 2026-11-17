@@ -278,10 +278,10 @@ public final class GraphOrmAstVisitor extends GraphOrmBaseVisitor<AstNode> {
         String text = numCtx.getText();
         if (numCtx.FLOAT_LITERAL() != null) {
             double val = Double.parseDouble(text);
-            return new FloatLiteralNode(SourcePosition.from(ctx), val);
+            return new FloatLiteralNode(SourcePosition.from(ctx), val, text);
         } else {
             long val = Long.parseLong(text);
-            return new IntLiteralNode(SourcePosition.from(ctx), val);
+            return new IntLiteralNode(SourcePosition.from(ctx), val, text);
         }
     }
 

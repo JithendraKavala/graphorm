@@ -190,4 +190,20 @@ class ModelRegistryTest {
         assertThat(completed).isTrue();
         assertThat(successCounter.get()).isEqualTo(threadCount * operationsPerThread);
     }
+    @Test
+    @DisplayName("Should preserve deterministic registration order of models and entities")
+    void shouldPreserveDeterministicRegistrationOrder() {
+        var builder = ModelRegistry.builder();
+        List<String> modelNames = List.of("Tenant", "User", "Category", "Product", "Variant", "Warehouse", "Inventory", "Customer", "Order", "Shipment");
+        for (String name : modelNames) {
+            builder.addModel(ModelMetadata.builder(name).build());
+        }
+        ModelRegistry registry = builder.build();
+
+        List<String> actualNames = registry.getAllModels().stream()
+                .map(ModelMetadata::name)
+                .toList();
+
+        assertThat(actualNames).containsExactlyElementsOf(modelNames);
+    }
 }

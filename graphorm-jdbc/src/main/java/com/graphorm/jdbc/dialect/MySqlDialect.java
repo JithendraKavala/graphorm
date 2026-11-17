@@ -417,8 +417,9 @@ public class MySqlDialect implements SqlDialect {
                 colSb.append(" NOT NULL");
             }
 
-            if (col.defaultValue() != null && !col.isGenerated() && !col.defaultValue().isBlank()) {
-                colSb.append(" DEFAULT ").append(col.defaultValue());
+            String defaultClause = renderColumnDefault(col);
+            if (defaultClause != null && !defaultClause.isBlank()) {
+                colSb.append(" DEFAULT ").append(defaultClause);
             }
 
             if (singlePk && col.isPrimaryKey()) {
@@ -471,8 +472,9 @@ public class MySqlDialect implements SqlDialect {
         if (!column.isNullable()) {
             sb.append(" NOT NULL");
         }
-        if (column.defaultValue() != null && !column.isGenerated() && !column.defaultValue().isBlank()) {
-            sb.append(" DEFAULT ").append(column.defaultValue());
+        String defaultClause = renderColumnDefault(column);
+        if (defaultClause != null && !defaultClause.isBlank()) {
+            sb.append(" DEFAULT ").append(defaultClause);
         }
         if (column.isUnique()) {
             sb.append(" UNIQUE");
@@ -593,5 +595,13 @@ public class MySqlDialect implements SqlDialect {
     @Override
     public String buildAdvisoryUnlockSql(long lockKey) {
         return "SELECT RELEASE_LOCK('graphorm_lock_" + lockKey + "');";
+    }
+
+    @Override
+    public String renderExpression(String expression) {
+        if (expression == null || expression.isBlank()) {
+            return null;
+        }
+        return SqlExpressionTranslator.translateToMySql(expression);
     }
 }

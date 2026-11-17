@@ -25,10 +25,10 @@ public final class ModelRegistry {
     private final Map<String, EntityMetadata> allEntities;
 
     private ModelRegistry(Builder builder) {
-        this.models = Map.copyOf(builder.models);
-        this.viewModels = Map.copyOf(builder.viewModels);
-        this.compositeTypes = Map.copyOf(builder.compositeTypes);
-        this.enums = Map.copyOf(builder.enums);
+        this.models = Collections.unmodifiableMap(new LinkedHashMap<>(builder.models));
+        this.viewModels = Collections.unmodifiableMap(new LinkedHashMap<>(builder.viewModels));
+        this.compositeTypes = Collections.unmodifiableMap(new LinkedHashMap<>(builder.compositeTypes));
+        this.enums = Collections.unmodifiableMap(new LinkedHashMap<>(builder.enums));
 
         Map<String, EntityMetadata> combined = new LinkedHashMap<>();
         combined.putAll(this.models);

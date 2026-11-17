@@ -464,6 +464,7 @@ public final class SchemaToMetadataTransformer {
                 .orElse(name);
 
         String defaultValue = null;
+        DefaultValue defaultValueDefinition = null;
         boolean isGenerated = false;
         Optional<FieldAttributeNode> defaultAttr = field.defaultAttribute();
         if (defaultAttr.isPresent()) {
@@ -471,12 +472,51 @@ public final class SchemaToMetadataTransformer {
             if (valOpt.isPresent()) {
                 ExpressionNode valNode = valOpt.get();
                 if (valNode instanceof FunctionCallNode func) {
-                    defaultValue = func.functionName() + "()";
                     if ("autoincrement".equalsIgnoreCase(func.functionName())) {
                         isGenerated = true;
+                        defaultValue = "autoincrement()";
+                        defaultValueDefinition = DefaultValue.ofExpression(defaultValue);
+                    } else {
+                        defaultValue = serializeSqlExpression(func);
+                        defaultValueDefinition = DefaultValue.ofExpression(defaultValue);
                     }
+                } else if (valNode instanceof StringLiteralNode str) {
+                    defaultValue = str.value();
+                    defaultValueDefinition = DefaultValue.ofString(str.value());
+                } else if (valNode instanceof IntLiteralNode intLit) {
+                    defaultValue = intLit.rawText() != null ? intLit.rawText() : String.valueOf(intLit.value());
+                    defaultValueDefinition = DefaultValue.ofNumeric(defaultValue);
+                } else if (valNode instanceof FloatLiteralNode floatLit) {
+                    defaultValue = floatLit.rawText() != null ? floatLit.rawText() : String.valueOf(floatLit.value());
+                    defaultValueDefinition = DefaultValue.ofNumeric(defaultValue);
+                } else if (valNode instanceof BooleanLiteralNode boolLit) {
+                    defaultValue = String.valueOf(boolLit.value());
+                    defaultValueDefinition = DefaultValue.ofBoolean(boolLit.value());
+                } else if (valNode instanceof IdentifierNode ident) {
+                    String identName = ident.name();
+                    if ("null".equalsIgnoreCase(identName)) {
+                        defaultValue = "NULL";
+                        defaultValueDefinition = DefaultValue.ofNull();
+                    } else if ("true".equalsIgnoreCase(identName) || "false".equalsIgnoreCase(identName)) {
+                        boolean b = Boolean.parseBoolean(identName);
+                        defaultValue = String.valueOf(b);
+                        defaultValueDefinition = DefaultValue.ofBoolean(b);
+                    } else if (isSqlExpressionKeyword(identName)) {
+                        String keyword = identName.toUpperCase(Locale.ROOT);
+                        defaultValue = keyword;
+                        defaultValueDefinition = DefaultValue.ofExpression(keyword);
+                    } else {
+                        defaultValue = identName;
+                        defaultValueDefinition = DefaultValue.ofString(identName);
+                    }
+                } else if (valNode instanceof ArrayLiteralNode arr) {
+                    defaultValue = serializeSqlExpression(arr);
+                    defaultValueDefinition = DefaultValue.ofExpression(defaultValue);
                 } else {
                     defaultValue = extractStringValue(valNode);
+                    if (defaultValue != null) {
+                        defaultValueDefinition = DefaultValue.from(defaultValue, javaType, typeName);
+                    }
                 }
             }
         }
@@ -547,11 +587,79 @@ public final class SchemaToMetadataTransformer {
                 isInjected,
                 injectedFrom,
                 isVersion,
-                isTenant
+                isTenant,
+                defaultValueDefinition
         );
     }
 
-    private static String extractStringValue(ExpressionNode expr) {
+    private static final Set<String> SQL_EXPRESSION_KEYWORDS = Set.of(
+            "CURRENT_TIMESTAMP",
+            "CURRENT_DATE",
+            "CURRENT_TIME",
+            "LOCALTIMESTAMP",
+            "LOCALTIME"
+    );
+
+    private static boolean isSqlExpressionKeyword(String name) {
+        return name != null && SQL_EXPRESSION_KEYWORDS.contains(name.toUpperCase(Locale.ROOT));
+    }
+
+    /**
+     * Serializes an AST ExpressionNode into a valid SQL expression representation preserving string quoting and numeric formatting.
+     */
+    public static String serializeSqlExpression(AstNode expr) {
+        if (expr == null) {
+            return null;
+        }
+        if (expr instanceof StringLiteralNode str) {
+            return "'" + str.value().replace("'", "''") + "'";
+        } else if (expr instanceof IntLiteralNode intLit) {
+            return intLit.rawText() != null ? intLit.rawText() : String.valueOf(intLit.value());
+        } else if (expr instanceof FloatLiteralNode floatLit) {
+            return floatLit.rawText() != null ? floatLit.rawText() : String.valueOf(floatLit.value());
+        } else if (expr instanceof BooleanLiteralNode boolLit) {
+            return boolLit.value() ? "TRUE" : "FALSE";
+        } else if (expr instanceof IdentifierNode ident) {
+            String name = ident.name();
+            if ("null".equalsIgnoreCase(name)) {
+                return "NULL";
+            } else if ("true".equalsIgnoreCase(name) || "false".equalsIgnoreCase(name)) {
+                return name.toUpperCase(Locale.ROOT);
+            }
+            return name;
+        } else if (expr instanceof QualifiedIdentifierNode qid) {
+            return qid.asQualifiedString();
+        } else if (expr instanceof FunctionCallNode func) {
+            if (func.arguments().isEmpty()) {
+                return func.functionName() + "()";
+            }
+            StringBuilder sb = new StringBuilder(func.functionName()).append("(");
+            for (int i = 0; i < func.arguments().size(); i++) {
+                if (i > 0) sb.append(", ");
+                ArgumentNode arg = func.arguments().get(i);
+                if (arg.isNamed()) {
+                    sb.append(arg.name()).append(": ");
+                }
+                sb.append(serializeSqlExpression(arg.value()));
+            }
+            sb.append(")");
+            return sb.toString();
+        } else if (expr instanceof ArrayLiteralNode arr) {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < arr.elements().size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(serializeSqlExpression(arr.elements().get(i)));
+            }
+            sb.append("]");
+            return sb.toString();
+        }
+        throw new IllegalArgumentException("Unsupported expression AST node for SQL serialization: " + expr.getClass().getName());
+    }
+
+    public static String extractStringValue(AstNode expr) {
+        if (expr == null) {
+            return null;
+        }
         if (expr instanceof StringLiteralNode str) {
             return str.value();
         } else if (expr instanceof IdentifierNode ident) {
@@ -559,13 +667,17 @@ public final class SchemaToMetadataTransformer {
         } else if (expr instanceof QualifiedIdentifierNode qid) {
             return qid.asQualifiedString();
         } else if (expr instanceof IntLiteralNode intLit) {
-            return String.valueOf(intLit.value());
+            return intLit.rawText() != null ? intLit.rawText() : String.valueOf(intLit.value());
         } else if (expr instanceof FloatLiteralNode floatLit) {
-            return String.valueOf(floatLit.value());
+            return floatLit.rawText() != null ? floatLit.rawText() : String.valueOf(floatLit.value());
         } else if (expr instanceof BooleanLiteralNode boolLit) {
             return String.valueOf(boolLit.value());
+        } else if (expr instanceof FunctionCallNode func) {
+            return serializeSqlExpression(func);
+        } else if (expr instanceof ArrayLiteralNode arr) {
+            return serializeSqlExpression(arr);
         }
-        return expr != null ? expr.toString() : null;
+        throw new IllegalArgumentException("Unsupported expression AST node for string extraction: " + expr.getClass().getName());
     }
 
     private static List<String> extractStringList(ExpressionNode expr) {

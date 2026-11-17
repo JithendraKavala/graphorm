@@ -7,11 +7,19 @@ import java.util.Objects;
  */
 public record FloatLiteralNode(
         SourcePosition position,
-        double value
+        double value,
+        String rawText
 ) implements ExpressionNode {
 
     public FloatLiteralNode {
         Objects.requireNonNull(position, "position must not be null");
+        if (rawText == null) {
+            rawText = String.valueOf(value);
+        }
+    }
+
+    public FloatLiteralNode(SourcePosition position, double value) {
+        this(position, value, String.valueOf(value));
     }
 
     @Override

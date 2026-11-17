@@ -1,5 +1,8 @@
 package com.graphorm.schema.transformer;
 
+import com.graphorm.schema.ast.*;
+import java.util.List;
+
 import com.graphorm.core.exception.ReadOnlyViewException;
 import com.graphorm.core.metadata.*;
 import com.graphorm.core.query.*;
@@ -310,28 +313,231 @@ class SchemaToMetadataTransformerTest {
     }
 
     @Test
-    @DisplayName("Verify literal defaults (Int, Float, Boolean, String) are extracted as clean strings without AST node artifacts")
+    @DisplayName("Verify literal defaults (Int, Float, Boolean, String, Expressions, Null) are extracted into typed DefaultValue")
     void shouldTransformDefaultLiteralValuesAccurately() {
         String schema = """
                 datasource db {
                     provider = "postgresql"
                 }
 
+                enum Role {
+                    USER
+                    ADMIN
+                }
+
                 model Item {
-                    id     Int     @id @default(autoincrement())
-                    count  Int     @default(0)
-                    price  Float   @default(9.99)
-                    active Boolean @default(true)
-                    status String  @default("ACTIVE")
+                    id        Int      @id @default(autoincrement())
+                    count     Int      @default(0)
+                    offset    Int      @default(-5)
+                    price     Float    @default(9.99)
+                    negFloat  Float    @default(-3.14)
+                    active    Boolean  @default(true)
+                    inactive  Boolean  @default(false)
+                    status    String   @default("ACTIVE")
+                    author    String   @default("John's")
+                    empty     String   @default("")
+                    role      Role     @default(USER)
+                    none      String?  @default(null)
+                    createdAt DateTime @default(now())
+                    updatedAt DateTime @default(CURRENT_TIMESTAMP)
+                    today     DateTime @default(CURRENT_DATE)
+                    token     String   @default(gen_random_uuid())
                 }
                 """;
 
         ModelRegistry registry = SchemaToMetadataTransformer.transform(schema);
         ModelMetadata item = registry.getModel("Item");
 
+        // Autoincrement
+        assertThat(item.getField("id").defaultValue()).isEqualTo("autoincrement()");
+        assertThat(item.getField("id").isGenerated()).isTrue();
+        assertThat(item.getField("id").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("autoincrement()"));
+
+        // Integers
         assertThat(item.getField("count").defaultValue()).isEqualTo("0");
+        assertThat(item.getField("count").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("0"));
+        assertThat(item.getField("offset").defaultValue()).isEqualTo("-5");
+        assertThat(item.getField("offset").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("-5"));
+
+        // Floats
         assertThat(item.getField("price").defaultValue()).isEqualTo("9.99");
+        assertThat(item.getField("price").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("9.99"));
+        assertThat(item.getField("negFloat").defaultValue()).isEqualTo("-3.14");
+        assertThat(item.getField("negFloat").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("-3.14"));
+
+        // Booleans
         assertThat(item.getField("active").defaultValue()).isEqualTo("true");
+        assertThat(item.getField("active").defaultValueDefinition()).isEqualTo(new DefaultValue.BooleanValue(true));
+        assertThat(item.getField("inactive").defaultValue()).isEqualTo("false");
+        assertThat(item.getField("inactive").defaultValueDefinition()).isEqualTo(new DefaultValue.BooleanValue(false));
+
+        // Strings
         assertThat(item.getField("status").defaultValue()).isEqualTo("ACTIVE");
+        assertThat(item.getField("status").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("ACTIVE"));
+        assertThat(item.getField("author").defaultValue()).isEqualTo("John's");
+        assertThat(item.getField("author").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("John's"));
+        assertThat(item.getField("empty").defaultValue()).isEqualTo("");
+        assertThat(item.getField("empty").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue(""));
+
+        // Enum identifier
+        assertThat(item.getField("role").defaultValue()).isEqualTo("USER");
+        assertThat(item.getField("role").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("USER"));
+
+        // Null identifier
+        assertThat(item.getField("none").defaultValue()).isEqualTo("NULL");
+        assertThat(item.getField("none").defaultValueDefinition()).isEqualTo(new DefaultValue.NullValue());
+
+        // Expressions
+        assertThat(item.getField("createdAt").defaultValue()).isEqualTo("now()");
+        assertThat(item.getField("createdAt").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("now()"));
+        assertThat(item.getField("updatedAt").defaultValue()).isEqualTo("CURRENT_TIMESTAMP");
+        assertThat(item.getField("updatedAt").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("CURRENT_TIMESTAMP"));
+        assertThat(item.getField("today").defaultValue()).isEqualTo("CURRENT_DATE");
+        assertThat(item.getField("today").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("CURRENT_DATE"));
+        assertThat(item.getField("token").defaultValue()).isEqualTo("gen_random_uuid()");
+        assertThat(item.getField("token").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("gen_random_uuid()"));
+    }
+
+    @Test
+    @DisplayName("extractStringValue should handle all literal, identifier, and expression AST nodes")
+    void shouldExtractStringValueFromAllAstNodes() {
+        SourcePosition pos = SourcePosition.of(1, 1);
+
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new StringLiteralNode(pos, "hello"))).isEqualTo("hello");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new IntLiteralNode(pos, 42L, "42"))).isEqualTo("42");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new IntLiteralNode(pos, -10L, "-10"))).isEqualTo("-10");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new FloatLiteralNode(pos, 9.99, "9.99"))).isEqualTo("9.99");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new FloatLiteralNode(pos, -0.5, "-0.5"))).isEqualTo("-0.5");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new BooleanLiteralNode(pos, true))).isEqualTo("true");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new BooleanLiteralNode(pos, false))).isEqualTo("false");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new IdentifierNode(pos, "status"))).isEqualTo("status");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new QualifiedIdentifierNode(pos, List.of("user", "name")))).isEqualTo("user.name");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new FunctionCallNode(pos, "now", List.of()))).isEqualTo("now()");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new FunctionCallNode(pos, "concat", List.of(new ArgumentNode(pos, null, new StringLiteralNode(pos, "a")))))).isEqualTo("concat('a')");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("serializeSqlExpression should serialize valid SQL expressions for all node types and reject unsupported nodes")
+    void shouldSerializeSqlExpressionsAccurately() {
+        SourcePosition pos = SourcePosition.of(1, 1);
+
+        // concat('USER-', 42)
+        FunctionCallNode concatFunc = new FunctionCallNode(pos, "concat", List.of(
+                ArgumentNode.positional(pos, new StringLiteralNode(pos, "USER-")),
+                ArgumentNode.positional(pos, new IntLiteralNode(pos, 42L, "42"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(concatFunc)).isEqualTo("concat('USER-', 42)");
+
+        // Function calls containing multiple arguments of different types
+        FunctionCallNode multiTypeFunc = new FunctionCallNode(pos, "record_event", List.of(
+                ArgumentNode.positional(pos, new StringLiteralNode(pos, "order_created")),
+                ArgumentNode.positional(pos, new IntLiteralNode(pos, 100L, "100")),
+                ArgumentNode.positional(pos, new FloatLiteralNode(pos, 29.99, "29.99")),
+                ArgumentNode.positional(pos, new BooleanLiteralNode(pos, true)),
+                ArgumentNode.positional(pos, new IdentifierNode(pos, "user_id"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(multiTypeFunc))
+                .isEqualTo("record_event('order_created', 100, 29.99, TRUE, user_id)");
+
+        // Nested function calls
+        FunctionCallNode nestedFunc = new FunctionCallNode(pos, "coalesce", List.of(
+                ArgumentNode.positional(pos, new FunctionCallNode(pos, "nullif", List.of(
+                        ArgumentNode.positional(pos, new IdentifierNode(pos, "status")),
+                        ArgumentNode.positional(pos, new StringLiteralNode(pos, "PENDING"))
+                ))),
+                ArgumentNode.positional(pos, new StringLiteralNode(pos, "UNKNOWN"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(nestedFunc))
+                .isEqualTo("coalesce(nullif(status, 'PENDING'), 'UNKNOWN')");
+
+        // String arguments containing apostrophes
+        FunctionCallNode apostropheFunc = new FunctionCallNode(pos, "greet", List.of(
+                ArgumentNode.positional(pos, new StringLiteralNode(pos, "John's book"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(apostropheFunc))
+                .isEqualTo("greet('John''s book')");
+
+        // Named arguments: emitted as schema-neutral name: value
+        FunctionCallNode namedArgFunc = new FunctionCallNode(pos, "make_interval", List.of(
+                ArgumentNode.named(pos, "days", new IntLiteralNode(pos, 7L, "7")),
+                ArgumentNode.named(pos, "hours", new IntLiteralNode(pos, 12L, "12"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(namedArgFunc))
+                .isEqualTo("make_interval(days: 7, hours: 12)");
+
+        // Array/list expressions: emitted as schema-neutral [...]
+        ArrayLiteralNode arrayExpr = new ArrayLiteralNode(pos, List.of(
+                new StringLiteralNode(pos, "admin"),
+                new StringLiteralNode(pos, "user"),
+                new StringLiteralNode(pos, "guest's")
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(arrayExpr))
+                .isEqualTo("['admin', 'user', 'guest''s']");
+
+        // Unsupported expressions producing clear errors
+        AstNode unsupportedNode = new AstNode() {
+            @Override
+            public SourcePosition position() {
+                return pos;
+            }
+
+            @Override
+            public <R> R accept(AstVisitor<R> visitor) {
+                return null;
+            }
+        };
+        assertThatThrownBy(() -> SchemaToMetadataTransformer.serializeSqlExpression(unsupportedNode))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Unsupported expression AST node for SQL serialization: ");
+
+        assertThatThrownBy(() -> SchemaToMetadataTransformer.extractStringValue(unsupportedNode))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Unsupported expression AST node for string extraction: ");
+    }
+
+    @Test
+    @DisplayName("Verify edge case string literals (\"null\", \"true\", \"false\"), exponent notation, and expressions with typed arguments")
+    void shouldTransformEdgeCaseDefaultsAccurately() {
+        String schema = """
+                datasource db {
+                    provider = "postgresql"
+                }
+
+                model EdgeCases {
+                    id         Int      @id @default(autoincrement())
+                    strNull    String   @default("null")
+                    strTrue    String   @default("true")
+                    strFalse   String   @default("false")
+                    scientific Float    @default(1.5e-3)
+                    expLarge   Float    @default(1e5)
+                    negExp     Float    @default(-3.14e-2)
+                    prefixed   String   @default(concat("USER-", 42))
+                    curDate    DateTime @default(CURRENT_DATE)
+                    curTs      DateTime @default(CURRENT_TIMESTAMP)
+                    uuid       String   @default(gen_random_uuid())
+                }
+                """;
+
+        ModelRegistry registry = SchemaToMetadataTransformer.transform(schema);
+        ModelMetadata model = registry.getModel("EdgeCases");
+
+        // String "null", "true", "false" remain strings
+        assertThat(model.getField("strNull").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("null"));
+        assertThat(model.getField("strTrue").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("true"));
+        assertThat(model.getField("strFalse").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("false"));
+
+        // Exponent notation numeric preservation
+        assertThat(model.getField("scientific").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("1.5e-3"));
+        assertThat(model.getField("expLarge").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("1e5"));
+        assertThat(model.getField("negExp").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("-3.14e-2"));
+
+        // Function call with typed string and numeric arguments
+        assertThat(model.getField("prefixed").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("concat('USER-', 42)"));
+
+        // Expressions
+        assertThat(model.getField("curDate").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("CURRENT_DATE"));
+        assertThat(model.getField("curTs").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("CURRENT_TIMESTAMP"));
+        assertThat(model.getField("uuid").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("gen_random_uuid()"));
     }
 }

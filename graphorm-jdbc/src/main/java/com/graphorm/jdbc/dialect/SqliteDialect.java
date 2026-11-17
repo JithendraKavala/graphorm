@@ -346,8 +346,9 @@ public class SqliteDialect implements SqlDialect {
                 if (!col.isNullable() && !(singlePk && col.isPrimaryKey())) {
                     colSb.append(" NOT NULL");
                 }
-                if (col.defaultValue() != null && !col.isGenerated() && !col.defaultValue().isBlank()) {
-                    colSb.append(" DEFAULT ").append(col.defaultValue());
+                String defaultClause = renderColumnDefault(col);
+                if (defaultClause != null && !defaultClause.isBlank()) {
+                    colSb.append(" DEFAULT ").append(defaultClause);
                 }
                 if (singlePk && col.isPrimaryKey()) {
                     colSb.append(" PRIMARY KEY");
@@ -395,14 +396,20 @@ public class SqliteDialect implements SqlDialect {
         if (!column.isNullable()) {
             sb.append(" NOT NULL");
         }
-        if (column.defaultValue() != null && !column.isGenerated() && !column.defaultValue().isBlank()) {
-            sb.append(" DEFAULT ").append(column.defaultValue());
+        String defaultClause = renderColumnDefault(column);
+        if (defaultClause != null && !defaultClause.isBlank()) {
+            sb.append(" DEFAULT ").append(defaultClause);
         }
         if (column.isUnique()) {
             sb.append(" UNIQUE");
         }
         sb.append(";");
         return sb.toString();
+    }
+
+    @Override
+    public String renderBooleanLiteral(boolean value) {
+        return value ? "1" : "0";
     }
 
     @Override
@@ -494,5 +501,13 @@ public class SqliteDialect implements SqlDialect {
     @Override
     public String buildAdvisoryUnlockSql(long lockKey) {
         return "SELECT 1;";
+    }
+
+    @Override
+    public String renderExpression(String expression) {
+        if (expression == null || expression.isBlank()) {
+            return null;
+        }
+        return SqlExpressionTranslator.translateToSqlite(expression);
     }
 }

@@ -281,4 +281,65 @@ class MySqlDialectTest {
             assertThat(boundSql.parameters()).containsExactly(1);
         }
     }
+
+    @Nested
+    @DisplayName("Expression Translation & Validation Tests")
+    class ExpressionTranslationTests {
+
+        @Test
+        @DisplayName("Should render valid MySQL default expressions")
+        void shouldRenderValidMySqlExpressions() {
+            assertThat(dialect.renderExpression("concat('USER-', 42)")).isEqualTo("concat('USER-', 42)");
+            assertThat(dialect.renderExpression("coalesce(nullif(status, 'PENDING'), 'UNKNOWN')"))
+                    .isEqualTo("coalesce(nullif(status, 'PENDING'), 'UNKNOWN')");
+            assertThat(dialect.renderExpression("now()")).isEqualTo("now()");
+            assertThat(dialect.renderExpression("CURRENT_TIMESTAMP")).isEqualTo("CURRENT_TIMESTAMP");
+            assertThat(dialect.renderExpression("greet('John''s book')")).isEqualTo("greet('John''s book')");
+            assertThat(dialect.renderExpression("format_str('time: 12:00', 42)")).isEqualTo("format_str('time: 12:00', 42)");
+        }
+
+        @Test
+        @DisplayName("Should reject named arguments with UnsupportedOperationException")
+        void shouldRejectNamedArguments() {
+            assertThatThrownBy(() -> dialect.renderExpression("make_interval(days: 7, hours: 12)"))
+                    .isInstanceOf(UnsupportedOperationException.class)
+                    .hasMessageContaining("MySQL dialect does not support named arguments");
+
+            assertThatThrownBy(() -> dialect.renderExpression("outer_func(inner_func(days: 7))"))
+                    .isInstanceOf(UnsupportedOperationException.class)
+                    .hasMessageContaining("MySQL dialect does not support named arguments");
+        }
+
+        @Test
+        @DisplayName("Should reject array literals with UnsupportedOperationException")
+        void shouldRejectArrayLiterals() {
+            assertThatThrownBy(() -> dialect.renderExpression("['admin', 'user']"))
+                    .isInstanceOf(UnsupportedOperationException.class)
+                    .hasMessageContaining("MySQL dialect does not support array literal expressions");
+
+            assertThatThrownBy(() -> dialect.renderExpression("any(['a', 'b'])"))
+                    .isInstanceOf(UnsupportedOperationException.class)
+                    .hasMessageContaining("MySQL dialect does not support array literal expressions");
+        }
+
+        @Test
+        @DisplayName("Should reject malformed expressions and trailing tokens with IllegalArgumentException")
+        void shouldRejectMalformedExpressionsInMySql() {
+            assertThatThrownBy(() -> dialect.renderExpression("a + b"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unexpected trailing token");
+
+            assertThatThrownBy(() -> dialect.renderExpression("'unclosed string"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unclosed string literal");
+
+            assertThatThrownBy(() -> dialect.renderExpression("concat('a', 42"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unclosed parenthesis");
+
+            assertThatThrownBy(() -> dialect.renderExpression("['a', 'b'"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unclosed array literal");
+        }
+    }
 }

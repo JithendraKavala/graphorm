@@ -7,11 +7,19 @@ import java.util.Objects;
  */
 public record IntLiteralNode(
         SourcePosition position,
-        long value
+        long value,
+        String rawText
 ) implements ExpressionNode {
 
     public IntLiteralNode {
         Objects.requireNonNull(position, "position must not be null");
+        if (rawText == null) {
+            rawText = String.valueOf(value);
+        }
+    }
+
+    public IntLiteralNode(SourcePosition position, long value) {
+        this(position, value, String.valueOf(value));
     }
 
     @Override
