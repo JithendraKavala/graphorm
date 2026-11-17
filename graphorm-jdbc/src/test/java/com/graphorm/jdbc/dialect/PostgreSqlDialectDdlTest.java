@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("PostgreSqlDialect DDL Generation Unit Tests")
 class PostgreSqlDialectDdlTest {
@@ -269,5 +270,53 @@ class PostgreSqlDialectDdlTest {
         // String argument containing colon (must not be treated as named argument separator)
         assertThat(dialect.renderExpression("format_str('time: 12:00', 42)"))
                 .isEqualTo("format_str('time: 12:00', 42)");
+    }
+
+    @Test
+    @DisplayName("Should reject malformed expressions, trailing tokens, and syntax errors with IllegalArgumentException")
+    void shouldRejectMalformedExpressionsInPostgres() {
+        // Trailing tokens (e.g. a + b)
+        assertThatThrownBy(() -> dialect.renderExpression("a + b"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unexpected trailing token");
+
+        assertThatThrownBy(() -> dialect.renderExpression("now() + INTERVAL '1 day'"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unexpected trailing token");
+
+        // Unclosed string literal
+        assertThatThrownBy(() -> dialect.renderExpression("'unclosed string"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unclosed string literal");
+
+        assertThatThrownBy(() -> dialect.renderExpression("concat('unclosed)"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unclosed string literal");
+
+        // Unclosed parentheses
+        assertThatThrownBy(() -> dialect.renderExpression("concat('a', 42"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unclosed parenthesis");
+
+        // Unclosed array literal
+        assertThatThrownBy(() -> dialect.renderExpression("['a', 'b'"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unclosed array literal");
+
+        // Missing argument values / trailing commas
+        assertThatThrownBy(() -> dialect.renderExpression("concat('a', )"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> dialect.renderExpression("['a', ]"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // Missing value for named argument
+        assertThatThrownBy(() -> dialect.renderExpression("func(name:)"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Missing value for named argument");
+
+        assertThatThrownBy(() -> dialect.renderExpression("func(name: , other: 1)"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Missing value for named argument");
     }
 }

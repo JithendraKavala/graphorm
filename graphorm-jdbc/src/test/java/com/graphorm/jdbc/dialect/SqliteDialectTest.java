@@ -327,5 +327,38 @@ class SqliteDialectTest {
                     .isInstanceOf(UnsupportedOperationException.class)
                     .hasMessageContaining("SQLite dialect does not support array literal expressions");
         }
+
+        @Test
+        @DisplayName("Should reject malformed expressions and trailing tokens with IllegalArgumentException")
+        void shouldRejectMalformedExpressionsInSqlite() {
+            // Trailing tokens (e.g. a + b)
+            assertThatThrownBy(() -> dialect.renderExpression("a + b"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unexpected trailing token");
+
+            // Unclosed string literal
+            assertThatThrownBy(() -> dialect.renderExpression("'unclosed string"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unclosed string literal");
+
+            // Unclosed parentheses
+            assertThatThrownBy(() -> dialect.renderExpression("concat('a', 42"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unclosed parenthesis");
+
+            // Unclosed array literal
+            assertThatThrownBy(() -> dialect.renderExpression("['a', 'b'"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unclosed array literal");
+
+            // Missing argument / trailing comma
+            assertThatThrownBy(() -> dialect.renderExpression("concat('a', )"))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            // Missing value for named argument
+            assertThatThrownBy(() -> dialect.renderExpression("func(name:)"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Missing value for named argument");
+        }
     }
 }

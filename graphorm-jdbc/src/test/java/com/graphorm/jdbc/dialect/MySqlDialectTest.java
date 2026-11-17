@@ -321,5 +321,25 @@ class MySqlDialectTest {
                     .isInstanceOf(UnsupportedOperationException.class)
                     .hasMessageContaining("MySQL dialect does not support array literal expressions");
         }
+
+        @Test
+        @DisplayName("Should reject malformed expressions and trailing tokens with IllegalArgumentException")
+        void shouldRejectMalformedExpressionsInMySql() {
+            assertThatThrownBy(() -> dialect.renderExpression("a + b"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unexpected trailing token");
+
+            assertThatThrownBy(() -> dialect.renderExpression("'unclosed string"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unclosed string literal");
+
+            assertThatThrownBy(() -> dialect.renderExpression("concat('a', 42"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unclosed parenthesis");
+
+            assertThatThrownBy(() -> dialect.renderExpression("['a', 'b'"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Unclosed array literal");
+        }
     }
 }
