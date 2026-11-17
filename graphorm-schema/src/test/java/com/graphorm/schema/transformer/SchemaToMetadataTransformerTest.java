@@ -413,8 +413,83 @@ class SchemaToMetadataTransformerTest {
         assertThat(SchemaToMetadataTransformer.extractStringValue(new IdentifierNode(pos, "status"))).isEqualTo("status");
         assertThat(SchemaToMetadataTransformer.extractStringValue(new QualifiedIdentifierNode(pos, List.of("user", "name")))).isEqualTo("user.name");
         assertThat(SchemaToMetadataTransformer.extractStringValue(new FunctionCallNode(pos, "now", List.of()))).isEqualTo("now()");
-        assertThat(SchemaToMetadataTransformer.extractStringValue(new FunctionCallNode(pos, "concat", List.of(new ArgumentNode(pos, null, new StringLiteralNode(pos, "a")))))).isEqualTo("concat(a)");
+        assertThat(SchemaToMetadataTransformer.extractStringValue(new FunctionCallNode(pos, "concat", List.of(new ArgumentNode(pos, null, new StringLiteralNode(pos, "a")))))).isEqualTo("concat('a')");
         assertThat(SchemaToMetadataTransformer.extractStringValue(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("serializeSqlExpression should serialize valid SQL expressions for all node types and reject unsupported nodes")
+    void shouldSerializeSqlExpressionsAccurately() {
+        SourcePosition pos = SourcePosition.of(1, 1);
+
+        // concat('USER-', 42)
+        FunctionCallNode concatFunc = new FunctionCallNode(pos, "concat", List.of(
+                ArgumentNode.positional(pos, new StringLiteralNode(pos, "USER-")),
+                ArgumentNode.positional(pos, new IntLiteralNode(pos, 42L, "42"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(concatFunc)).isEqualTo("concat('USER-', 42)");
+
+        // Function calls containing multiple arguments of different types
+        FunctionCallNode multiTypeFunc = new FunctionCallNode(pos, "record_event", List.of(
+                ArgumentNode.positional(pos, new StringLiteralNode(pos, "order_created")),
+                ArgumentNode.positional(pos, new IntLiteralNode(pos, 100L, "100")),
+                ArgumentNode.positional(pos, new FloatLiteralNode(pos, 29.99, "29.99")),
+                ArgumentNode.positional(pos, new BooleanLiteralNode(pos, true)),
+                ArgumentNode.positional(pos, new IdentifierNode(pos, "user_id"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(multiTypeFunc))
+                .isEqualTo("record_event('order_created', 100, 29.99, TRUE, user_id)");
+
+        // Nested function calls
+        FunctionCallNode nestedFunc = new FunctionCallNode(pos, "coalesce", List.of(
+                ArgumentNode.positional(pos, new FunctionCallNode(pos, "nullif", List.of(
+                        ArgumentNode.positional(pos, new IdentifierNode(pos, "status")),
+                        ArgumentNode.positional(pos, new StringLiteralNode(pos, "PENDING"))
+                ))),
+                ArgumentNode.positional(pos, new StringLiteralNode(pos, "UNKNOWN"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(nestedFunc))
+                .isEqualTo("coalesce(nullif(status, 'PENDING'), 'UNKNOWN')");
+
+        // String arguments containing apostrophes
+        FunctionCallNode apostropheFunc = new FunctionCallNode(pos, "greet", List.of(
+                ArgumentNode.positional(pos, new StringLiteralNode(pos, "John's book"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(apostropheFunc))
+                .isEqualTo("greet('John''s book')");
+
+        // Named arguments: emitted as name => value
+        FunctionCallNode namedArgFunc = new FunctionCallNode(pos, "make_interval", List.of(
+                ArgumentNode.named(pos, "days", new IntLiteralNode(pos, 7L, "7")),
+                ArgumentNode.named(pos, "hours", new IntLiteralNode(pos, 12L, "12"))
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(namedArgFunc))
+                .isEqualTo("make_interval(days => 7, hours => 12)");
+
+        // Array/list expressions: emitted as ARRAY[...]
+        ArrayLiteralNode arrayExpr = new ArrayLiteralNode(pos, List.of(
+                new StringLiteralNode(pos, "admin"),
+                new StringLiteralNode(pos, "user"),
+                new StringLiteralNode(pos, "guest's")
+        ));
+        assertThat(SchemaToMetadataTransformer.serializeSqlExpression(arrayExpr))
+                .isEqualTo("ARRAY['admin', 'user', 'guest''s']");
+
+        // Unsupported expressions producing clear errors
+        AstNode unsupportedNode = new AstNode() {
+            @Override
+            public SourcePosition position() {
+                return pos;
+            }
+
+            @Override
+            public <R> R accept(AstVisitor<R> visitor) {
+                return null;
+            }
+        };
+        assertThatThrownBy(() -> SchemaToMetadataTransformer.serializeSqlExpression(unsupportedNode))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Unsupported expression AST node for SQL serialization: ");
     }
 
     @Test

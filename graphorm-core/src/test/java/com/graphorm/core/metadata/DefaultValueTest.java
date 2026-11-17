@@ -117,4 +117,45 @@ class DefaultValueTest {
         assertThat(DefaultValue.from("\"null\"", null)).isEqualTo(new DefaultValue.StringValue("null"));
         assertThat(DefaultValue.from("\"true\"", null)).isEqualTo(new DefaultValue.StringValue("true"));
     }
+
+    @Test
+    @DisplayName("Should correctly infer types for parameterized SQL types and prioritize declared type context")
+    void shouldInferParameterizedSqlTypesAndPrioritizeDeclaredType() {
+        // Parameterized VARCHAR(50): "true" and "123" must be strings, not boolean or numeric
+        assertThat(DefaultValue.from("true", null, "VARCHAR(50)")).isEqualTo(new DefaultValue.StringValue("true"));
+        assertThat(DefaultValue.from("123", null, "VARCHAR(50)")).isEqualTo(new DefaultValue.StringValue("123"));
+
+        // CHAR(10), CHARACTER VARYING(255), NVARCHAR(100), NCHAR(20)
+        assertThat(DefaultValue.from("true", null, "CHAR(10)")).isEqualTo(new DefaultValue.StringValue("true"));
+        assertThat(DefaultValue.from("123", null, "CHAR(10)")).isEqualTo(new DefaultValue.StringValue("123"));
+        assertThat(DefaultValue.from("true", null, "CHARACTER VARYING(255)")).isEqualTo(new DefaultValue.StringValue("true"));
+        assertThat(DefaultValue.from("123", null, "CHARACTER  VARYING ( 255 )")).isEqualTo(new DefaultValue.StringValue("123"));
+        assertThat(DefaultValue.from("123", null, "NVARCHAR(100)")).isEqualTo(new DefaultValue.StringValue("123"));
+        assertThat(DefaultValue.from("true", null, "NCHAR(20)")).isEqualTo(new DefaultValue.StringValue("true"));
+
+        // Numeric types: INTEGER "123" must be numeric
+        assertThat(DefaultValue.from("123", Integer.class, "INTEGER")).isEqualTo(new DefaultValue.NumericValue("123"));
+        assertThat(DefaultValue.from("123", null, "INTEGER")).isEqualTo(new DefaultValue.NumericValue("123"));
+        assertThat(DefaultValue.from("123", null, "INT(11)")).isEqualTo(new DefaultValue.NumericValue("123"));
+        assertThat(DefaultValue.from("9.99", null, "DECIMAL(10, 2)")).isEqualTo(new DefaultValue.NumericValue("9.99"));
+        assertThat(DefaultValue.from("123.45", null, "NUMERIC(8, 4)")).isEqualTo(new DefaultValue.NumericValue("123.45"));
+
+        // Boolean types: BOOLEAN "true" must be boolean
+        assertThat(DefaultValue.from("true", Boolean.class, "BOOLEAN")).isEqualTo(new DefaultValue.BooleanValue(true));
+        assertThat(DefaultValue.from("true", null, "BOOLEAN")).isEqualTo(new DefaultValue.BooleanValue(true));
+        assertThat(DefaultValue.from("false", null, "BOOL")).isEqualTo(new DefaultValue.BooleanValue(false));
+
+        // FieldMetadata builder integration
+        FieldMetadata vTrue = FieldMetadata.builder("vTrue").typeName("VARCHAR(50)").defaultValue("true").build();
+        assertThat(vTrue.defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("true"));
+
+        FieldMetadata vNum = FieldMetadata.builder("vNum").typeName("VARCHAR(50)").defaultValue("123").build();
+        assertThat(vNum.defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("123"));
+
+        FieldMetadata intField = FieldMetadata.builder("num").typeName("INTEGER").defaultValue("123").build();
+        assertThat(intField.defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("123"));
+
+        FieldMetadata boolField = FieldMetadata.builder("flag").typeName("BOOLEAN").defaultValue("true").build();
+        assertThat(boolField.defaultValueDefinition()).isEqualTo(new DefaultValue.BooleanValue(true));
+    }
 }

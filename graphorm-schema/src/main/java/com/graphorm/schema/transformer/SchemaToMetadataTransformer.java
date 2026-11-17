@@ -509,6 +509,9 @@ public final class SchemaToMetadataTransformer {
                         defaultValue = identName;
                         defaultValueDefinition = DefaultValue.ofString(identName);
                     }
+                } else if (valNode instanceof ArrayLiteralNode arr) {
+                    defaultValue = serializeSqlExpression(arr);
+                    defaultValueDefinition = DefaultValue.ofExpression(defaultValue);
                 } else {
                     defaultValue = extractStringValue(valNode);
                     if (defaultValue != null) {
@@ -601,10 +604,10 @@ public final class SchemaToMetadataTransformer {
         return name != null && SQL_EXPRESSION_KEYWORDS.contains(name.toUpperCase(Locale.ROOT));
     }
 
-        /**
+    /**
      * Serializes an AST ExpressionNode into a valid SQL expression representation preserving string quoting and numeric formatting.
      */
-    public static String serializeSqlExpression(ExpressionNode expr) {
+    public static String serializeSqlExpression(AstNode expr) {
         if (expr == null) {
             return null;
         }
@@ -635,14 +638,14 @@ public final class SchemaToMetadataTransformer {
                 if (i > 0) sb.append(", ");
                 ArgumentNode arg = func.arguments().get(i);
                 if (arg.isNamed()) {
-                    sb.append(arg.name()).append(": ");
+                    sb.append(arg.name()).append(" => ");
                 }
                 sb.append(serializeSqlExpression(arg.value()));
             }
             sb.append(")");
             return sb.toString();
         } else if (expr instanceof ArrayLiteralNode arr) {
-            StringBuilder sb = new StringBuilder("[");
+            StringBuilder sb = new StringBuilder("ARRAY[");
             for (int i = 0; i < arr.elements().size(); i++) {
                 if (i > 0) sb.append(", ");
                 sb.append(serializeSqlExpression(arr.elements().get(i)));
@@ -650,7 +653,7 @@ public final class SchemaToMetadataTransformer {
             sb.append("]");
             return sb.toString();
         }
-        return expr.toString();
+        throw new IllegalArgumentException("Unsupported expression AST node for SQL serialization: " + expr.getClass().getName());
     }
 
     public static String extractStringValue(ExpressionNode expr) {
@@ -670,28 +673,9 @@ public final class SchemaToMetadataTransformer {
         } else if (expr instanceof BooleanLiteralNode boolLit) {
             return String.valueOf(boolLit.value());
         } else if (expr instanceof FunctionCallNode func) {
-            if (func.arguments().isEmpty()) {
-                return func.functionName() + "()";
-            }
-            StringBuilder sb = new StringBuilder(func.functionName()).append("(");
-            for (int i = 0; i < func.arguments().size(); i++) {
-                if (i > 0) sb.append(", ");
-                ArgumentNode arg = func.arguments().get(i);
-                if (arg.isNamed()) {
-                    sb.append(arg.name()).append(": ");
-                }
-                sb.append(extractStringValue(arg.value()));
-            }
-            sb.append(")");
-            return sb.toString();
+            return serializeSqlExpression(func);
         } else if (expr instanceof ArrayLiteralNode arr) {
-            StringBuilder sb = new StringBuilder("[");
-            for (int i = 0; i < arr.elements().size(); i++) {
-                if (i > 0) sb.append(", ");
-                sb.append(extractStringValue(arr.elements().get(i)));
-            }
-            sb.append("]");
-            return sb.toString();
+            return serializeSqlExpression(arr);
         }
         return expr.toString();
     }

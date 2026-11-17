@@ -345,18 +345,15 @@ public interface SqlDialect {
     }
 
     /**
-     * Formats a string literal for SQL DDL, safely escaping single quotes and preventing double-quoting.
+     * Formats a string literal for SQL DDL, safely escaping single quotes.
+     * Always wraps raw string content in single quotes, escaping single quotes by doubling them.
      *
-     * @param value unquoted or quoted string value
+     * @param value raw string value
      * @return safely quoted SQL string literal
      */
     default String renderStringLiteral(String value) {
         if (value == null) {
             return "NULL";
-        }
-        // Do not double-quote already quoted string literals
-        if (value.startsWith("'") && value.endsWith("'") && value.length() >= 2) {
-            return value;
         }
         return "'" + value.replace("'", "''") + "'";
     }

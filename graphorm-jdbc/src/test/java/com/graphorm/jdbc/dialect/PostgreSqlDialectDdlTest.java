@@ -200,4 +200,38 @@ class PostgreSqlDialectDdlTest {
         assertThat(dialect.buildAlterColumnDefaultSql("users", "none", DefaultValue.ofNull()))
                 .isEqualTo("ALTER TABLE \"users\" ALTER COLUMN \"none\" SET DEFAULT NULL;");
     }
+
+    @Test
+    @DisplayName("Should render string literals safely without quote-detection heuristics")
+    void shouldRenderStringLiteralsSafelyWithoutQuoteHeuristics() {
+        // John's book -> 'John''s book'
+        assertThat(dialect.renderStringLiteral("John's book")).isEqualTo("'John''s book'");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString("John's book"), "VARCHAR(255)")).isEqualTo("'John''s book'");
+
+        // Empty string -> ''
+        assertThat(dialect.renderStringLiteral("")).isEqualTo("''");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString(""), "VARCHAR(10)")).isEqualTo("''");
+
+        // String containing only a single quote -> ''''
+        assertThat(dialect.renderStringLiteral("'")).isEqualTo("''''");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString("'"), "VARCHAR(10)")).isEqualTo("''''");
+
+        // String that already looks quoted, such as 'ACTIVE', must be escaped and quoted as string content
+        assertThat(dialect.renderStringLiteral("'ACTIVE'")).isEqualTo("'''ACTIVE'''");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString("'ACTIVE'"), "VARCHAR(50)")).isEqualTo("'''ACTIVE'''");
+
+        // Malicious-looking string such as ' OR 1=1 --, which must remain a safely quoted string literal
+        assertThat(dialect.renderStringLiteral("' OR 1=1 --")).isEqualTo("''' OR 1=1 --'");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofString("' OR 1=1 --"), "VARCHAR(100)")).isEqualTo("''' OR 1=1 --'");
+
+        // Unicode support
+        assertThat(dialect.renderStringLiteral("Café ☕ 日本語")).isEqualTo("'Café ☕ 日本語'");
+
+        // Null handling
+        assertThat(dialect.renderStringLiteral(null)).isEqualTo("NULL");
+
+        // Keep raw SQL expressions separate from string literals
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofExpression("CURRENT_TIMESTAMP"), "TIMESTAMPTZ")).isEqualTo("CURRENT_TIMESTAMP");
+        assertThat(dialect.renderDefaultValue(DefaultValue.ofExpression("now()"), "TIMESTAMPTZ")).isEqualTo("now()");
+    }
 }

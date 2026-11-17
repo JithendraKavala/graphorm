@@ -53,20 +53,16 @@ class PostgresDdlDefaultValuesIntegrationTest {
             ds.setPassword(container.getPassword());
             dataSource = ds;
         } else {
-            log.info("Connecting to local PostgreSQL instance on localhost:5432 for DDL Defaults Integration Test...");
-            PGSimpleDataSource ds = new PGSimpleDataSource();
-            ds.setServerNames(new String[]{"localhost"});
-            ds.setPortNumbers(new int[]{5432});
-            ds.setUser("postgres");
-            ds.setPassword("");
-            ds.setDatabaseName("postgres");
-            dataSource = ds;
+            Assumptions.assumeTrue(false, "Docker is not available - skipping PostgreSQL DDL Defaults integration test");
         }
 
         cleanTestEnvironment();
     }
 
     private static void cleanTestEnvironment() throws Exception {
+        if (dataSource == null) {
+            return;
+        }
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
             stmt.execute("DROP TABLE IF EXISTS defaults_verification_items CASCADE;");

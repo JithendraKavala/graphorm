@@ -164,7 +164,7 @@ public sealed interface DefaultValue permits
         if (SQL_EXPRESSIONS.contains(trimmed.toUpperCase(Locale.ROOT))) {
             return new ExpressionValue(trimmed.toUpperCase(Locale.ROOT));
         }
-        // If explicitly a string type and not an expression, string values like "null", "true", "false" remain strings unless SQL "NULL"
+        // Explicit type context takes precedence over content-based heuristic matching
         if (isStringType(javaType, typeName)) {
             if ("NULL".equals(trimmed)) {
                 return new NullValue();
@@ -173,15 +173,24 @@ public sealed interface DefaultValue permits
         }
         // Boolean type context
         if (isBooleanType(javaType, typeName)) {
-            if ("true".equalsIgnoreCase(trimmed) || "false".equalsIgnoreCase(trimmed)) {
-                return new BooleanValue(Boolean.parseBoolean(trimmed));
+            if ("NULL".equalsIgnoreCase(trimmed)) {
+                return new NullValue();
+            }
+            if ("true".equalsIgnoreCase(trimmed) || "1".equals(trimmed)) {
+                return new BooleanValue(true);
+            }
+            if ("false".equalsIgnoreCase(trimmed) || "0".equals(trimmed)) {
+                return new BooleanValue(false);
             }
         }
         // Numeric types
         if (isNumericType(javaType, typeName)) {
+            if ("NULL".equalsIgnoreCase(trimmed)) {
+                return new NullValue();
+            }
             return new NumericValue(trimmed);
         }
-        // Null literal fallback
+        // Untyped / fallback inference when declared type is not specified
         if ("null".equalsIgnoreCase(trimmed)) {
             return new NullValue();
         }
@@ -201,22 +210,44 @@ public sealed interface DefaultValue permits
         return from(raw, javaType, null);
     }
 
+    /**
+     * Normalizes a SQL or schema type name by stripping type parameters/modifiers
+     * (e.g. {@code VARCHAR(50)} -> {@code varchar}, {@code CHARACTER VARYING (255)} -> {@code character varying})
+     * and collapsing whitespace.
+     *
+     * @param typeName raw type name
+     * @return normalized lowercase base type name, or null if typeName is null
+     */
+    static String normalizeTypeName(String typeName) {
+        if (typeName == null) {
+            return null;
+        }
+        String normalized = typeName.trim();
+        int parenIdx = normalized.indexOf('(');
+        if (parenIdx >= 0) {
+            normalized = normalized.substring(0, parenIdx).trim();
+        }
+        return normalized.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
     static boolean isNumericType(Class<?> javaType, String typeName) {
         if (javaType != null) {
-            if (javaType == Integer.class || javaType == int.class
-                    || javaType == Long.class || javaType == long.class
-                    || javaType == Short.class || javaType == short.class
-                    || javaType == Double.class || javaType == double.class
-                    || javaType == Float.class || javaType == float.class
-                    || javaType == java.math.BigDecimal.class
-                    || javaType == java.math.BigInteger.class) {
+            if (Number.class.isAssignableFrom(javaType)
+                    || javaType == int.class
+                    || javaType == long.class
+                    || javaType == short.class
+                    || javaType == byte.class
+                    || javaType == double.class
+                    || javaType == float.class) {
                 return true;
             }
         }
         if (typeName != null) {
-            String lower = typeName.toLowerCase(Locale.ROOT);
-            return switch (lower) {
-                case "int", "integer", "bigint", "smallint", "float", "double", "real", "decimal", "numeric" -> true;
+            String norm = normalizeTypeName(typeName);
+            return switch (norm) {
+                case "int", "integer", "bigint", "smallint", "tinyint",
+                     "float", "double", "double precision", "real",
+                     "decimal", "dec", "numeric" -> true;
                 default -> false;
             };
         }
@@ -224,13 +255,15 @@ public sealed interface DefaultValue permits
     }
 
     static boolean isStringType(Class<?> javaType, String typeName) {
-        if (javaType == String.class) {
+        if (javaType == String.class || javaType == Character.class || javaType == char.class) {
             return true;
         }
         if (typeName != null) {
-            String lower = typeName.toLowerCase(Locale.ROOT);
-            return switch (lower) {
-                case "string", "varchar", "text" -> true;
+            String norm = normalizeTypeName(typeName);
+            return switch (norm) {
+                case "string", "varchar", "char", "character", "character varying",
+                     "nvarchar", "nchar", "national character", "national character varying",
+                     "text", "tinytext", "mediumtext", "longtext", "clob", "nclob", "citext" -> true;
                 default -> false;
             };
         }
@@ -242,8 +275,8 @@ public sealed interface DefaultValue permits
             return true;
         }
         if (typeName != null) {
-            String lower = typeName.toLowerCase(Locale.ROOT);
-            return switch (lower) {
+            String norm = normalizeTypeName(typeName);
+            return switch (norm) {
                 case "bool", "boolean" -> true;
                 default -> false;
             };
