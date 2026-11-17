@@ -313,6 +313,28 @@ public interface SqlDialect {
     }
 
     /**
+     * Renders a column's default value for DDL statements (CREATE TABLE, ADD COLUMN).
+     * Prefers {@link ColumnDefinition#defaultValueDefinition()} if present, falling back
+     * to {@link ColumnDefinition#defaultValue()}.
+     *
+     * @param column the column definition
+     * @return the SQL default clause expression (e.g. "'ACTIVE'", "0", "TRUE", "CURRENT_TIMESTAMP", "NULL"),
+     *         or null if no default
+     */
+    default String renderColumnDefault(ColumnDefinition column) {
+        if (column == null || column.isGenerated()) {
+            return null;
+        }
+        if (column.defaultValueDefinition() != null) {
+            return renderDefaultValue(column.defaultValueDefinition(), column.type());
+        }
+        if (column.defaultValue() != null && !column.defaultValue().isBlank()) {
+            return column.defaultValue();
+        }
+        return null;
+    }
+
+    /**
      * Formats a boolean literal for SQL DDL.
      *
      * @param value boolean value

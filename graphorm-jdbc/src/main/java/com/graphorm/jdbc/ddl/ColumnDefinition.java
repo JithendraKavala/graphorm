@@ -35,6 +35,17 @@ public record ColumnDefinition(
         if (type.isBlank()) {
             throw new IllegalArgumentException("Column type must not be blank");
         }
+        if (isGenerated) {
+            defaultValue = null;
+            defaultValueDefinition = null;
+        } else {
+            if (defaultValueDefinition == null && defaultValue != null && !defaultValue.isBlank()) {
+                defaultValueDefinition = DefaultValue.from(defaultValue, null, type);
+            }
+            if (defaultValue == null && defaultValueDefinition != null) {
+                defaultValue = defaultValueDefinition.asString();
+            }
+        }
     }
 
     /**
@@ -100,13 +111,28 @@ public record ColumnDefinition(
             return this;
         }
 
+        public Builder defaultValue(DefaultValue defaultValueDefinition) {
+            return defaultValueDefinition(defaultValueDefinition);
+        }
+
         public Builder defaultValueDefinition(DefaultValue defaultValueDefinition) {
             this.defaultValueDefinition = defaultValueDefinition;
             return this;
         }
 
         public ColumnDefinition build() {
-            return new ColumnDefinition(name, type, isNullable, isPrimaryKey, isUnique, isGenerated, defaultValue, defaultValueDefinition);
+            if (isGenerated) {
+                return new ColumnDefinition(name, type, isNullable, isPrimaryKey, isUnique, true, null, null);
+            }
+            DefaultValue def = defaultValueDefinition;
+            if (def == null && defaultValue != null && !defaultValue.isBlank()) {
+                def = DefaultValue.from(defaultValue, null, type);
+            }
+            String rawDefault = defaultValue;
+            if (rawDefault == null && def != null) {
+                rawDefault = def.asString();
+            }
+            return new ColumnDefinition(name, type, isNullable, isPrimaryKey, isUnique, isGenerated, rawDefault, def);
         }
     }
 }

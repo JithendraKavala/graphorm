@@ -100,13 +100,21 @@ class DefaultValueTest {
         assertThat(DefaultValue.from("CURRENT_TIMESTAMP", null)).isEqualTo(new DefaultValue.ExpressionValue("CURRENT_TIMESTAMP"));
         assertThat(DefaultValue.from("CURRENT_DATE", null)).isEqualTo(new DefaultValue.ExpressionValue("CURRENT_DATE"));
 
-        // Numerics
+        // Numerics including exponent notation
         assertThat(DefaultValue.from("0", Integer.class)).isEqualTo(new DefaultValue.NumericValue("0"));
         assertThat(DefaultValue.from("9.99", Double.class)).isEqualTo(new DefaultValue.NumericValue("9.99"));
         assertThat(DefaultValue.from("-5", null, "Int")).isEqualTo(new DefaultValue.NumericValue("-5"));
+        assertThat(DefaultValue.from("1.5e-3", null)).isEqualTo(new DefaultValue.NumericValue("1.5e-3"));
+        assertThat(DefaultValue.from("1e5", null)).isEqualTo(new DefaultValue.NumericValue("1e5"));
+        assertThat(DefaultValue.from("-3.14e-2", Double.class)).isEqualTo(new DefaultValue.NumericValue("-3.14e-2"));
 
-        // Strings
+        // Strings (including "null", "true", "false" on string types and double quotes)
         assertThat(DefaultValue.from("ACTIVE", String.class)).isEqualTo(new DefaultValue.StringValue("ACTIVE"));
         assertThat(DefaultValue.from("USER", null, "Role")).isEqualTo(new DefaultValue.StringValue("USER"));
+        assertThat(DefaultValue.from("null", String.class)).isEqualTo(new DefaultValue.StringValue("null"));
+        assertThat(DefaultValue.from("true", String.class)).isEqualTo(new DefaultValue.StringValue("true"));
+        assertThat(DefaultValue.from("false", String.class)).isEqualTo(new DefaultValue.StringValue("false"));
+        assertThat(DefaultValue.from("\"null\"", null)).isEqualTo(new DefaultValue.StringValue("null"));
+        assertThat(DefaultValue.from("\"true\"", null)).isEqualTo(new DefaultValue.StringValue("true"));
     }
 }

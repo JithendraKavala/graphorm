@@ -145,6 +145,15 @@ class PostgreSqlDialectDdlTest {
                 .addColumn(ColumnDefinition.builder("today").type("DATE").defaultValue("CURRENT_DATE").nullable(false).build())
                 .addColumn(ColumnDefinition.builder("token").type("UUID").defaultValue("gen_random_uuid()").nullable(false).build())
                 .addColumn(ColumnDefinition.builder("role").type("\"UserRole\"").defaultValue("'USER'").nullable(false).build())
+                // Columns created with typed DefaultValue directly (verifying dialect rendering from defaultValueDefinition)
+                .addColumn(ColumnDefinition.builder("str_null").type("VARCHAR(50)").defaultValueDefinition(DefaultValue.ofString("null")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("str_true").type("VARCHAR(50)").defaultValueDefinition(DefaultValue.ofString("true")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("str_false").type("VARCHAR(50)").defaultValueDefinition(DefaultValue.ofString("false")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("scientific").type("REAL").defaultValueDefinition(DefaultValue.ofNumeric("1.5e-3")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("exp_large").type("REAL").defaultValueDefinition(DefaultValue.ofNumeric("1e5")).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("typed_null").type("TEXT").defaultValueDefinition(DefaultValue.ofNull()).nullable(true).build())
+                .addColumn(ColumnDefinition.builder("typed_active").type("BOOLEAN").defaultValueDefinition(DefaultValue.ofBoolean(true)).nullable(false).build())
+                .addColumn(ColumnDefinition.builder("typed_func").type("VARCHAR(100)").defaultValueDefinition(DefaultValue.ofExpression("concat('USER-', 42)")).nullable(false).build())
                 .addPrimaryKeyColumn("id")
                 .build();
 
@@ -165,6 +174,14 @@ class PostgreSqlDialectDdlTest {
         assertThat(sql).contains("\"today\" DATE NOT NULL DEFAULT CURRENT_DATE");
         assertThat(sql).contains("\"token\" UUID NOT NULL DEFAULT gen_random_uuid()");
         assertThat(sql).contains("\"role\" \"UserRole\" NOT NULL DEFAULT 'USER'");
+        assertThat(sql).contains("\"str_null\" VARCHAR(50) NOT NULL DEFAULT 'null'");
+        assertThat(sql).contains("\"str_true\" VARCHAR(50) NOT NULL DEFAULT 'true'");
+        assertThat(sql).contains("\"str_false\" VARCHAR(50) NOT NULL DEFAULT 'false'");
+        assertThat(sql).contains("\"scientific\" REAL NOT NULL DEFAULT 1.5e-3");
+        assertThat(sql).contains("\"exp_large\" REAL NOT NULL DEFAULT 1e5");
+        assertThat(sql).contains("\"typed_null\" TEXT DEFAULT NULL");
+        assertThat(sql).contains("\"typed_active\" BOOLEAN NOT NULL DEFAULT TRUE");
+        assertThat(sql).contains("\"typed_func\" VARCHAR(100) NOT NULL DEFAULT concat('USER-', 42)");
     }
 
     @Test

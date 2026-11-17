@@ -108,6 +108,13 @@ class PostgresDdlDefaultValuesIntegrationTest {
                 .addField(FieldMetadata.builder("updatedAt", java.time.Instant.class).dbColumnName("updated_at").nullable(false).defaultValue(DefaultValue.ofExpression("CURRENT_TIMESTAMP")).build())
                 .addField(FieldMetadata.builder("today", java.time.LocalDate.class).nullable(false).defaultValue(DefaultValue.ofExpression("CURRENT_DATE")).build())
                 .addField(FieldMetadata.builder("role").typeName("item_status_role").nullable(false).defaultValue(DefaultValue.ofString("ACTIVE")).build())
+                .addField(FieldMetadata.builder("strNull", String.class).dbColumnName("str_null").nullable(false).defaultValue(DefaultValue.ofString("null")).build())
+                .addField(FieldMetadata.builder("strTrue", String.class).dbColumnName("str_true").nullable(false).defaultValue(DefaultValue.ofString("true")).build())
+                .addField(FieldMetadata.builder("strFalse", String.class).dbColumnName("str_false").nullable(false).defaultValue(DefaultValue.ofString("false")).build())
+                .addField(FieldMetadata.builder("scientific", Double.class).dbColumnName("scientific").nullable(false).defaultValue(DefaultValue.ofNumeric("1.5e-3")).build())
+                .addField(FieldMetadata.builder("expLarge", Double.class).dbColumnName("exp_large").nullable(false).defaultValue(DefaultValue.ofNumeric("1e5")).build())
+                .addField(FieldMetadata.builder("token", java.util.UUID.class).dbColumnName("token").nullable(false).defaultValue(DefaultValue.ofExpression("gen_random_uuid()")).build())
+                .addField(FieldMetadata.builder("prefixed", String.class).dbColumnName("prefixed").nullable(false).defaultValue(DefaultValue.ofExpression("concat('USER-', 42)")).build())
                 .addPrimaryKeyField("id")
                 .build();
 
@@ -146,6 +153,14 @@ class PostgresDdlDefaultValuesIntegrationTest {
                 assertThat(rs.getTimestamp("updated_at")).isNotNull();
                 assertThat(rs.getDate("today")).isNotNull();
                 assertThat(rs.getString("role")).isEqualTo("ACTIVE");
+                assertThat(rs.getString("str_null")).isEqualTo("null");
+                assertThat(rs.getString("str_true")).isEqualTo("true");
+                assertThat(rs.getString("str_false")).isEqualTo("false");
+                assertThat(rs.getDouble("scientific")).isEqualTo(0.0015);
+                assertThat(rs.getDouble("exp_large")).isEqualTo(100000.0);
+                assertThat(rs.getString("token")).isNotNull();
+                assertThat(java.util.UUID.fromString(rs.getString("token"))).isNotNull();
+                assertThat(rs.getString("prefixed")).isEqualTo("USER-42");
             }
         }
     }

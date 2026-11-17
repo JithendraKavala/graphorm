@@ -416,4 +416,49 @@ class SchemaToMetadataTransformerTest {
         assertThat(SchemaToMetadataTransformer.extractStringValue(new FunctionCallNode(pos, "concat", List.of(new ArgumentNode(pos, null, new StringLiteralNode(pos, "a")))))).isEqualTo("concat(a)");
         assertThat(SchemaToMetadataTransformer.extractStringValue(null)).isNull();
     }
+
+    @Test
+    @DisplayName("Verify edge case string literals (\"null\", \"true\", \"false\"), exponent notation, and expressions with typed arguments")
+    void shouldTransformEdgeCaseDefaultsAccurately() {
+        String schema = """
+                datasource db {
+                    provider = "postgresql"
+                }
+
+                model EdgeCases {
+                    id         Int      @id @default(autoincrement())
+                    strNull    String   @default("null")
+                    strTrue    String   @default("true")
+                    strFalse   String   @default("false")
+                    scientific Float    @default(1.5e-3)
+                    expLarge   Float    @default(1e5)
+                    negExp     Float    @default(-3.14e-2)
+                    prefixed   String   @default(concat("USER-", 42))
+                    curDate    DateTime @default(CURRENT_DATE)
+                    curTs      DateTime @default(CURRENT_TIMESTAMP)
+                    uuid       String   @default(gen_random_uuid())
+                }
+                """;
+
+        ModelRegistry registry = SchemaToMetadataTransformer.transform(schema);
+        ModelMetadata model = registry.getModel("EdgeCases");
+
+        // String "null", "true", "false" remain strings
+        assertThat(model.getField("strNull").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("null"));
+        assertThat(model.getField("strTrue").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("true"));
+        assertThat(model.getField("strFalse").defaultValueDefinition()).isEqualTo(new DefaultValue.StringValue("false"));
+
+        // Exponent notation numeric preservation
+        assertThat(model.getField("scientific").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("1.5e-3"));
+        assertThat(model.getField("expLarge").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("1e5"));
+        assertThat(model.getField("negExp").defaultValueDefinition()).isEqualTo(new DefaultValue.NumericValue("-3.14e-2"));
+
+        // Function call with typed string and numeric arguments
+        assertThat(model.getField("prefixed").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("concat('USER-', 42)"));
+
+        // Expressions
+        assertThat(model.getField("curDate").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("CURRENT_DATE"));
+        assertThat(model.getField("curTs").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("CURRENT_TIMESTAMP"));
+        assertThat(model.getField("uuid").defaultValueDefinition()).isEqualTo(new DefaultValue.ExpressionValue("gen_random_uuid()"));
+    }
 }

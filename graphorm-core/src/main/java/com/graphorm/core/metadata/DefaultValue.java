@@ -128,7 +128,7 @@ public sealed interface DefaultValue permits
             "LOCALTIME"
     );
 
-    static final Pattern NUMERIC_PATTERN = Pattern.compile("^-?\\d+(\\.\\d+)?$");
+    static final Pattern NUMERIC_PATTERN = Pattern.compile("^-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$");
 
     /**
      * Parses or infers a {@link DefaultValue} from a string representation and optional type context.
@@ -146,34 +146,54 @@ public sealed interface DefaultValue permits
         if (trimmed.isEmpty()) {
             return new StringValue("");
         }
-        if ("null".equalsIgnoreCase(trimmed)) {
-            return new NullValue();
-        }
-        if ("true".equalsIgnoreCase(trimmed) || "false".equalsIgnoreCase(trimmed)) {
-            return new BooleanValue(Boolean.parseBoolean(trimmed));
-        }
         // Already quoted string literal: 'value' -> unescape '' to '
         if (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length() >= 2) {
             String unquoted = trimmed.substring(1, trimmed.length() - 1).replace("''", "'");
             return new StringValue(unquoted);
         }
-        // Expressions with function calls: e.g. now(), autoincrement(), gen_random_uuid()
+        // Double-quoted string literal: "value" -> unquote
+        if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
+            String unquoted = trimmed.substring(1, trimmed.length() - 1);
+            return new StringValue(unquoted);
+        }
+        // Expressions with function calls: e.g. now(), autoincrement(), gen_random_uuid(), concat(...)
         if (trimmed.endsWith("()") || (trimmed.contains("(") && trimmed.endsWith(")"))) {
             return new ExpressionValue(trimmed);
         }
         // Known SQL date/time expression keywords
         if (SQL_EXPRESSIONS.contains(trimmed.toUpperCase(Locale.ROOT))) {
-            return new ExpressionValue(trimmed);
+            return new ExpressionValue(trimmed.toUpperCase(Locale.ROOT));
+        }
+        // If explicitly a string type and not an expression, string values like "null", "true", "false" remain strings unless SQL "NULL"
+        if (isStringType(javaType, typeName)) {
+            if ("NULL".equals(trimmed)) {
+                return new NullValue();
+            }
+            return new StringValue(trimmed);
+        }
+        // Boolean type context
+        if (isBooleanType(javaType, typeName)) {
+            if ("true".equalsIgnoreCase(trimmed) || "false".equalsIgnoreCase(trimmed)) {
+                return new BooleanValue(Boolean.parseBoolean(trimmed));
+            }
         }
         // Numeric types
         if (isNumericType(javaType, typeName)) {
             return new NumericValue(trimmed);
         }
+        // Null literal fallback
+        if ("null".equalsIgnoreCase(trimmed)) {
+            return new NullValue();
+        }
+        // Boolean literal fallback
+        if ("true".equalsIgnoreCase(trimmed) || "false".equalsIgnoreCase(trimmed)) {
+            return new BooleanValue(Boolean.parseBoolean(trimmed));
+        }
         // Numeric string on untyped field
-        if (NUMERIC_PATTERN.matcher(trimmed).matches() && !isStringType(javaType, typeName)) {
+        if (NUMERIC_PATTERN.matcher(trimmed).matches()) {
             return new NumericValue(trimmed);
         }
-        // String or enum types
+        // String or enum types fallback
         return new StringValue(trimmed);
     }
 
@@ -211,6 +231,20 @@ public sealed interface DefaultValue permits
             String lower = typeName.toLowerCase(Locale.ROOT);
             return switch (lower) {
                 case "string", "varchar", "text" -> true;
+                default -> false;
+            };
+        }
+        return false;
+    }
+
+    static boolean isBooleanType(Class<?> javaType, String typeName) {
+        if (javaType == Boolean.class || javaType == boolean.class) {
+            return true;
+        }
+        if (typeName != null) {
+            String lower = typeName.toLowerCase(Locale.ROOT);
+            return switch (lower) {
+                case "bool", "boolean" -> true;
                 default -> false;
             };
         }

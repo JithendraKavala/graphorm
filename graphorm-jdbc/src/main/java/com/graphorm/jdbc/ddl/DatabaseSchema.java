@@ -113,13 +113,15 @@ public record DatabaseSchema(
                 boolean isGen = field.isGenerated()
                         || (field.defaultValue() != null && field.defaultValue().toLowerCase(Locale.ROOT).contains("autoincrement"));
 
+                DefaultValue def = null;
                 String defaultVal = null;
                 if (!isGen) {
-                    if (field.defaultValueDefinition() != null) {
-                        defaultVal = dialect.renderDefaultValue(field.defaultValueDefinition(), field);
-                    } else if (field.defaultValue() != null && !field.defaultValue().isBlank()) {
-                        DefaultValue def = DefaultValue.from(field.defaultValue(), field.javaType(), field.typeName());
-                        defaultVal = dialect.renderDefaultValue(def, field);
+                    def = field.defaultValueDefinition();
+                    if (def == null && field.defaultValue() != null && !field.defaultValue().isBlank()) {
+                        def = DefaultValue.from(field.defaultValue(), field.javaType(), field.typeName());
+                    }
+                    if (def != null) {
+                        defaultVal = dialect != null ? dialect.renderDefaultValue(def, field) : def.asString();
                     }
                 }
 
@@ -130,7 +132,7 @@ public record DatabaseSchema(
                         .unique(field.isUnique())
                         .generated(isGen)
                         .defaultValue(defaultVal)
-                        .defaultValueDefinition(field.defaultValueDefinition())
+                        .defaultValueDefinition(def)
                         .build();
 
                 tableBuilder.addColumn(col);

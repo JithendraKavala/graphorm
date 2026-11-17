@@ -468,15 +468,15 @@ public record FieldMetadata(
 
         public Builder defaultValue(String defaultValue) {
             this.defaultValue = defaultValue;
-            if (defaultValue != null) {
-                this.defaultValueDefinition = DefaultValue.from(defaultValue, this.javaType, this.typeName);
-            } else {
-                this.defaultValueDefinition = null;
-            }
+            this.defaultValueDefinition = null;
             return this;
         }
 
         public Builder defaultValue(DefaultValue defaultValueDefinition) {
+            return defaultValueDefinition(defaultValueDefinition);
+        }
+
+        public Builder defaultValueDefinition(DefaultValue defaultValueDefinition) {
             this.defaultValueDefinition = defaultValueDefinition;
             if (defaultValueDefinition != null) {
                 this.defaultValue = defaultValueDefinition.asString();
@@ -484,10 +484,6 @@ public record FieldMetadata(
                 this.defaultValue = null;
             }
             return this;
-        }
-
-        public Builder defaultValueDefinition(DefaultValue defaultValueDefinition) {
-            return defaultValue(defaultValueDefinition);
         }
 
         public Builder aggregate(String aggregateFunction) {
@@ -567,6 +563,14 @@ public record FieldMetadata(
         }
 
         public FieldMetadata build() {
+            DefaultValue def = defaultValueDefinition;
+            if (def == null && defaultValue != null && !defaultValue.isBlank()) {
+                def = DefaultValue.from(defaultValue, javaType, typeName);
+            }
+            String rawDef = defaultValue;
+            if (rawDef == null && def != null) {
+                rawDef = def.asString();
+            }
             return new FieldMetadata(
                     name,
                     javaType,
@@ -576,7 +580,7 @@ public record FieldMetadata(
                     isNullable,
                     isUnique,
                     isGenerated,
-                    defaultValue,
+                    rawDef,
                     isAggregate,
                     aggregateFunction,
                     expression,
@@ -587,7 +591,7 @@ public record FieldMetadata(
                     injectedFrom,
                     isVersion,
                     isTenantId,
-                    defaultValueDefinition
+                    def
             );
         }
     }

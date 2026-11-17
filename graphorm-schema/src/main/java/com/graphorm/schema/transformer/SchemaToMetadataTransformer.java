@@ -484,13 +484,13 @@ public final class SchemaToMetadataTransformer {
                     defaultValue = str.value();
                     defaultValueDefinition = DefaultValue.ofString(str.value());
                 } else if (valNode instanceof IntLiteralNode intLit) {
-                    defaultValue = extractStringValue(intLit);
+                    defaultValue = intLit.rawText() != null ? intLit.rawText() : String.valueOf(intLit.value());
                     defaultValueDefinition = DefaultValue.ofNumeric(defaultValue);
                 } else if (valNode instanceof FloatLiteralNode floatLit) {
-                    defaultValue = extractStringValue(floatLit);
+                    defaultValue = floatLit.rawText() != null ? floatLit.rawText() : String.valueOf(floatLit.value());
                     defaultValueDefinition = DefaultValue.ofNumeric(defaultValue);
                 } else if (valNode instanceof BooleanLiteralNode boolLit) {
-                    defaultValue = extractStringValue(boolLit);
+                    defaultValue = String.valueOf(boolLit.value());
                     defaultValueDefinition = DefaultValue.ofBoolean(boolLit.value());
                 } else if (valNode instanceof IdentifierNode ident) {
                     String identName = ident.name();
@@ -502,8 +502,9 @@ public final class SchemaToMetadataTransformer {
                         defaultValue = String.valueOf(b);
                         defaultValueDefinition = DefaultValue.ofBoolean(b);
                     } else if (isSqlExpressionKeyword(identName)) {
-                        defaultValue = identName;
-                        defaultValueDefinition = DefaultValue.ofExpression(identName);
+                        String keyword = identName.toUpperCase(Locale.ROOT);
+                        defaultValue = keyword;
+                        defaultValueDefinition = DefaultValue.ofExpression(keyword);
                     } else {
                         defaultValue = identName;
                         defaultValueDefinition = DefaultValue.ofString(identName);
