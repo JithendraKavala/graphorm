@@ -458,22 +458,22 @@ class SchemaToMetadataTransformerTest {
         assertThat(SchemaToMetadataTransformer.serializeSqlExpression(apostropheFunc))
                 .isEqualTo("greet('John''s book')");
 
-        // Named arguments: emitted as name => value
+        // Named arguments: emitted as schema-neutral name: value
         FunctionCallNode namedArgFunc = new FunctionCallNode(pos, "make_interval", List.of(
                 ArgumentNode.named(pos, "days", new IntLiteralNode(pos, 7L, "7")),
                 ArgumentNode.named(pos, "hours", new IntLiteralNode(pos, 12L, "12"))
         ));
         assertThat(SchemaToMetadataTransformer.serializeSqlExpression(namedArgFunc))
-                .isEqualTo("make_interval(days => 7, hours => 12)");
+                .isEqualTo("make_interval(days: 7, hours: 12)");
 
-        // Array/list expressions: emitted as ARRAY[...]
+        // Array/list expressions: emitted as schema-neutral [...]
         ArrayLiteralNode arrayExpr = new ArrayLiteralNode(pos, List.of(
                 new StringLiteralNode(pos, "admin"),
                 new StringLiteralNode(pos, "user"),
                 new StringLiteralNode(pos, "guest's")
         ));
         assertThat(SchemaToMetadataTransformer.serializeSqlExpression(arrayExpr))
-                .isEqualTo("ARRAY['admin', 'user', 'guest''s']");
+                .isEqualTo("['admin', 'user', 'guest''s']");
 
         // Unsupported expressions producing clear errors
         AstNode unsupportedNode = new AstNode() {
@@ -490,6 +490,10 @@ class SchemaToMetadataTransformerTest {
         assertThatThrownBy(() -> SchemaToMetadataTransformer.serializeSqlExpression(unsupportedNode))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageStartingWith("Unsupported expression AST node for SQL serialization: ");
+
+        assertThatThrownBy(() -> SchemaToMetadataTransformer.extractStringValue(unsupportedNode))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("Unsupported expression AST node for string extraction: ");
     }
 
     @Test

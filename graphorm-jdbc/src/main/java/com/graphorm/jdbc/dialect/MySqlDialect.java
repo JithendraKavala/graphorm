@@ -596,4 +596,12 @@ public class MySqlDialect implements SqlDialect {
     public String buildAdvisoryUnlockSql(long lockKey) {
         return "SELECT RELEASE_LOCK('graphorm_lock_" + lockKey + "');";
     }
+
+    @Override
+    public String renderExpression(String expression) {
+        if (expression == null || expression.isBlank()) {
+            return null;
+        }
+        return SqlExpressionTranslator.translateToMySql(expression);
+    }
 }

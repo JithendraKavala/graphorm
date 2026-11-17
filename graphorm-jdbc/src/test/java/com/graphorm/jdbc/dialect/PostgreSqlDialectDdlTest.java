@@ -234,4 +234,40 @@ class PostgreSqlDialectDdlTest {
         assertThat(dialect.renderDefaultValue(DefaultValue.ofExpression("CURRENT_TIMESTAMP"), "TIMESTAMPTZ")).isEqualTo("CURRENT_TIMESTAMP");
         assertThat(dialect.renderDefaultValue(DefaultValue.ofExpression("now()"), "TIMESTAMPTZ")).isEqualTo("now()");
     }
+
+    @Test
+    @DisplayName("Should translate schema expressions into valid PostgreSQL dialect syntax")
+    void shouldTranslateExpressionsForPostgreSql() {
+        // Named arguments: days: 7, hours: 12 -> days => 7, hours => 12
+        assertThat(dialect.renderExpression("make_interval(days: 7, hours: 12)"))
+                .isEqualTo("make_interval(days => 7, hours => 12)");
+
+        // Array literals: [...] -> ARRAY[...]
+        assertThat(dialect.renderExpression("['admin', 'user', 'guest''s']"))
+                .isEqualTo("ARRAY['admin', 'user', 'guest''s']");
+
+        // Nested function calls
+        assertThat(dialect.renderExpression("coalesce(nullif(status, 'PENDING'), 'UNKNOWN')"))
+                .isEqualTo("coalesce(nullif(status, 'PENDING'), 'UNKNOWN')");
+
+        // Nested function call containing named arguments
+        assertThat(dialect.renderExpression("outer_func(inner_func(days: 7))"))
+                .isEqualTo("outer_func(inner_func(days => 7))");
+
+        // Nested function call containing array
+        assertThat(dialect.renderExpression("any(['a', 'b'])"))
+                .isEqualTo("any(ARRAY['a', 'b'])");
+
+        // Function call with multiple argument types
+        assertThat(dialect.renderExpression("record_event('order_created', 100, 29.99, TRUE, user_id)"))
+                .isEqualTo("record_event('order_created', 100, 29.99, TRUE, user_id)");
+
+        // String arguments containing apostrophes
+        assertThat(dialect.renderExpression("greet('John''s book')"))
+                .isEqualTo("greet('John''s book')");
+
+        // String argument containing colon (must not be treated as named argument separator)
+        assertThat(dialect.renderExpression("format_str('time: 12:00', 42)"))
+                .isEqualTo("format_str('time: 12:00', 42)");
+    }
 }

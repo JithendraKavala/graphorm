@@ -502,4 +502,12 @@ public class SqliteDialect implements SqlDialect {
     public String buildAdvisoryUnlockSql(long lockKey) {
         return "SELECT 1;";
     }
+
+    @Override
+    public String renderExpression(String expression) {
+        if (expression == null || expression.isBlank()) {
+            return null;
+        }
+        return SqlExpressionTranslator.translateToSqlite(expression);
+    }
 }

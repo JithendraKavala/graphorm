@@ -638,14 +638,14 @@ public final class SchemaToMetadataTransformer {
                 if (i > 0) sb.append(", ");
                 ArgumentNode arg = func.arguments().get(i);
                 if (arg.isNamed()) {
-                    sb.append(arg.name()).append(" => ");
+                    sb.append(arg.name()).append(": ");
                 }
                 sb.append(serializeSqlExpression(arg.value()));
             }
             sb.append(")");
             return sb.toString();
         } else if (expr instanceof ArrayLiteralNode arr) {
-            StringBuilder sb = new StringBuilder("ARRAY[");
+            StringBuilder sb = new StringBuilder("[");
             for (int i = 0; i < arr.elements().size(); i++) {
                 if (i > 0) sb.append(", ");
                 sb.append(serializeSqlExpression(arr.elements().get(i)));
@@ -656,7 +656,7 @@ public final class SchemaToMetadataTransformer {
         throw new IllegalArgumentException("Unsupported expression AST node for SQL serialization: " + expr.getClass().getName());
     }
 
-    public static String extractStringValue(ExpressionNode expr) {
+    public static String extractStringValue(AstNode expr) {
         if (expr == null) {
             return null;
         }
@@ -677,7 +677,7 @@ public final class SchemaToMetadataTransformer {
         } else if (expr instanceof ArrayLiteralNode arr) {
             return serializeSqlExpression(arr);
         }
-        return expr.toString();
+        throw new IllegalArgumentException("Unsupported expression AST node for string extraction: " + expr.getClass().getName());
     }
 
     private static List<String> extractStringList(ExpressionNode expr) {

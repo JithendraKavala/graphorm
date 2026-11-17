@@ -516,4 +516,12 @@ public class PostgreSqlDialect implements SqlDialect {
         String escaped = payload.replace("'", "''");
         return "NOTIFY " + sanitizedChannel + ", '" + escaped + "';";
     }
+
+    @Override
+    public String renderExpression(String expression) {
+        if (expression == null || expression.isBlank()) {
+            return null;
+        }
+        return SqlExpressionTranslator.translateToPostgreSql(expression);
+    }
 }
