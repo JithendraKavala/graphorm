@@ -3,16 +3,26 @@ name: CI
 on:
   push:
     branches:
+      - main
       - master
-      - 'fix/**'
       - 'feat/**'
+      - 'fix/**'
+      - 'hotfix/**'
+      - 'refactor/**'
+      - 'test/**'
+      - 'chore/**'
   pull_request:
     branches:
+      - main
       - master
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
-  build:
-    name: Maven Build & Test
+  build-and-test:
+    name: Build & Test
     runs-on: ubuntu-latest
 
     services:
@@ -46,5 +56,24 @@ jobs:
         run: |
           docker exec $(docker ps --filter "ancestor=postgres:16-alpine" -q | head -n 1) psql -U postgres -c "CREATE DATABASE university_db;" || true
 
-      - name: Run Maven Tests
-        run: mvn -B clean test
+      - name: Maven Build and Verify
+        run: mvn -B clean verify
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "false"
+
+      - name: Publish test results
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: '**/target/surefire-reports/TEST-*.xml'
+          check_name: Test Results
+
+      - name: Upload test report artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          retention-days: 7

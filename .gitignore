@@ -97,3 +97,4 @@ $RECYCLE.BIN/
 # Internal audits & local generated agent maps
 audit/
 REPO_MAP.md
+dependency-reduced-pom.xml

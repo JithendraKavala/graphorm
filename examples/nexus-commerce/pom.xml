@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.graphorm</groupId>
+        <artifactId>graphorm-nexus-examples</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>graphorm-example-nexus-commerce</artifactId>
+    <packaging>jar</packaging>
+
+    <name>GraphORM Example — Nexus Commerce</name>
+    <description>
+        Realistic enterprise commerce and supply-chain reference application.
+        Used to validate GraphORM against complex relationships, queries, transactions,
+        concurrent workloads, and performance requirements.
+
+        Implementation begins at Milestone M10. This module is currently a skeleton.
+    </description>
+
+    <!--
+        NOTE: This module is intentionally minimal at M0.
+        Dependencies on graphorm-spring-boot-starter and other modules will be
+        added during Milestone M7/M10 when those modules are stable.
+    -->
+
+    <dependencies>
+        <!-- Testing only at M0 — full implementation in M10 -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

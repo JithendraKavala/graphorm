@@ -18,11 +18,15 @@
         <module>graphorm-schema</module>
         <module>graphorm-generator</module>
         <module>graphorm-jdbc</module>
+        <module>graphorm-query-engine</module>
         <module>graphorm-graphql</module>
         <module>graphorm-spring-boot-starter</module>
         <module>graphorm-cli</module>
         <module>graphorm-maven-plugin</module>
+        <module>graphorm-testkit</module>
+        <module>graphorm-benchmarks</module>
         <module>graphorm-examples</module>
+        <module>examples</module>
     </modules>
 
     <properties>
@@ -103,6 +107,21 @@
             <dependency>
                 <groupId>com.graphorm</groupId>
                 <artifactId>graphorm-maven-plugin</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.graphorm</groupId>
+                <artifactId>graphorm-query-engine</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.graphorm</groupId>
+                <artifactId>graphorm-testkit</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.graphorm</groupId>
+                <artifactId>graphorm-benchmarks</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

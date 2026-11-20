@@ -1,0 +1,43 @@
+# CODEOWNERS
+# Global maintainers — review required for any change to the repository
+* @JithendraKavala
+
+# Parent POM and build configuration
+/pom.xml @JithendraKavala
+/.github/ @JithendraKavala
+
+# Core module — changes require careful review
+/graphorm-core/ @JithendraKavala
+
+# Schema parser — grammar and AST changes require extra scrutiny
+/graphorm-schema/ @JithendraKavala
+
+# JDBC and SQL execution — SQL safety changes require review
+/graphorm-jdbc/ @JithendraKavala
+
+# Query engine — performance and correctness sensitive
+/graphorm-query-engine/ @JithendraKavala
+
+# GraphQL integration
+/graphorm-graphql/ @JithendraKavala
+
+# Code generator
+/graphorm-generator/ @JithendraKavala
+
+# Spring Boot starter — public API surface
+/graphorm-spring-boot-starter/ @JithendraKavala
+
+# CLI
+/graphorm-cli/ @JithendraKavala
+
+# Test utilities
+/graphorm-testkit/ @JithendraKavala
+
+# Benchmarks
+/graphorm-benchmarks/ @JithendraKavala
+
+# Example applications
+/examples/ @JithendraKavala
+
+# Documentation
+/docs/ @JithendraKavala
